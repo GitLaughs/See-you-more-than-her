@@ -1,0 +1,10 @@
+cmake_minimum_required(VERSION 3.0.0)
+project(ssne_isp_debug)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -O2")
+
+add_executable(ssne_isp_debug ${PROJECT_SOURCE_DIR}/test_online_rgb.cpp)
+# add_executable(ssne_isp_debug ${PROJECT_SOURCE_DIR}/test_online_yuv8.cpp)
+# add_executable(ssne_isp_debug ${PROJECT_SOURCE_DIR}/test_copy_yuv8.cpp)
+target_link_libraries(ssne_isp_debug ssne)
+target_link_libraries(ssne_isp_debug cmabuffer)
+install(TARGETS ssne_isp_debug DESTINATION bin)

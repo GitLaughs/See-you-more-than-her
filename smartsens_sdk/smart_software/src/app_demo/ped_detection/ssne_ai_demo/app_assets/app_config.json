@@ -1,0 +1,14 @@
+{
+  "num_frames": 0,
+  "img_height": 1280,
+  "img_width": 720,
+  "det_height": 320,
+  "det_width": 480,
+  "img_flip":true,
+
+  "path_det": "/app_demo/app_assets/models/ped_split_WHETRON.m1model",
+  "path_cls": "/app_demo/app_assets/models/cls.m1model",
+  "map_filename_z": "/app_demo/app_assets/maps/distanceMap.bin",
+  "map_filename_x": "/app_demo/app_assets/maps/offsetMap.bin"
+
+}

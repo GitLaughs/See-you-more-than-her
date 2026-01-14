@@ -1,0 +1,2379 @@
+From 6577e79a6fa16e166115c6565f399531b0713614 Mon Sep 17 00:00:00 2001
+From: Liangjiong Zhou <liangjiong.zhou@smartsenstech.com>
+Date: Tue, 13 Jan 2026 18:53:57 +0800
+Subject: [PATCH] Add support of A1
+
+---
+ arch/arm/Kconfig                        |   2 +
+ arch/arm/Kconfig.debug                  |  12 +
+ arch/arm/Makefile                       |   1 +
+ arch/arm/boot/dts/Makefile              |   3 +
+ arch/arm/boot/dts/smartsens-m1-evb.dts  |  67 +++
+ arch/arm/boot/dts/smartsens-m1-fpga.dts |  77 +++
+ arch/arm/boot/dts/smartsens-m1.dtsi     | 205 +++++++
+ arch/arm/include/debug/smarts1.S        |  43 ++
+ arch/arm/mach-smartsens/Kconfig         |  22 +
+ arch/arm/mach-smartsens/Makefile        |   6 +
+ arch/arm/mach-smartsens/smartsens.c     |  32 +
+ drivers/char/random.c                   |   2 -
+ drivers/dma-buf/heaps/cma_heap.c        |   9 +-
+ drivers/mtd/spi-nor/gigadevice.c        |   3 +
+ drivers/spi/spi-smarts1-qspi.c          | 769 ++++++++++++++++++++++++
+ drivers/spi/spi-zynq-qspi.c             |   5 +-
+ drivers/tty/serial/Kconfig              |  19 +
+ drivers/tty/serial/Makefile             |   1 +
+ drivers/tty/serial/smarts1-uart.c       | 768 +++++++++++++++++++++++
+ drivers/tty/serial/smarts1-uart.h       |  65 ++
+ include/uapi/linux/serial_core.h        |   3 +
+ 21 files changed, 2109 insertions(+), 5 deletions(-)
+ create mode 100644 arch/arm/boot/dts/smartsens-m1-evb.dts
+ create mode 100644 arch/arm/boot/dts/smartsens-m1-fpga.dts
+ create mode 100644 arch/arm/boot/dts/smartsens-m1.dtsi
+ create mode 100644 arch/arm/include/debug/smarts1.S
+ create mode 100644 arch/arm/mach-smartsens/Kconfig
+ create mode 100644 arch/arm/mach-smartsens/Makefile
+ create mode 100644 arch/arm/mach-smartsens/smartsens.c
+ create mode 100644 drivers/spi/spi-smarts1-qspi.c
+ create mode 100644 drivers/tty/serial/smarts1-uart.c
+ create mode 100644 drivers/tty/serial/smarts1-uart.h
+
+diff --git a/arch/arm/Kconfig b/arch/arm/Kconfig
+index 4ebd51204..0ae064ecc 100644
+--- a/arch/arm/Kconfig
++++ b/arch/arm/Kconfig
+@@ -682,6 +682,8 @@ source "arch/arm/mach-sa1100/Kconfig"
+ 
+ source "arch/arm/mach-shmobile/Kconfig"
+ 
++source "arch/arm/mach-smartsens/Kconfig"
++
+ source "arch/arm/mach-socfpga/Kconfig"
+ 
+ source "arch/arm/mach-spear/Kconfig"
+diff --git a/arch/arm/Kconfig.debug b/arch/arm/Kconfig.debug
+index 644875d73..25e162d3d 100644
+--- a/arch/arm/Kconfig.debug
++++ b/arch/arm/Kconfig.debug
+@@ -1388,6 +1388,14 @@ choice
+ 		  If you have a ZC702 board and want early boot messages to
+ 		  appear on the USB serial adaptor, select this option.
+ 
++	config DEBUG_LL_SMARTS1_UART
++		bool "Kernel low-level debugging on SMARTS1 UART"
++		depends on ARCH_SMARTSOC
++		select DEBUG_SMARTS1_UART
++		help
++		  Say Y here if you want the debug print routines to direct
++		  their output to UART0 on the smarts1 platform.
++
+ 	config DEBUG_ICEDCC
+ 		bool "Kernel low-level debugging via EmbeddedICE DCC channel"
+ 		help
+@@ -1450,6 +1458,9 @@ config DEBUG_AT91_UART
+ config DEBUG_EXYNOS_UART
+ 	bool
+ 
++config DEBUG_SMARTS1_UART
++	bool
++
+ config DEBUG_S3C2410_UART
+ 	bool
+ 	select DEBUG_S3C24XX_UART
+@@ -1537,6 +1548,7 @@ config DEBUG_LL_INCLUDE
+ 	default "debug/meson.S" if DEBUG_MESON_UARTAO
+ 	default "debug/pl01x.S" if DEBUG_LL_UART_PL01X || DEBUG_UART_PL01X
+ 	default "debug/exynos.S" if DEBUG_EXYNOS_UART
++	default "debug/smarts1.S" if DEBUG_SMARTS1_UART
+ 	default "debug/icedcc.S" if DEBUG_ICEDCC
+ 	default "debug/imx.S" if DEBUG_IMX1_UART || \
+ 				 DEBUG_IMX25_UART || \
+diff --git a/arch/arm/Makefile b/arch/arm/Makefile
+index fa45837b8..18191251c 100644
+--- a/arch/arm/Makefile
++++ b/arch/arm/Makefile
+@@ -209,6 +209,7 @@ machine-$(CONFIG_PLAT_SAMSUNG)		+= s3c
+ machine-$(CONFIG_ARCH_S5PV210)		+= s5pv210
+ machine-$(CONFIG_ARCH_SA1100)		+= sa1100
+ machine-$(CONFIG_ARCH_RENESAS)	 	+= shmobile
++machine-$(CONFIG_ARCH_SMARTSOC)	 	+= smartsens
+ machine-$(CONFIG_ARCH_INTEL_SOCFPGA)	+= socfpga
+ machine-$(CONFIG_ARCH_STI)		+= sti
+ machine-$(CONFIG_ARCH_STM32)		+= stm32
+diff --git a/arch/arm/boot/dts/Makefile b/arch/arm/boot/dts/Makefile
+index 27ca1ca6e..08ff8119a 100644
+--- a/arch/arm/boot/dts/Makefile
++++ b/arch/arm/boot/dts/Makefile
+@@ -1499,3 +1499,6 @@ dtb-$(CONFIG_ARCH_ASPEED) += \
+ 	aspeed-bmc-portwell-neptune.dtb \
+ 	aspeed-bmc-quanta-q71l.dtb \
+ 	aspeed-bmc-supermicro-x11spi.dtb
++dtb-$(CONFIG_ARCH_SMARTSOC) += \
++	smartsens-m1-fpga.dtb \
++	smartsens-m1-evb.dtb
+diff --git a/arch/arm/boot/dts/smartsens-m1-evb.dts b/arch/arm/boot/dts/smartsens-m1-evb.dts
+new file mode 100644
+index 000000000..8026d0701
+--- /dev/null
++++ b/arch/arm/boot/dts/smartsens-m1-evb.dts
+@@ -0,0 +1,67 @@
++// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
++
++/*
++ * Device Tree Include file for SmartSensTech M family SoC
++ *
++ * Copyright (C) 2022-2024 SmartSensTech Ltd.
++ *
++ * Author: Zhang Jie <jie.zhang@smartsenstech.com>
++ * 
++ */
++
++/dts-v1/;
++
++#include "smartsens-m1.dtsi"
++
++/ {
++	model = "Smartsens M1 SOC Evaluation Board";
++	compatible = "smartsens,m1-evb";
++
++	chosen {
++		/* stdout-path = "serial2:1500000n8"; */
++		bootargs = "earlyprintk loglevel=8 rdinit=/sbin/init";
++		stdout-path = &uart0;
++	};
++
++	aliases {
++	};
++
++	timer {
++		compatible = "arm,armv7-timer";
++		interrupts = <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(1) | IRQ_TYPE_LEVEL_HIGH)>,
++			     <GIC_PPI 14 (GIC_CPU_MASK_SIMPLE(1) | IRQ_TYPE_LEVEL_HIGH)>;
++		clock-frequency = <12000000>;
++	};
++
++	memory@00000000 {
++		device_type = "memory";
++		/* 64MB ram */
++		reg = <0x00000000 0x08000000>;
++	};
++
++	reserved-memory {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges;
++
++		osd_cma {
++			compatible = "shared-dma-pool";
++			reusable;
++			reg = <0x05800000 0x00400000>; /* 4M */
++		};
++
++		ai_cma {
++			compatible = "shared-dma-pool";
++			/* no-map; */
++			reusable;
++			reg = <0x05c00000 0x02400000>; /* 36M */
++		};
++	};
++};
++
++&uart0 {
++	clock-frequency = <300000000>;
++	current-speed = <115200>;
++	status = "okay";
++};
++
+diff --git a/arch/arm/boot/dts/smartsens-m1-fpga.dts b/arch/arm/boot/dts/smartsens-m1-fpga.dts
+new file mode 100644
+index 000000000..965544411
+--- /dev/null
++++ b/arch/arm/boot/dts/smartsens-m1-fpga.dts
+@@ -0,0 +1,77 @@
++// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
++
++/dts-v1/;
++
++#include "smartsens-m1.dtsi"
++
++/ {
++	model = "Smartsens M1 SoC FPGA board";
++	compatible = "smartsens,m1-fpga";
++
++	chosen {
++		/* stdout-path = "serial2:1500000n8"; */
++        bootargs = "earlyprintk earlycon loglevel=8 console=ttyS0 rdinit=/sbin/init";
++        stdout-path = &uart0;
++	};
++
++	timer {
++		compatible = "arm,armv7-timer";
++		interrupts = <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(1) | IRQ_TYPE_LEVEL_HIGH)>,
++			     <GIC_PPI 14 (GIC_CPU_MASK_SIMPLE(1) | IRQ_TYPE_LEVEL_HIGH)>;
++		clock-frequency = <1000000>;
++	};
++
++	memory@00000000 {
++		device_type = "memory";
++    /* 128MB ram */
++		reg = <0x00000000 0x08000000>;
++	};
++
++  reserved-memory {
++    #address-cells = <1>;
++    #size-cells = <1>;
++    ranges;
++
++#if 0
++    osd_cma {
++      compatible = "shared-dma-pool";
++      reusable;
++      reg = <0x01800000 0x00800000>;
++    };
++
++    media_cma {
++      compatible = "shared-dma-pool";
++      reusable;
++      reg = <0x02000000 0x02000000>; /* 32M */
++      linux,cma-default;
++    };
++#else
++/*
++    debug_cma {
++      compatible = "shared-dma-pool";
++      reusable;
++      size = <0x03000000 0x00800000>;
++      linux,cma-default;
++    };
++*/
++    osd_cma {
++      compatible = "shared-dma-pool";
++      reusable;
++      reg = <0x03800000 0x00800000>;
++    };
++#endif
++
++    ai_cma {
++      compatible = "shared-dma-pool";
++      /* no-map; */
++      reusable;
++      reg = <0x04000000 0x04000000>; /* 64M */
++    };
++  };
++};
++
++&uart0 {
++	clock-frequency = <25000000>;
++	current-speed = <115200>;
++	status = "okay";
++};
+diff --git a/arch/arm/boot/dts/smartsens-m1.dtsi b/arch/arm/boot/dts/smartsens-m1.dtsi
+new file mode 100644
+index 000000000..f458714e1
+--- /dev/null
++++ b/arch/arm/boot/dts/smartsens-m1.dtsi
+@@ -0,0 +1,205 @@
++// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
++
++/*
++ * Device Tree Include file for SmartSensTech M family SoC
++ *
++ * Copyright (C) 2022-2024 SmartSensTech Ltd.
++ *
++ * Author: Zhang Jie <jie.zhang@smartsenstech.com>
++ * 
++ */
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/interrupt-controller/arm-gic.h>
++
++/ {
++	#address-cells = <1>;
++	#size-cells = <1>;
++
++	model = "SmartSens M-Serial Family Soc";
++	compatible = "smartsens,m1";
++	interrupt-parent = <&gic>;
++
++	aliases {
++		serial0 = &uart0;
++	};
++	timer {
++			compatible = "arm,armv7-timer";
++			interrupts = <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(1) | IRQ_TYPE_LEVEL_HIGH)>,
++							<GIC_PPI 14 (GIC_CPU_MASK_SIMPLE(1) | IRQ_TYPE_LEVEL_HIGH)>;
++			clock-frequency = <12000000>;
++	};
++	cpus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		cpu0: cpu@0 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a7";
++			reg = <0x0>;
++		};
++	};
++
++	gic: interrupt-controller@e0000000 {
++		compatible = "arm,gic-400";
++		interrupt-controller;
++		#interrupt-cells = <3>;
++		#address-cells = <0>;
++
++		reg = <0xe0001000 0x1000>,
++		      <0xe0002000 0x2000>;
++		interrupts = <GIC_PPI 9 (GIC_CPU_MASK_SIMPLE(1) | IRQ_TYPE_LEVEL_HIGH)>;
++	};
++
++	sram: sram@10020000 {
++		compatible = "mmio-sram";
++		reg = <0x10020000 0x000eb000>; /* 768+300-128=940K */
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges = <0 0x10020000 0x000eb000>;
++		npu_sram: sram@0 {
++			reg = <0x0 0x000eb000>;
++			pool;
++		};
++	};
++
++	ocm {
++		compatible = "smartsens,on-chip-memory";
++		iram = <&npu_sram>;
++	};
++
++	uart0: uart@b1002280 {
++		compatible = "smartsens,s1-uart";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		reg = <0xb1002280 0x100>;
++		interrupts = <GIC_SPI 16 IRQ_TYPE_LEVEL_HIGH>;
++		clock-frequency = <25000000>;
++		status = "disabled";
++	};
++	
++	axi_dma: axi_dma@b1003700 {
++		compatible = "smartsens,axidma";
++		reg = <0xb1003700 0x100>;
++		interrupts = <GIC_SPI 28 IRQ_TYPE_EDGE_RISING>;
++		status = "okay";
++	};
++
++	cmdset: cmdset@b1002300 {
++		compatible = "smartsens,cmdset";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		reg = <0xb1002300 0x20>;
++		/* interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>; */
++		status = "okay";
++	};
++
++	aec: aec@b1007800 {
++		compatible = "smartsens,aec";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		reg = <0xb1007800  0x100>;
++		status = "okay";
++	};
++
++	osd: osd@b1009400 {
++		compatible = "smartsens, s1-osd";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		reg = <0xb1009400  0x100>;
++		interrupts = <GIC_SPI 15 IRQ_TYPE_LEVEL_HIGH>;
++		status = "okay";
++	};
++
++	isp_debug: isp_debug@b1009500 {
++		compatible = "smartsens, s1-isp_debug";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		reg = <0xb1009500  0x100>;
++		interrupts = <GIC_SPI 15 IRQ_TYPE_LEVEL_HIGH>;
++		status = "okay";
++	};
++
++	preonpipe: preonpipe@b1004000 {
++		compatible = "smartsens,ai-pre-online";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		reg = <0xb1004000 0x100>,
++		      <0xb1008000 0x130>;
++		interrupts = <GIC_SPI 0 IRQ_TYPE_EDGE_RISING>,//save2 sof interrupt sensor 0
++			     <GIC_SPI 4 IRQ_TYPE_EDGE_RISING>,//save2 sof interrupt sensor 1
++		             <GIC_SPI 2 IRQ_TYPE_EDGE_RISING>,//save3 sof interrupt sensor 0
++			     <GIC_SPI 6 IRQ_TYPE_EDGE_RISING>,//save3 sof interrupt sensor 1
++			     <GIC_SPI 1 IRQ_TYPE_EDGE_RISING>,//save2 eof interrupt sensor 0
++			     <GIC_SPI 5 IRQ_TYPE_EDGE_RISING>,//save2 eof interrupt sensor 1
++			     <GIC_SPI 3 IRQ_TYPE_EDGE_RISING>,//save3 eof interrupt sensor 0
++			     <GIC_SPI 7 IRQ_TYPE_EDGE_RISING>,//save3 eof interrupt sensor 1
++			     <GIC_SPI 12 IRQ_TYPE_EDGE_RISING>,
++			     <GIC_SPI 13 IRQ_TYPE_EDGE_RISING>;
++		status = "okay";
++	};
++
++	preoffpipe: preoffpipe@b100a000 {
++		compatible = "smartsens,ai-pre-offline";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		reg = <0xb100a000 0x300>;
++		interrupts = <GIC_SPI 9 IRQ_TYPE_EDGE_RISING>;
++		status = "okay";
++	};
++
++	lnpu: lnpu@b100c000 {
++		compatible = "smartsens,s1-lnpu";
++		reg = <0xb100c000 0x4000>;
++		fpga_freq = <2500000>;
++		prof_base = <0xb10a0000>;
++		prof_size = <0x10000>;
++		sram_base = <0x10020000>;
++		sram_size = <0x000eb000>;
++		interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
++		status = "okay";
++	};
++	
++	emb: emb@b1087000{
++		compatible = "smartsens,s1-emb";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		reg = <0xb1087000  0xfff>,
++				<0xb1003800 0xff>;
++		interrupts = <GIC_SPI 12 IRQ_TYPE_EDGE_RISING>, // isp sof
++			     <GIC_SPI 13 IRQ_TYPE_EDGE_RISING>;// isp sof
++		status = "okay";
++	};
++
++/*	&spi0 {
++		status = "okay";
++		num-cs = <1>;
++		is-decoded-cs = <0>;
++		interrupts = <GIC_SPI 47 IRQ_TYPE_LEVEL_HIGH>, 
++					 <GIC_SPI 46 IRQ_TYPE_LEVEL_HIGH>;
++		flash@1 {
++			compatible = "sst25wf080", "jedec,spi-nor";
++			reg = <1>;
++			spi-max-frequency = <1000000>;
++			partitions {
++				compatible = "fixed-partitions";
++				#address-cells = <1>;
++				#size-cells = <1>;
++				partition@0 {
++					label = "bootloader";
++					reg = <0x00500000 0x100000>;
++				};
++				partition@1 {
++					label = "kernel";
++					reg = <0x00600000 0x100000>;
++				};
++				partition@2 {
++					label = "rootfs";
++					reg = <0x00800000 0x100000>;
++				};
++			};
++		};
++	};*/
++
++};
+diff --git a/arch/arm/include/debug/smarts1.S b/arch/arm/include/debug/smarts1.S
+new file mode 100644
+index 000000000..fce9bf625
+--- /dev/null
++++ b/arch/arm/include/debug/smarts1.S
+@@ -0,0 +1,43 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Debugging macro include header for Smartsens S1 UART
++ *
++ * Copyright (C) 2022 Smartsens Innovation Ltd.
++*/
++
++#define SMARTS1_UART_BASE_PHYS 0xb1002280
++#define TX_DATA_OFF 0x58
++#define TX_FIFO_CNT_OFF 0x60
++
++		.macro	addruart, rp, rv, tmp
++		ldr	\rp, =SMARTS1_UART_BASE_PHYS
++		ldr	\rv, =0xf0002280
++		.endm
++
++		.macro	senduart,rd,rx
++		strb	\rd, [\rx, #TX_DATA_OFF]
++		.endm
++
++		.macro	waituartcts,rd,rx
++		.endm
++
++		.macro	waituarttxrdy,rd,rx
++#if 0
++1000:		ldr	\rd, [\rx, #TX_FIFO_CNT_OFF]
++		cmp	\rd, #0
++		beq	1000b
++#endif
++		.endm
++
++	.macro	busyuart,rd,rx
++#if 1
++1001:		ldr	\rd, [\rx, #TX_FIFO_CNT_OFF]
++		tst	\rd, #20
++		beq	1001b
++#else
++1001:		ldr	\rd, [\rx, #TX_FIFO_CNT_OFF]
++		cmp	\rd, #10
++		bls	1001b
++		//beq	1001b
++#endif
++		.endm
+diff --git a/arch/arm/mach-smartsens/Kconfig b/arch/arm/mach-smartsens/Kconfig
+new file mode 100644
+index 000000000..f63de5c75
+--- /dev/null
++++ b/arch/arm/mach-smartsens/Kconfig
+@@ -0,0 +1,22 @@
++# SPDX-License-Identifier: GPL-2.0-only
++menuconfig ARCH_SMARTSOC
++	bool "Smartsens ARM SoCs"
++	depends on ARCH_MULTI_V7
++	select GENERIC_IRQ_CHIP
++	select IRQ_DOMAIN
++	help
++	  Support for Smartsens ARM-based family of processors
++
++if ARCH_SMARTSOC
++
++if ARCH_MULTI_V7
++
++config MACH_SMARTSENS_M1
++	bool "Smartsens M1 SoCs support"
++	default ARCH_SMARTSOC
++	select ARM_GIC
++	select HAVE_ARM_ARCH_TIMER
++
++endif
++
++endif
+diff --git a/arch/arm/mach-smartsens/Makefile b/arch/arm/mach-smartsens/Makefile
+new file mode 100644
+index 000000000..bc01d3973
+--- /dev/null
++++ b/arch/arm/mach-smartsens/Makefile
+@@ -0,0 +1,6 @@
++#
++# Makefile for Smartsens SoC.
++#
++
++# Common support
++obj-y				:= smartsens.o
+diff --git a/arch/arm/mach-smartsens/smartsens.c b/arch/arm/mach-smartsens/smartsens.c
+new file mode 100644
+index 000000000..953c96d70
+--- /dev/null
++++ b/arch/arm/mach-smartsens/smartsens.c
+@@ -0,0 +1,32 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * Device Tree support for Smartsens SoCs.
++ *
++ * Copyright (C) 2024 Smartsens Inc.
++ */
++#include <linux/init.h>
++#include <linux/io.h>
++#include <linux/of_platform.h>
++#include <asm/mach/arch.h>
++
++#define KERNEL_BOOT_STATUS_REG		0xb10032fd
++#define KERNEL_BOOT_READY_MAGIC		0x54
++
++static void __init smartsens_dt_init(void)
++{
++	void __iomem *kernel_boot_reg = ioremap(KERNEL_BOOT_STATUS_REG, 0x1);
++	writeb(KERNEL_BOOT_READY_MAGIC, kernel_boot_reg);
++	iounmap(kernel_boot_reg);
++}
++
++static const char *const smartsens_m1_dt_compat[] __initconst = {
++	"smartsens,m1-fpga",
++	"smartsens,m1-evb",
++	NULL,
++};
++
++DT_MACHINE_START(SMARTSENS, "Smartsens M1 SoC (Device Tree)")
++	.init_machine	= smartsens_dt_init,
++	.dt_compat	    = smartsens_m1_dt_compat,
++MACHINE_END
++
+diff --git a/drivers/char/random.c b/drivers/char/random.c
+index a27ae3999..afff24a2a 100644
+--- a/drivers/char/random.c
++++ b/drivers/char/random.c
+@@ -846,7 +846,6 @@ static void crng_finalize_init(struct crng_state *crng)
+ 	process_random_ready_list();
+ 	wake_up_interruptible(&crng_init_wait);
+ 	kill_fasync(&fasync, SIGIO, POLL_IN);
+-	pr_notice("crng init done\n");
+ 	if (unseeded_warning.missed) {
+ 		pr_notice("%d get_random_xx warning(s) missed due to ratelimiting\n",
+ 			  unseeded_warning.missed);
+@@ -936,7 +935,6 @@ static size_t crng_fast_load(const char *cp, size_t len)
+ 	if (crng_init_cnt >= CRNG_INIT_CNT_THRESH) {
+ 		invalidate_batched_entropy();
+ 		crng_init = 1;
+-		pr_notice("fast init done\n");
+ 	}
+ 	return ret;
+ }
+diff --git a/drivers/dma-buf/heaps/cma_heap.c b/drivers/dma-buf/heaps/cma_heap.c
+index 0c05b7987..159f4bc35 100644
+--- a/drivers/dma-buf/heaps/cma_heap.c
++++ b/drivers/dma-buf/heaps/cma_heap.c
+@@ -344,6 +344,7 @@ static struct dma_buf *cma_heap_allocate(struct dma_heap *heap,
+ 	exp_info.size = buffer->len;
+ 	exp_info.flags = fd_flags;
+ 	exp_info.priv = buffer;
++    // printk("wwang, cma(%s):0x%08x\n", exp_info.exp_name, (u32)page_to_phys(cma_pages));
+ 	dmabuf = dma_buf_export(&exp_info);
+ 	if (IS_ERR(dmabuf)) {
+ 		ret = PTR_ERR(dmabuf);
+@@ -392,12 +393,18 @@ static int __add_cma_heap(struct cma *cma, void *data)
+ 
+ static int add_default_cma_heap(void)
+ {
+-	struct cma *default_cma = dev_get_cma_area(NULL);
++	// struct cma *default_cma = dev_get_cma_area(NULL);
+ 	int ret = 0;
+ 
++#if 0
+ 	if (default_cma)
+ 		ret = __add_cma_heap(default_cma, NULL);
+ 
++#else
++
++    ret = cma_for_each_area(__add_cma_heap, NULL);
++#endif
++
+ 	return ret;
+ }
+ module_init(add_default_cma_heap);
+diff --git a/drivers/mtd/spi-nor/gigadevice.c b/drivers/mtd/spi-nor/gigadevice.c
+index 447d84bb2..2059e8d59 100644
+--- a/drivers/mtd/spi-nor/gigadevice.c
++++ b/drivers/mtd/spi-nor/gigadevice.c
+@@ -45,6 +45,9 @@ static const struct flash_info gigadevice_parts[] = {
+ 	{ "gd25q128", INFO(0xc84018, 0, 64 * 1024, 256,
+ 			   SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ |
+ 			   SPI_NOR_HAS_LOCK | SPI_NOR_HAS_TB) },
++	{ "gd25lf128e", INFO(0xc86318, 0, 64 * 1024, 256,
++			   SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ |
++			   SPI_NOR_HAS_LOCK | SPI_NOR_HAS_TB) },
+ 	{ "gd25q256", INFO(0xc84019, 0, 64 * 1024, 512,
+ 			   SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ |
+ 			   SPI_NOR_4B_OPCODES | SPI_NOR_HAS_LOCK |
+diff --git a/drivers/spi/spi-smarts1-qspi.c b/drivers/spi/spi-smarts1-qspi.c
+new file mode 100644
+index 000000000..f454b27d5
+--- /dev/null
++++ b/drivers/spi/spi-smarts1-qspi.c
+@@ -0,0 +1,769 @@
++/*
++ * Author: Primo Wu <Xinyu.Wu@Smartsens.com>
++ */
++
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/module.h>
++#include <linux/of_irq.h>
++#include <linux/of_address.h>
++#include <linux/platform_device.h>
++#include <linux/spi/spi.h>
++#include <linux/workqueue.h>
++#include <linux/spi/spi-mem.h>
++
++/* Register offset definitions */
++#define SS_QSPI_GLBCFG_OFFSET		0x00  	//RW
++#define SS_QSPI_MODE_OFFSET			0x04	//RW
++#define SS_QSPI_INT_OFFSET			0x08	//RW
++#define SS_QSPI_TX_FREE_OFFSET		0x0c	//RO
++#define SS_QSPI_RX_FREE_OFFSET		0x10	//RO
++#define SS_QSPI_STS_OFFSET			0x14	//RO
++#define SS_QSPI_CLR_OFFSET			0x18	//WO
++#define SS_QSPI_RX_DATA_OFFSET		0x1c	//RO
++#define SS_QSPI_TX_DATA_OFFSET		0x20	//WO
++#define SS_QSPI_XIPCFG_OFFSET		0x24	//RW
++#define SS_QSPI_RXLEN_OFFSET		0x28	//RW
++#define SS_QSPI_TXLEN_OFFSET		0x2c	//RW
++#define SS_QSPI_TRANS_CTL_OFFSET	0x30	//WO
++
++/* QSPI Configuration Register bit Mask */
++#define SS_QSPI_GLBCFG_EN_MASK			BIT(0)
++#define SS_QSPI_GLBCFG_CPOL_MASK		BIT(1)
++#define SS_QSPI_GLBCFG_BIT_ORDER_MASK	BIT(4)
++#define SS_QSPI_GLBCFG_IO_ORDER_MASK	BIT(5)
++#define SS_QSPI_GLBCFG_S_DELAY_MASK		GENMASK(11, 8)
++#define SS_QSPI_GLBCFG_S_DELAY_SHIFT	8
++#define SS_QSPI_GLBCFG_E_DELAY_MASK		GENMASK(15, 12)
++#define SS_QSPI_GLBCFG_E_DELAY_SHIFT	12
++
++/* QSPI Mode Register bit Mask */
++#define SS_QSPI_MODE_DDR_EN_MASK			BIT(0)
++#define SS_QSPI_MODE_PROTO_MASK				GENMASK(2,1)
++#define SS_QSPI_MODE_PROTO_SHIFT			1
++#define SS_QSPI_MODE_TRANS_MASK				GENMASK(4,3)
++#define SS_QSPI_MODE_TRANS_SHIFT			3
++#define SS_QSPI_MODE_CS_MASK				GENMASK(11,8)
++#define SS_QSPI_MODE_CS_SHIFT				8
++
++/* QSPI FIFO Interrupt Register bit Mask */
++#define SS_QSPI_INT_TXEN_MASK				BIT(0)
++#define SS_QSPI_INT_TXTHRSD_MASK			GENMASK(6,1)
++#define SS_QSPI_INT_TXTHRSD_SHIFT			1
++#define SS_QSPI_INT_RXEN_MASK				BIT(8)
++#define SS_QSPI_INT_RXTHRSD_MASK			GENMASK(14,9)
++#define SS_QSPI_INT_RXTHRSD_SHIFT			9
++
++/* QSPI FIFO TX free Count Register bit Mask */
++#define SS_QSPI_TX_FREE_MASK				GENMASK(5,0)
++
++/* QSPI FIFO RX free Count Register bit Mask */
++#define SS_QSPI_RX_FREE_MASK				GENMASK(5,0)
++
++/* QSPI FIFO Status Register bit Mask */
++#define SS_QSPI_FIFO_STS_TX_INT_MASK			BIT(0)
++#define SS_QSPI_FIFO_STS_TXOF_MASK				BIT(1)
++#define SS_QSPI_FIFO_STS_RX_INT_MASK			BIT(2)
++#define SS_QSPI_FIFO_STS_RXOF_MASK				BIT(3)
++#define SS_QSPI_FIFO_STS_RXUF_MASK				BIT(4)
++
++/* QSPI Clear data  Register bit Mask */
++#define SS_QSPI_CLR_FIFO_MASK			BIT(0)
++#define SS_QSPI_CLR_STS_MASK			BIT(1)
++
++/* QSPI XIP Configure Register bit Mask */
++#define SS_QSPI_XIPCFG_EN_MASK				BIT(0)
++#define SS_QSPI_XIPCFG_RXEN_MASK			BIT(1)
++#define SS_QSPI_XIPCFG_DUMMYS_MASK			GENMASK(7,2)
++#define SS_QSPI_XIPCFG_DUMMYS_SHIFT			2
++#define SS_QSPI_XIPCFG_CMD_MASK				GENMASK(15,8)
++#define SS_QSPI_XIPCFG_CMD_SHIFT			8
++#define SS_QSPI_XIPCFG_PARAL_MASK			BIT(16)
++#define SS_QSPI_XIPCFG_ADDR_ENDI_MASK		BIT(17)
++#define SS_QSPI_XIPCFG_DATA_ENDI_MASK		BIT(18)
++#define SS_QSPI_XIPCFG_ADDR_LEN_MASK		GENMASK(26,24)
++#define SS_QSPI_XIPCFG_ADDR_LEN_SHIFT		24
++
++/* QSPI Transport Control Register bit Mask */
++#define SS_QSPI_TRANS_CTL_DONE_MASK			BIT(0)
++#define SS_QSPI_TRANS_CTL_SUSPEND_MASK		BIT(8)
++#define SS_QSPI_TRANS_CTL_RESTART_MASK		BIT(16)
++
++/* QSPI RX length Register bit Mask */
++#define SS_QSPI_SINLE_LEN_MASK				GENMASK(7,0)
++#define SS_QSPI_RXLEN_MASK					GENMASK(15,8)
++#define SS_QSPI_RXLEN_SHIFT					8
++
++
++/* default data */
++#define DEFAULT_CS_NUM			1 
++#define DEFAULT_DELAY_CYCLES	3 
++#define DEFAULT_FIFO_DEPTH	 	32
++#define DEFAULT_TX_THRESHOLD 		31
++#define DEFAULT_RX_THRESHOLD   		31
++
++#define SS_QSPI_MAX_CS_NUM		1 
++#define SS_QSPI_MAX_CLK  		20000000 
++
++#define TRANS_MODE_DUPLEX 	 		0
++#define TRANS_MODE_TX_ONLY 	 		1
++#define TRANS_MODE_RX_ONLY 	 		2
++
++#define PROTO_MODE_STAND 	 		0
++#define PROTO_MODE_DUAL 	 		1
++#define PROTO_MODE_QUAD 	 		2
++
++typedef enum 
++{
++	TRANS_CTL_RESTART = 0,
++	TRANS_CTL_DONE ,
++}TRANS_CTL_;
++
++
++/**
++ * struct ss_qspi - Defines qspi driver instance
++ * @dev:		Pointer to the this device's information
++ * @regs:		Virtual address of the QSPI controller registers
++ * @refclk:		Pointer to the peripheral clock
++ * @pclk:		Pointer to the APB clock
++ * @irq:		IRQ number
++ * @txbuf:		Pointer to the TX buffer
++ * @rxbuf:		Pointer to the RX buffer
++ * @tx_bytes:		Number of bytes left to transfer
++ * @rx_bytes:		Number of bytes left to receive
++ * @data_completion:	completion structure
++ */
++struct smartsens_qspi {
++	struct device *dev;
++	void __iomem *regs;
++	struct clk *pclk;
++	int tx_irq;
++	int rx_irq;
++	u8 *txbuf;
++	u8 *rxbuf;
++	int tx_bytes;
++	int rx_bytes;
++	struct completion data_completion;
++};
++
++/*
++ * Inline functions for the QSPI controller read/write
++ */
++static inline u32 ss_qspi_read(struct smartsens_qspi *ss_qspi, u32 offset)
++{
++	return readl_relaxed(ss_qspi->regs + offset);
++}
++
++static inline void ss_qspi_write(struct smartsens_qspi *ss_qspi, u32 offset, 
++					u32 val)
++{
++	writel_relaxed(val, ss_qspi->regs + offset);
++}
++
++/**
++ * ss_qspi_init_hw - Initialize the hardware
++ * @ss_qspi:	Pointer to the ss_qspi structure
++ *
++ * The default settings of the QSPI controller's configurable parameters on
++ * reset are
++ *  - Cleart the TX & RX FIFO
++ *  - Cleart the FIFO status signals
++ *	- Enable the QSPI controller
++ */
++static void ss_qspi_init_hw(struct smartsens_qspi *ss_qspi,unsigned int num_cs)
++{
++	u32 config_reg = 0 ;
++
++	ss_qspi_write(ss_qspi, SS_QSPI_GLBCFG_OFFSET, 0);/* clear & stop spi */
++	ss_qspi_write(ss_qspi, SS_QSPI_INT_OFFSET, 0); /* clear & stop interrupt*/
++
++	/** 
++	 *	- Start delay cycles set to 3 
++	 *  - End   delay cycles set to 3 
++	 *  - BIT order set to MSB(0) 
++	 *  - IO line order set to LSB(1)       
++	 *  - CPOL set to level high(1) 
++	 */
++	ss_qspi_write(ss_qspi, SS_QSPI_GLBCFG_OFFSET, 
++		DEFAULT_DELAY_CYCLES << SS_QSPI_GLBCFG_S_DELAY_SHIFT |
++		DEFAULT_DELAY_CYCLES << SS_QSPI_GLBCFG_E_DELAY_SHIFT |
++		~SS_QSPI_GLBCFG_BIT_ORDER_MASK | SS_QSPI_GLBCFG_IO_ORDER_MASK | 
++		SS_QSPI_GLBCFG_CPOL_MASK );
++
++	/** 
++	 *  - CS select  set to 1 
++	 *	- Trans mode set to RX_ONLY (2)
++	 *  - Proto mode set to QUAD	(2)
++	 *  - double rate set to disable(0)
++	 */
++	ss_qspi_write(ss_qspi, SS_QSPI_MODE_OFFSET, 0);/* clear */
++	ss_qspi_write(ss_qspi, 
++		SS_QSPI_MODE_OFFSET, DEFAULT_CS_NUM << SS_QSPI_MODE_CS_SHIFT |
++		TRANS_MODE_RX_ONLY << SS_QSPI_MODE_TRANS_SHIFT |
++		PROTO_MODE_QUAD << SS_QSPI_MODE_PROTO_SHIFT |
++		~SS_QSPI_MODE_DDR_EN_MASK );
++
++	/** 
++	 *	- RX FIFO fhreshold set to default
++	 *  - RX FIFO irq enable 
++	 *	- TX FIFO fhreshold set to default
++	 *  - TX FIFO irq enable   
++	 */
++	ss_qspi_write(ss_qspi, SS_QSPI_INT_OFFSET,
++		DEFAULT_RX_THRESHOLD << SS_QSPI_INT_RXTHRSD_SHIFT |
++		DEFAULT_TX_THRESHOLD << SS_QSPI_INT_TXTHRSD_SHIFT |
++		SS_QSPI_INT_RXEN_MASK | SS_QSPI_INT_TXEN_MASK);
++
++	/* Clear RX & TX FIFO */
++	ss_qspi_write(ss_qspi, SS_QSPI_CLR_OFFSET, SS_QSPI_CLR_FIFO_MASK);
++	/* Clear all status signals */
++	ss_qspi_write(ss_qspi, SS_QSPI_CLR_OFFSET, SS_QSPI_CLR_STS_MASK);
++
++	/** 
++	 *  - TX single wire len set to 4 byte     
++	 */
++	ss_qspi_write(ss_qspi, SS_QSPI_TXLEN_OFFSET, 0); /* clear */
++	ss_qspi_write(ss_qspi, SS_QSPI_TXLEN_OFFSET, 4);
++
++	/* Set qspi enbale */
++	config_reg = ss_qspi_read(ss_qspi, SS_QSPI_GLBCFG_OFFSET);
++	config_reg |= SS_QSPI_GLBCFG_EN_MASK;
++	ss_qspi_write(ss_qspi, SS_QSPI_GLBCFG_OFFSET, config_reg);
++}
++
++
++static bool ss_qspi_supports_op(struct spi_mem *mem,
++				  const struct spi_mem_op *op)
++{
++	if (!spi_mem_default_supports_op(mem, op))
++		return false;
++	/* flash only 3 byte addr */
++	if (op->addr.nbytes > 3){
++		printk("ops addr bytes > 3 byte ,not supported\n");
++		return false;
++	}
++	return true;
++}
++
++/* qspi ip automatically set cs  */
++// static void ss_qspi_chipselect(struct spi_device *spi, bool assert)
++
++static int ss_qspi_config_op(struct smartsens_qspi *ss_qspi, struct spi_device *spi)
++{
++	u32 config_reg = 0;
++
++	config_reg = ss_qspi_read(ss_qspi, SS_QSPI_GLBCFG_OFFSET);
++	
++	/* s1 qspi ip can not support configuration of CPHA  */
++	// if (spi->mode & SPI_CPHA)
++	// 	config_reg |= SS_QSPI_CONFIG_CPHA_MASK;
++
++	/* Set the QSPI clock polarity */
++	if (spi->mode & SPI_CPOL)
++		config_reg |= SS_QSPI_GLBCFG_CPOL_MASK;
++
++	ss_qspi_write(ss_qspi, SS_QSPI_GLBCFG_OFFSET, config_reg);
++
++	return 0;
++}
++
++/**
++ * ss_qspi_setup_op - Configure the QSPI controller
++ * @spi:	Pointer to the spi_device structure
++ * Return:	0 on success and error value on failure
++ */
++static int ss_qspi_setup_op(struct spi_device *spi)
++{
++	struct spi_controller *ctlr = spi->master;
++	struct smartsens_qspi *qspi = spi_controller_get_devdata(ctlr);
++	
++	u32 config_reg = 0 ;
++
++	if (ctlr->busy)
++		return -EBUSY;
++
++	/* set qspi setup */
++	config_reg = ss_qspi_read(qspi, SS_QSPI_GLBCFG_OFFSET);
++	config_reg |= SS_QSPI_GLBCFG_EN_MASK;
++	ss_qspi_write(qspi, SS_QSPI_GLBCFG_OFFSET, config_reg);
++	return 0;
++}
++
++/**
++ * @brief 		- Config spi suspend resart
++ * 
++ * @param spi 	- Pointer to the spi_device structure
++ * @param cmd   - Trans cmd : restart / done 
++ * @return int  - 0 on success and error value on failure
++ */
++static int ss_qspi_trans_ctl(struct spi_device *spi, TRANS_CTL_ cmd)
++{
++	struct spi_controller *ctlr = spi->master;
++	struct smartsens_qspi *qspi = spi_controller_get_devdata(ctlr);
++	
++	u32 config_reg = 0 ;
++
++	switch (cmd)
++	{
++	case TRANS_CTL_RESTART:
++		config_reg = ss_qspi_write(qspi, SS_QSPI_TRANS_CTL_OFFSET);
++		config_reg |= SS_QSPI_TRANS_CTL_RESTART_MASK; 
++		ss_qspi_write(qspi, SS_QSPI_TRANS_CTL_OFFSET , config_reg);
++		break;
++
++	case TRANS_CTL_DONE:
++		config_reg = ss_qspi_write(qspi, SS_QSPI_TRANS_CTL_OFFSET);
++		config_reg |= SS_QSPI_TRANS_CTL_DONE_MASK; 
++		ss_qspi_write(qspi, SS_QSPI_TRANS_CTL_OFFSET , config_reg);
++		break;
++
++	default:
++		break;
++	}
++	return  0;
++}
++
++/**
++ * @brief 		- Config tx&rx threshold len &  trans_len
++ * 
++ * @param spi 	- Pointer to the spi_device structure
++ * @param len   - Transport lenght
++ * @param is_tx - is tx dirction 
++ * @return int 
++ */
++static int ss_qspi_set_trans_lens(struct spi_device *spi, int len, bool is_tx)
++{
++	struct spi_controller *ctlr = spi->master;
++	struct smartsens_qspi *qspi = spi_controller_get_devdata(ctlr);
++	
++	u32 config_reg = 0 ;
++
++	config_reg = ss_qspi_read(qspi, SS_QSPI_INT_OFFSET);
++
++	if(is_tx){
++		if( len != (config_reg & SS_QSPI_INT_TXTHRSD_MASK) ){
++			/* set tx threshold to len  */
++			config_reg &= ~(SS_QSPI_INT_TXEN_MASK | SS_QSPI_INT_TXTHRSD_MASK);
++			config_reg |= (len << SS_QSPI_INT_TXTHRSD_SHIFT);
++			ss_qspi_write(qspi, SS_QSPI_INT_OFFSET , config_reg);
++			/* set tx bytes to len  , for auto suspend*/
++			ss_qspi_write(qspi, SS_QSPI_TXLEN_OFFSET , len);	
++		}
++	}else{
++		if( len != (config_reg & SS_QSPI_INT_RXTHRSD_MASK) ){
++			/* set rx threshold to len  */
++			config_reg &= ~(SS_QSPI_INT_RXEN_MASK | SS_QSPI_INT_RXTHRSD_MASK);
++			config_reg |= (len << SS_QSPI_INT_RXTHRSD_SHIFT);
++			ss_qspi_write(qspi, SS_QSPI_INT_OFFSET , config_reg);
++			/* set tx bytes to len , for auto suspend */
++			config_reg = ss_qspi_read(qspi, SS_QSPI_RXLEN_OFFSET);
++			config_reg &= ~(SS_QSPI_RXLEN_MASK);
++			config_reg |= (len << SS_QSPI_RXLEN_SHIFT);
++			ss_qspi_write(qspi, SS_QSPI_RXLEN_OFFSET , config_reg);
++		}
++	}
++	return  0;
++}
++
++static int ss_qspi_intr_switch(struct spi_device *spi, bool is_tx, bool is_open)
++{
++	struct spi_controller *ctlr = spi->master;
++	struct smartsens_qspi *qspi = spi_controller_get_devdata(ctlr);
++	
++	u32 config_reg = 0 ;
++
++	config_reg = ss_qspi_read(qspi, SS_QSPI_INT_OFFSET);
++
++	if(is_tx){
++		if(is_open)
++			config_reg |= SS_QSPI_INT_TXEN_MASK;
++		else
++			config_reg |= ~SS_QSPI_INT_TXEN_MASK;
++		ss_qspi_write(qspi, SS_QSPI_INT_OFFSET , config_reg);
++	}
++	else{
++		if(is_open)
++			config_reg |= SS_QSPI_INT_RXEN_MASK;
++		else
++			config_reg |= ~SS_QSPI_INT_RXEN_MASK;
++		ss_qspi_write(qspi, SS_QSPI_INT_OFFSET , config_reg);
++	}
++	return  0;
++}
++
++/**
++ * @brief 		-  Fill the TX FIFO  with txcount bytes
++ *  
++ * @param ss_qspi 	- Pointer to the spi_device private data 
++ * @param txcount   - Write FIFO lenght 
++ */
++static void ss_qspi_write_fifo(struct smartsens_qspi *ss_qspi, int txcount)
++{
++	int count, k;
++	u32 config_reg ;
++
++	count = ss_qspi->tx_bytes;
++
++	/* tx inter disable */
++	ss_qspi_intr_switch(ss_qspi->dev, true, false);
++
++	/* wait for tx fifo empty */
++	while((ss_qspi_reads(ss_qspi, SS_QSPI_TX_FREE_OFFSET) & SS_QSPI_TX_FREE_MASK));
++
++	if (count > txcount)
++		count = txcount;
++
++	if (ss_qspi->txbuf) 
++	{
++		/* set threshold & tx len */
++		ss_qspi_set_trans_lens(ss_qspi.dev, count, true);
++
++		for (int i = 0; i < count; i++)
++			ss_qspi_write(ss_qspi, SS_QSPI_TX_DATA_OFFSET , ss_qspi->txbuf[i]);
++		
++		/* start transfer */
++		ss_qspi_trans_ctl(ss_qspi->dev, TRANS_CTL_RESTART);
++		ss_qspi->txbuf += count ;
++		ss_qspi->tx_bytes -= count;
++	} 	
++
++	/* tx inter enable */
++	ss_qspi_intr_switch(ss_qspi->dev, true, true);
++}
++
++/**
++ * @brief 		-  Fill the RX FIFO  with rxcount bytes
++ *  
++ * @param ss_qspi 	- Pointer to the spi_device private data 
++ * @param rxcount   - Read FIFO lenght 
++ */
++static void ss_qspi_read_fifo(struct smartsens_qspi *ss_qspi, int rxcount)
++{
++	int count, k;
++
++	count =	ss_qspi->rx_bytes;
++	
++	/* rx inter disable */
++	ss_qspi_intr_switch(ss_qspi->dev, false, false);
++
++	/* wait for RX fifo  not empty */
++	while(!(ss_qspi_reads(ss_qspi, SS_QSPI_RX_FREE_OFFSET) & SS_QSPI_RX_FREE_MASK));
++
++	if (count > rxcount)
++		count = rxcount;
++
++	if (ss_qspi->rxbuf) {
++		/* set rx threshold & rx len */
++		ss_qspi_set_trans_lens(ss_qspi.dev, count, false);
++
++		for (int i = 0; i < count; i++)
++			ss_qspi->rxbuf[i] = ss_qspi_read(ss_qspi, SS_QSPI_RX_DATA_OFFSET);		
++		/* start transfer */
++		ss_qspi_trans_ctl(ss_qspi->dev, TRANS_CTL_RESTART);
++		ss_qspi->rxbuf += count;
++		ss_qspi->rx_bytes -= count;
++	}
++
++	/* rx inter enable */
++	ss_qspi_intr_switch(ss_qspi->dev, false, true);
++}
++
++static irqreturn_t ss_qspi_tx_irq_hdlr(int irq, void *dev_id)
++{
++	u32 intr_status;
++	struct smartsens_qspi *ss_qspi = (struct smartsens_qspi *)dev_id;
++
++	intr_status = ss_qspi_read(ss_qspi, SS_QSPI_STS_OFFSET);
++	
++	/* check tx interrupt status  */
++	if (intr_status & SS_QSPI_FIFO_STS_TX_INT_MASK) {
++		if (ss_qspi->tx_bytes) {
++			/* There is more data to send */
++			ss_qspi_write_fifo(ss_qspi, DEFAULT_FIFO_DEPTH);
++			
++		} else {			 
++			/* tx inter disable */
++			ss_qspi_intr_switch(ss_qspi->dev, true, false);
++			complete(&ss_qspi->data_completion);
++		}
++		return IRQ_HANDLED;
++	}
++
++	return IRQ_NONE;
++}
++
++static irqreturn_t ss_qspi_rx_irq_hdlr(int irq, void *dev_id)
++{
++	u32 intr_status;
++	struct smartsens_qspi *ss_qspi = (struct smartsens_qspi *)dev_id;
++
++	intr_status = ss_qspi_read(ss_qspi, SS_QSPI_STS_OFFSET);
++
++	if (intr_status & SS_QSPI_FIFO_STS_RX_INT_MASK) {
++		if (ss_qspi->rx_bytes) {
++			/* There is more data to read */
++			ss_qspi_read_fifo(ss_qspi, DEFAULT_FIFO_DEPTH);
++		} else {
++			/* rx inter disable */
++			ss_qspi_intr_switch(ss_qspi->dev, false, false);
++			complete(&ss_qspi->data_completion);
++		}
++		return IRQ_HANDLED;
++	}
++	return IRQ_NONE;
++}
++
++/**
++ * ss_qspi_exec_mem_op() - Initiates the QSPI transfer
++ * @mem: the SPI memory
++ * @op: the memory operation to execute
++ * Executes a memory operation.
++ * Return: 0 in case of success, a negative error code otherwise.
++ */
++static int ss_qspi_exec_mem_op(struct spi_mem *mem,
++				 const struct spi_mem_op *op)
++{
++	struct smartsens_qspi *ss_qspi = 
++		spi_controller_get_devdata(mem->spi->master);
++	int i;
++	u8 *tmpbuf;
++
++	dev_dbg(ss_qspi->dev, "cmd:%#x mode:%d.%d.%d.%d\n",
++		op->cmd.opcode, op->cmd.buswidth, op->addr.buswidth,
++		op->dummy.buswidth, op->data.buswidth);
++
++	/* send cmd */	
++	if (op->cmd.opcode) {
++		reinit_completion(&ss_qspi->data_completion);
++		ss_qspi->txbuf = (u8 *)&op->cmd.opcode;
++		ss_qspi->rxbuf = NULL;
++		ss_qspi->tx_bytes = op->cmd.nbytes;
++		ss_qspi->rx_bytes = 0;
++		
++		/* tx inter enable */
++		ss_qspi_intr_switch(ss_qspi->dev, true, true);
++		ss_qspi_write_fifo(ss_qspi, DEFAULT_FIFO_DEPTH);	
++
++		if (!wait_for_completion_timeout(&ss_qspi->data_completion,
++									msecs_to_jiffies(1000)))
++		{
++			ss_qspi_trans_ctl(ss_qspi->dev, TRANS_CTL_DONE);
++			return -ETIMEDOUT;
++		}
++	}
++	/* send addr */
++	if (op->addr.nbytes) {
++		for (i = 0; i < op->addr.nbytes; i++) {
++			ss_qspi->txbuf[i] = op->addr.val >>
++					(8 * (op->addr.nbytes - i - 1));
++		}
++		reinit_completion(&ss_qspi->data_completion);
++		ss_qspi->rxbuf = NULL;
++		ss_qspi->tx_bytes = op->addr.nbytes;
++		ss_qspi->rx_bytes = 0;
++		
++		/* tx inter enable */
++		ss_qspi_intr_switch(ss_qspi->dev, true, true);
++		ss_qspi_write_fifo(ss_qspi, DEFAULT_FIFO_DEPTH);
++
++		if (!wait_for_completion_timeout(&ss_qspi->data_completion,
++								msecs_to_jiffies(1000)))
++		{
++			ss_qspi_trans_ctl(ss_qspi->dev, TRANS_CTL_DONE);
++			return -ETIMEDOUT;
++		}
++	}
++	/* send dummy */
++	if (op->dummy.nbytes) {
++		tmpbuf = kzalloc(op->dummy.nbytes, GFP_KERNEL);
++		memset(tmpbuf, 0xff, op->dummy.nbytes);
++		reinit_completion(&ss_qspi->data_completion);
++		ss_qspi->txbuf = tmpbuf;
++		ss_qspi->rxbuf = NULL;
++		ss_qspi->tx_bytes = op->dummy.nbytes;
++		ss_qspi->rx_bytes = 0;
++		
++		/* tx inter enable */
++		ss_qspi_intr_switch(ss_qspi->dev, true, true);
++		ss_qspi_write_fifo(ss_qspi, DEFAULT_FIFO_DEPTH);
++
++		if (!wait_for_completion_timeout(&ss_qspi->data_completion,
++								msecs_to_jiffies(1000)))
++		{
++			kfree(tmpbuf);
++			ss_qspi_trans_ctl(ss_qspi->dev, TRANS_CTL_DONE);
++			return -ETIMEDOUT;
++		}
++	
++		kfree(tmpbuf);
++	}
++	/* write or read data  */
++	if (op->data.nbytes) {
++		reinit_completion(&ss_qspi->data_completion);
++		if (op->data.dir == SPI_MEM_DATA_OUT) {
++			ss_qspi->txbuf = (u8 *)op->data.buf.out;
++			ss_qspi->tx_bytes = op->data.nbytes;
++			ss_qspi->rxbuf = NULL;
++			ss_qspi->rx_bytes = op->data.nbytes;
++		} else {
++			ss_qspi->txbuf = NULL;
++			ss_qspi->rxbuf = (u8 *)op->data.buf.in;
++			ss_qspi->rx_bytes = op->data.nbytes;
++			ss_qspi->tx_bytes = op->data.nbytes;
++		}
++
++		/* tx inter enable */
++		ss_qspi_intr_switch(ss_qspi->dev, false, true);
++		ss_qspi_read_fifo(ss_qspi, DEFAULT_FIFO_DEPTH);	
++
++		if (!wait_for_completion_timeout(&ss_qspi->data_completion,
++							       msecs_to_jiffies(1000)))
++		{
++			ss_qspi_trans_ctl(ss_qspi->dev, TRANS_CTL_DONE);		
++			return -ETIMEDOUT;
++		}
++	}
++	
++	ss_qspi_trans_ctl(ss_qspi->dev, TRANS_CTL_DONE);
++	
++	return 0;
++}
++
++
++
++static const struct spi_controller_mem_ops ss_qspi_mem_ops = {
++	.supports_op = ss_qspi_supports_op,
++	.exec_op = ss_qspi_exec_mem_op,
++};
++
++
++static int ss_qspi_probe(struct platform_device *pdev)
++{
++	int ret = 0 ;
++	struct spi_controller *ctlr;
++	struct device *dev = &pdev->dev;
++	struct device_node *np = dev->of_node;
++	struct smartsens_qspi *ss_qspi;
++	u32 num_cs;
++
++	ctlr = spi_alloc_master(&pdev->dev , sizeof(ss_qspi));
++	if(!ctlr)
++		return -ENOMEM;
++	
++	ss_qspi = spi_controller_get_devdata(ctlr);
++	ss_qspi->dev = dev;
++	platform_set_drvdata(pdev, ss_qspi);
++	ss_qspi->regs = devm_platform_get_and_ioremap_resource(pdev, 0);
++	
++	if (IS_ERR(ss_qspi->regs)) {
++		ret = PTR_ERR(ss_qspi->regs);
++		goto remove_master;
++	}
++
++	init_completion(&ss_qspi->data_completion);
++	
++
++	/* request tx irq */	
++	ss_qspi->tx_irq = platform_get_irq(pdev, 0);
++	if (ss_qspi->tx_irq <= 0) {
++		ret = -ENXIO;
++		goto remove_master;
++	}
++	ret = devm_request_irq(&pdev->dev, ss_qspi->tx_irq, ss_qspi_tx_irq_hdlr,
++			       0, pdev->name, ss_qspi);
++	if (ret != 0) {
++		ret = -ENXIO;
++		dev_err(&pdev->dev, "request_irq failed\n");
++		goto remove_master;
++	}
++	
++	/* request rx irq */	
++	ss_qspi->rx_irq = platform_get_irq(pdev, 1);
++	if (ss_qspi->rx_irq <= 0) {
++		ret = -ENXIO;
++		goto remove_master;
++	}
++	ret = devm_request_irq(&pdev->dev, ss_qspi->rx_irq, ss_qspi_rx_irq_hdlr,
++			       0, pdev->name, ss_qspi);
++	if (ret != 0) {
++		ret = -ENXIO;
++		dev_err(&pdev->dev, "request_irq failed\n");
++		goto remove_master;
++	}
++
++	ret = of_property_read_u32(&np, "num-cs", &num_cs);
++	if(ret < 0){
++		ctlr->num_chipselect = 1 ;
++	}else if (num_cs > SS_QSPI_MAX_CS_NUM){
++		ret = -EINVAL;
++		dev_err(&pdev->dev,"only 1 chip selects are available\n");
++	}else{
++		ctlr->num_chipselect = num_cs;
++	}
++
++	ctlr->mode_bits = SPI_RX_DUAL | SPI_RX_QUAD |
++			    SPI_TX_DUAL | SPI_TX_QUAD;
++	ctlr->mem_ops = &ss_qspi_mem_ops;
++	ctlr->setup = ss_qspi_setup_op;
++	// ctlr->max_speed_hz = clk_get_rate(ss_qspi->refclk) / 2;
++	// ctlr->max_speed_hz = SS_QSPI_MAX_CLK; 
++	ctlr->dev.of_node = np;
++
++	ss_qspi_init_hw(ss_qspi, ctlr->num_chipselect);
++
++	ret = devm_spi_register_controller(&pdev->dev, ctlr);
++	if (ret) {
++		dev_err(&pdev->dev, "spi_register_master failed\n");
++		goto remove_master;
++	}
++
++	return ret;
++
++remove_master:
++	spi_controller_put(ctlr);
++	return ret;
++}
++
++
++/**
++ * ss_qspi_remove - Remove method for the QSPI driver
++ * This function is called if a device is physically removed from the system or
++ * if the driver module is being unloaded. It frees all resources allocated to
++ * the device.
++ */
++static int ss_qspi_remove(struct platform_device *pdev)
++{
++	struct smartsens_qspi *ss_qspi = platform_get_drvdata(pdev);
++
++	ss_qspi_write(ss_qspi, SS_QSPI_GLBCFG_EN_MASK, 0);
++
++	return 0;
++}
++
++
++static const struct of_device_id ss_qspi_of_match[] = {
++	{ .compatible = "SmartSens,spi-1.0", },
++	{ /* end of table */ }
++};
++
++MODULE_DEVICE_TABLE(of, ss_qspi_of_match);
++
++/*
++ * ss_qspi_driver - This structure defines the QSPI platform driver
++ */
++static struct platform_driver ss_qspi_driver = {
++	.probe = ss_qspi_probe,
++	.remove = ss_qspi_remove,
++	.driver = {
++		.name = "ss-qspi",
++		.of_match_table = ss_qspi_of_match,
++	},
++};
++
++module_platform_driver(ss_qspi_driver);
++
++MODULE_AUTHOR("SmartSens, Inc.");
++MODULE_DESCRIPTION("SmartSens S1 QSPI driver");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/spi/spi-zynq-qspi.c b/drivers/spi/spi-zynq-qspi.c
+index cfa222c9b..ab499abda 100644
+--- a/drivers/spi/spi-zynq-qspi.c
++++ b/drivers/spi/spi-zynq-qspi.c
+@@ -350,7 +350,7 @@ static int zynq_qspi_config_op(struct zynq_qspi *xqspi, struct spi_device *spi)
+ 		baud_rate_val++;
+ 
+ 	config_reg = zynq_qspi_read(xqspi, ZYNQ_QSPI_CONFIG_OFFSET);
+-
++	
+ 	/* Set the QSPI clock phase and clock polarity */
+ 	config_reg &= (~ZYNQ_QSPI_CONFIG_CPHA_MASK) &
+ 		      (~ZYNQ_QSPI_CONFIG_CPOL_MASK);
+@@ -419,7 +419,7 @@ static void zynq_qspi_write_op(struct zynq_qspi *xqspi, int txcount,
+ 		count = txcount;
+ 
+ 	if (xqspi->txbuf) {
+-		iowrite32_rep(xqspi->regs + ZYNQ_QSPI_TXD_00_00_OFFSET,
++		iowrite32_rep(xqspi->regs + ZYNQ_QSPI_TXD_0d0_00_OFFSET,
+ 			      xqspi->txbuf, count);
+ 		xqspi->txbuf += count * 4;
+ 	} else {
+@@ -764,6 +764,7 @@ static struct platform_driver zynq_qspi_driver = {
+ 	.probe = zynq_qspi_probe,
+ 	.remove = zynq_qspi_remove,
+ 	.driver = {
++		.owner =THIS_MODULE,
+ 		.name = "zynq-qspi",
+ 		.of_match_table = zynq_qspi_of_match,
+ 	},
+diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
+index 131a6a587..267a77831 100644
+--- a/drivers/tty/serial/Kconfig
++++ b/drivers/tty/serial/Kconfig
+@@ -1502,6 +1502,25 @@ config SERIAL_RDA_CONSOLE
+ 	  Say 'Y' here if you wish to use the RDA8810PL UART as the system
+ 	  console. Only earlycon is implemented currently.
+ 
++config SERIAL_SMARTS1
++	bool "Smartsens S1 serial port support"
++	depends on ARCH_SMARTSOC || COMPILE_TEST
++	select SERIAL_CORE
++	help
++	  This driver is for SmartS1 SoC's UART.
++	  Say 'Y' here if you wish to use this on-board S1 serial port.
++	  Otherwise, say 'N'.
++
++config SERIAL_SMARTS1_CONSOLE
++	bool "Console on Smartsens S1 serial port"
++	depends on SERIAL_SMARTS1=y
++	select SERIAL_CORE_CONSOLE
++	select SERIAL_EARLYCON
++	default y
++	help
++	  Say 'Y' here if you wish to use the SmartS1 UART as the system
++	  console. Only earlycon is implemented currently.
++
+ config SERIAL_MILBEAUT_USIO
+ 	tristate "Milbeaut USIO/UART serial port support"
+ 	depends on ARCH_MILBEAUT || (COMPILE_TEST && OF)
+diff --git a/drivers/tty/serial/Makefile b/drivers/tty/serial/Makefile
+index 7da0856cd..c4eeb7cf8 100644
+--- a/drivers/tty/serial/Makefile
++++ b/drivers/tty/serial/Makefile
+@@ -87,6 +87,7 @@ obj-$(CONFIG_SERIAL_RDA)	+= rda-uart.o
+ obj-$(CONFIG_SERIAL_MILBEAUT_USIO) += milbeaut_usio.o
+ obj-$(CONFIG_SERIAL_SIFIVE)	+= sifive.o
+ obj-$(CONFIG_SERIAL_LITEUART) += liteuart.o
++obj-$(CONFIG_SERIAL_SMARTS1) += smarts1-uart.o
+ 
+ # GPIOLIB helpers for modem control lines
+ obj-$(CONFIG_SERIAL_MCTRL_GPIO)	+= serial_mctrl_gpio.o
+diff --git a/drivers/tty/serial/smarts1-uart.c b/drivers/tty/serial/smarts1-uart.c
+new file mode 100644
+index 000000000..cc0d29c6f
+--- /dev/null
++++ b/drivers/tty/serial/smarts1-uart.c
+@@ -0,0 +1,768 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * SmartS1 serial device driver
++ *
++ * Copyright Smarsens Company Limited
++ * Copyright (c) 2022
++ */
++
++#include "linux/tty_buffer.h"
++#include <linux/clk.h>
++#include <linux/console.h>
++#include <linux/delay.h>
++#include <linux/io.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/serial.h>
++#include <linux/serial_core.h>
++#include <linux/tty.h>
++#include <linux/tty_flip.h>
++
++#include "smarts1-uart.h"
++
++#define SMARTS1_UART_PORT_NUM 1
++#define SMARTS1_UART_DEV_NAME "ttyS"
++
++#define SMARTS1_UART_TX_FIFO_SIZE	32
++
++
++#define SMARTS1_VAL_MODIFY_FIELD(val, start_bit, end_bit, field_val) \
++    do { \
++        /* clear field bits */ \
++        val &= ~((masks[end_bit - start_bit]) << start_bit); \
++        /* set field bits */ \
++        val |= ((field_val & masks[end_bit - start_bit]) << start_bit); \
++    } while(0);
++
++static u32 masks[32] = {
++    0x1, 0x3, 0x7, 0xf,
++    0x1f, 0x3f, 0x7f, 0xff,
++    0x1ff, 0x3ff, 0x7ff, 0xfff,
++    0x1fff, 0x3fff, 0x7fff, 0xffff,
++    0x1ffff, 0x3ffff, 0x7ffff, 0xfffff,
++    0x1fffff, 0x3fffff, 0x7fffff, 0xffffff,
++    0x1ffffff, 0x3ffffff, 0x7ffffff, 0xfffffff,
++    0x1fffffff, 0x3fffffff, 0x7fffffff, 0xffffffff
++};
++
++static struct uart_driver smarts1_uart_driver;
++
++struct smarts1_uart_port {
++	struct uart_port port;
++	u32 baud;
++};
++
++#define to_smarts1_uart_port(port) container_of(port, struct smarts1_uart_port, port)
++
++static struct smarts1_uart_port *smarts1_uart_ports[SMARTS1_UART_PORT_NUM];
++
++static inline void smarts1_uart_write(struct uart_port *port, u32 val,
++				  unsigned int off)
++{
++	writel(val, port->membase + off);
++}
++
++static inline u32 smarts1_uart_read(struct uart_port *port, unsigned int off)
++{
++	return readl(port->membase + off);
++}
++
++static unsigned int smarts1_uart_tx_empty(struct uart_port *port)
++{
++	u32 val;
++
++	val = smarts1_uart_read(port, SMARTS1_REG_TX_FIFO_FREE_CNT_OFFSET);
++	return val ? TIOCSER_TEMT : 0;
++}
++
++static unsigned int smarts1_uart_get_mctrl(struct uart_port *port)
++{
++	return 0;
++}
++
++static void smarts1_uart_set_mctrl(struct uart_port *port, unsigned int mctrl)
++{
++
++}
++
++static void smarts1_uart_stop_tx(struct uart_port *port)
++{
++	u32 val;
++
++    /* disable tx interrupt */
++	val = smarts1_uart_read(port, SMARTS1_REG_TX_IRQ_EN_OFFSET);
++	SMARTS1_VAL_MODIFY_FIELD(val, 0, 1, 0x0);
++	smarts1_uart_write(port, val, SMARTS1_REG_TX_IRQ_EN_OFFSET);
++    /* clear tx irq status if had */
++	val = smarts1_uart_read(port, SMARTS1_REG_TX_IRQ_CLR_OFFSET);
++	SMARTS1_VAL_MODIFY_FIELD(val, 0, 1, 0x0);
++	smarts1_uart_write(port, val, SMARTS1_REG_TX_IRQ_CLR_OFFSET);
++
++	/* disable tx, disable tx parity */
++	val = smarts1_uart_read(port, SMARTS1_REG_TX_CTRL_OFFSET);
++	SMARTS1_VAL_MODIFY_FIELD(val, 0, 2, 0x0);
++	smarts1_uart_write(port, val, SMARTS1_REG_TX_CTRL_OFFSET);
++}
++
++static void smarts1_uart_stop_rx(struct uart_port *port)
++{
++	u32 val;
++
++	/* disable rx err interrupts */
++	smarts1_uart_write(port, 0, SMARTS1_REG_RX_IRQ_EN_OFFSET);
++
++	/* disable rx interrupt */
++	val = smarts1_uart_read(port, SMARTS1_REG_RX_CTRL_OFFSET);
++	SMARTS1_VAL_MODIFY_FIELD(val, 16, 16, 0x0); /* rx enable */
++	SMARTS1_VAL_MODIFY_FIELD(val,  8, 13, 0x0); /* rx threshold, set non 0 to enalbe rx interrupt */
++	SMARTS1_VAL_MODIFY_FIELD(val,  0, 7, 0x0); /* rx timeout */
++	smarts1_uart_write(port, val, SMARTS1_REG_RX_CTRL_OFFSET);
++}
++
++static void smarts1_putchar(struct uart_port *port, int ch)
++{
++   /*  if (!port->membase) */
++		/* return; */
++
++	while (!(smarts1_uart_read(port, SMARTS1_REG_TX_FIFO_FREE_CNT_OFFSET)))
++		cpu_relax();
++
++	//smarts1_uart_write(port, ch, SMARTS1_REG_TX_DATA_OFFSET);
++	writeb(ch, port->membase + SMARTS1_REG_TX_DATA_OFFSET);
++}
++
++static void smarts1_uart_start_tx(struct uart_port *port)
++{
++	struct circ_buf *xmit = &port->state->xmit;
++	unsigned char ch;
++
++	if (unlikely(port->x_char)) {
++		writeb(port->x_char, port->membase + SMARTS1_REG_TX_DATA_OFFSET);
++		port->icount.tx++;
++		port->x_char = 0;
++	} else if (!uart_circ_empty(xmit)) {
++		while (xmit->head != xmit->tail) {
++			ch = xmit->buf[xmit->tail];
++			xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
++			port->icount.tx++;
++			smarts1_putchar(port, ch);
++#if 0
++			while (!(smarts1_uart_read(port, SMARTS1_REG_TX_FIFO_FREE_CNT_OFFSET)))
++				cpu_relax();
++			smarts1_uart_write(port, ch, SMARTS1_REG_TX_DATA_OFFSET);
++#endif
++		}
++	}
++
++	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
++		uart_write_wakeup(port);
++}
++
++#if 0
++static void smarts1_uart_change_baudrate(struct smarts1_uart_port *smarts1_port,
++				     unsigned long baud)
++{
++	/* clk_set_rate(smarts1_port->clk, baud * 8); */
++}
++#endif
++
++static void smarts1_uart_set_termios(struct uart_port *port,
++				 struct ktermios *termios,
++				 struct ktermios *old)
++{
++#if 0
++	struct smarts1_uart_port *smarts1_port = to_smarts1_uart_port(port);
++	unsigned long flags;
++	unsigned int ctrl, cmd_set, cmd_clr, triggers;
++	unsigned int baud;
++	u32 irq_mask;
++
++	spin_lock_irqsave(&port->lock, flags);
++
++	baud = uart_get_baud_rate(port, termios, old, 9600, port->uartclk / 4);
++	smarts1_uart_change_baudrate(smarts1_port, baud);
++
++	ctrl = smarts1_uart_read(port, SMARTS1_UART_CTRL);
++	cmd_set = smarts1_uart_read(port, SMARTS1_UART_CMD_SET);
++	cmd_clr = smarts1_uart_read(port, SMARTS1_UART_CMD_CLR);
++
++	switch (termios->c_cflag & CSIZE) {
++	case CS5:
++	case CS6:
++		dev_warn(port->dev, "bit size not supported, using 7 bits\n");
++		fallthrough;
++	case CS7:
++		ctrl &= ~SMARTS1_UART_DBITS_8;
++		break;
++	default:
++		ctrl |= SMARTS1_UART_DBITS_8;
++		break;
++	}
++
++	/* stop bits */
++	if (termios->c_cflag & CSTOPB)
++		ctrl |= SMARTS1_UART_TX_SBITS_2;
++	else
++		ctrl &= ~SMARTS1_UART_TX_SBITS_2;
++
++	/* parity check */
++	if (termios->c_cflag & PARENB) {
++		ctrl |= SMARTS1_UART_PARITY_EN;
++
++		/* Mark or Space parity */
++		if (termios->c_cflag & CMSPAR) {
++			if (termios->c_cflag & PARODD)
++				ctrl |= SMARTS1_UART_PARITY_MARK;
++			else
++				ctrl |= SMARTS1_UART_PARITY_SPACE;
++		} else if (termios->c_cflag & PARODD) {
++			ctrl |= SMARTS1_UART_PARITY_ODD;
++		} else {
++			ctrl |= SMARTS1_UART_PARITY_EVEN;
++		}
++	} else {
++		ctrl &= ~SMARTS1_UART_PARITY_EN;
++	}
++
++	/* Hardware handshake (RTS/CTS) */
++	if (termios->c_cflag & CRTSCTS) {
++		ctrl   |= SMARTS1_UART_FLOW_CNT_EN;
++		cmd_set |= SMARTS1_UART_RTS;
++	} else {
++		ctrl   &= ~SMARTS1_UART_FLOW_CNT_EN;
++		cmd_clr |= SMARTS1_UART_RTS;
++	}
++
++	ctrl |= SMARTS1_UART_ENABLE;
++	ctrl &= ~SMARTS1_UART_DMA_EN;
++
++	triggers  = (SMARTS1_UART_AFC_LEVEL(20) | SMARTS1_UART_RX_TRIGGER(16));
++	irq_mask = smarts1_uart_read(port, SMARTS1_UART_IRQ_MASK);
++	smarts1_uart_write(port, 0, SMARTS1_UART_IRQ_MASK);
++
++	smarts1_uart_write(port, triggers, SMARTS1_UART_IRQ_TRIGGERS);
++	smarts1_uart_write(port, ctrl, SMARTS1_UART_CTRL);
++	smarts1_uart_write(port, cmd_set, SMARTS1_UART_CMD_SET);
++	smarts1_uart_write(port, cmd_clr, SMARTS1_UART_CMD_CLR);
++
++	smarts1_uart_write(port, irq_mask, SMARTS1_UART_IRQ_MASK);
++
++	/* Don't rewrite B0 */
++	if (tty_termios_baud_rate(termios))
++		tty_termios_encode_baud_rate(termios, baud, baud);
++
++	/* update the per-port timeout */
++	uart_update_timeout(port, termios->c_cflag, baud);
++
++	spin_unlock_irqrestore(&port->lock, flags);
++#endif
++}
++
++#if 0
++static void smarts1_uart_send_chars(struct uart_port *port)
++{
++	struct circ_buf *xmit = &port->state->xmit;
++	unsigned int ch;
++	u32 val;
++
++	if (uart_tx_stopped(port))
++		return;
++
++	if (port->x_char) {
++		while (!(smarts1_uart_read(port, SMARTS1_UART_STATUS) &
++			 SMARTS1_UART_TX_FIFO_MASK))
++			cpu_relax();
++
++		smarts1_uart_write(port, port->x_char, SMARTS1_UART_RXTX_BUFFER);
++		port->icount.tx++;
++		port->x_char = 0;
++	}
++
++	while (smarts1_uart_read(port, SMARTS1_UART_STATUS) & SMARTS1_UART_TX_FIFO_MASK) {
++		if (uart_circ_empty(xmit))
++			break;
++
++		ch = xmit->buf[xmit->tail];
++		smarts1_uart_write(port, ch, SMARTS1_UART_RXTX_BUFFER);
++		xmit->tail = (xmit->tail + 1) & (SERIAL_XMIT_SIZE - 1);
++		port->icount.tx++;
++	}
++
++	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
++		uart_write_wakeup(port);
++
++	if (!uart_circ_empty(xmit)) {
++		/* Re-enable Tx FIFO interrupt */
++		val = smarts1_uart_read(port, SMARTS1_UART_IRQ_MASK);
++		val |= SMARTS1_UART_TX_DATA_NEEDED;
++		smarts1_uart_write(port, val, SMARTS1_UART_IRQ_MASK);
++	}
++}
++#endif
++
++static void smarts1_uart_receive_chars(struct uart_port *port)
++{
++    u32 val;
++    u32 cnt = 0;
++
++    while((cnt < SMARTS1_UART_TX_FIFO_SIZE) && smarts1_uart_read(port, SMARTS1_REG_RX_FIFO_REMAIN_CNT_OFFSET)) {
++#if 0
++		char flag = TTY_NORMAL;
++
++		status = smarts1_uart_read(port, SMARTS1_REG_RX_STATUS_OFFSET);
++		if (status & SMARTS1_UART_RX_PARITY_ERR) {
++			port->icount.parity++;
++			flag = TTY_PARITY;
++		}
++
++		if (status & SMARTS1_UART_RX_FRAMING_ERR) {
++			port->icount.frame++;
++			flag = TTY_FRAME;
++		}
++
++		if (status & SMARTS1_UART_RX_OVERFLOW_ERR) {
++			port->icount.overrun++;
++			flag = TTY_OVERRUN;
++		}
++#endif
++
++        val = readb(port->membase + SMARTS1_REG_RX_DATA_OFFSET);
++
++		port->icount.rx++;
++		tty_insert_flip_char(&port->state->port, val, TTY_NORMAL);
++
++		cnt += 1;
++	}
++
++	tty_flip_buffer_push(&port->state->port);
++}
++
++static irqreturn_t smarts1_interrupt(int irq, void *dev_id)
++{
++	struct uart_port *port = dev_id;
++	unsigned long flags;
++	u32 stat;
++	u32 val = 0;
++
++	spin_lock_irqsave(&port->lock, flags);
++
++	stat = smarts1_uart_read(port, SMARTS1_REG_RX_STATUS_OFFSET);
++
++    if(stat & SMARTS1_UART_RX_TIMEOUT_ERR)
++    {
++        /* clr rx timeout status */
++        val |= SMARTS1_CLR_RX_TIMEOUT_ERR;
++        smarts1_uart_write(port, val, SMARTS1_REG_RX_IRQ_CLR_OFFSET);
++        val &= ~(SMARTS1_CLR_RX_TIMEOUT_ERR);
++        smarts1_uart_write(port, val, SMARTS1_REG_RX_IRQ_CLR_OFFSET);
++    }
++
++    smarts1_uart_receive_chars(port);
++
++	spin_unlock_irqrestore(&port->lock, flags);
++
++	return IRQ_HANDLED;
++}
++
++static int smarts1_uart_startup(struct uart_port *port)
++{
++	unsigned long flags;
++	int ret;
++	u32 val;
++
++	spin_lock_irqsave(&port->lock, flags);
++    /* disable rx & rx IRQs */
++	smarts1_uart_write(port, 0, SMARTS1_REG_RX_CTRL_OFFSET);
++	spin_unlock_irqrestore(&port->lock, flags);
++
++    /* rx interrupt */
++	ret = request_irq(port->irq, smarts1_interrupt, IRQF_TRIGGER_NONE,
++			  "smarts1-uart", port);
++	if (ret)
++		return ret;
++
++	spin_lock_irqsave(&port->lock, flags);
++
++    /* disable tx interrupt */
++	val = smarts1_uart_read(port, SMARTS1_REG_TX_IRQ_EN_OFFSET);
++	SMARTS1_VAL_MODIFY_FIELD(val, 0, 1, 0x0);
++	smarts1_uart_write(port, val, SMARTS1_REG_TX_IRQ_EN_OFFSET);
++
++	/* tx baud, on fpga set to 217 */
++	val = port->uartclk / smarts1_uart_ports[port->line]->baud;
++	smarts1_uart_write(port, val, SMARTS1_REG_TX_BAUD_OFFSET);
++
++	/* enble tx, disable tx parity */
++	val = smarts1_uart_read(port, SMARTS1_REG_TX_CTRL_OFFSET);
++	SMARTS1_VAL_MODIFY_FIELD(val, 0, 2, 0x1);
++	smarts1_uart_write(port, val, SMARTS1_REG_TX_CTRL_OFFSET);
++
++	/* rx baud, on fpga set to 217 */
++	val = port->uartclk / smarts1_uart_ports[port->line]->baud;
++	smarts1_uart_write(port, val, SMARTS1_REG_RX_BAUD_OFFSET);
++
++	/* enable rx */
++    val = smarts1_uart_read(port, SMARTS1_REG_RX_CTRL_OFFSET);
++	SMARTS1_VAL_MODIFY_FIELD(val, 16, 16, 0x1); /* rx enable */
++	SMARTS1_VAL_MODIFY_FIELD(val, 8, 13, 0x0); /* rx threshold, set non 0 to enalbe rx interrupt */
++	SMARTS1_VAL_MODIFY_FIELD(val,  0, 7, 0xff); /* rx timeout val */
++	smarts1_uart_write(port, val, SMARTS1_REG_RX_CTRL_OFFSET);
++
++	/* enable rx interrupt */
++    val = smarts1_uart_read(port, SMARTS1_REG_RX_IRQ_EN_OFFSET);
++	SMARTS1_VAL_MODIFY_FIELD(val,  1, 1, 0x1); /* rx timeout interrupt enable */
++	smarts1_uart_write(port, val, SMARTS1_REG_RX_IRQ_EN_OFFSET);
++
++	spin_unlock_irqrestore(&port->lock, flags);
++
++	return 0;
++}
++
++static void smarts1_uart_shutdown(struct uart_port *port)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&port->lock, flags);
++
++	smarts1_uart_stop_tx(port);
++	smarts1_uart_stop_rx(port);
++
++	spin_unlock_irqrestore(&port->lock, flags);
++}
++
++static const char *smarts1_uart_type(struct uart_port *port)
++{
++	return (port->type == PORT_SMARTS1) ? "smarts1-uart" : NULL;
++}
++
++static int smarts1_uart_request_port(struct uart_port *port)
++{
++	struct platform_device *pdev = to_platform_device(port->dev);
++	struct resource *res;
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	if (!res)
++    {
++        printk("%s[%d]\n",__func__, __LINE__);
++		return -ENXIO;
++    }
++
++	if (!devm_request_mem_region(port->dev, port->mapbase,
++				     resource_size(res), dev_name(port->dev)))
++    {
++        printk("%s[%d]\n",__func__, __LINE__);
++		return -EBUSY;
++    }
++
++	if (port->flags & UPF_IOREMAP) {
++		port->membase = devm_ioremap(port->dev, port->mapbase,
++						     resource_size(res));
++		if (!port->membase)
++		{
++			printk("%s[%d]\n",__func__, __LINE__);
++			return -EBUSY;
++		}
++	}
++
++	return 0;
++}
++
++static void smarts1_uart_config_port(struct uart_port *port, int flags)
++{
++	unsigned long irq_flags;
++
++	if (flags & UART_CONFIG_TYPE) {
++		port->type = PORT_SMARTS1;
++		smarts1_uart_request_port(port);
++	}
++
++	spin_lock_irqsave(&port->lock, irq_flags);
++
++	/* Clear mask, so no surprise interrupts.
++	 * bit[3:0], pulse signal to clear rx status register */
++	smarts1_uart_write(port, 0xf, SMARTS1_REG_RX_IRQ_CLR_OFFSET);
++	smarts1_uart_write(port, 0x0, SMARTS1_REG_RX_IRQ_CLR_OFFSET);
++
++	spin_unlock_irqrestore(&port->lock, irq_flags);
++}
++
++static void smarts1_uart_release_port(struct uart_port *port)
++{
++	struct platform_device *pdev = to_platform_device(port->dev);
++	struct resource *res;
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	if (!res)
++		return;
++
++	if (port->flags & UPF_IOREMAP) {
++		devm_release_mem_region(port->dev, port->mapbase,
++					resource_size(res));
++		devm_iounmap(port->dev, port->membase);
++		port->membase = NULL;
++	}
++}
++
++static int smarts1_uart_verify_port(struct uart_port *port,
++				struct serial_struct *ser)
++{
++	if (port->type != PORT_SMARTS1)
++		return -EINVAL;
++
++	if (port->irq != ser->irq)
++		return -EINVAL;
++
++	return 0;
++}
++
++static const struct uart_ops smarts1_uart_ops = {
++	.tx_empty       = smarts1_uart_tx_empty,
++	.get_mctrl      = smarts1_uart_get_mctrl,
++	.set_mctrl      = smarts1_uart_set_mctrl,
++	.start_tx       = smarts1_uart_start_tx,
++	.stop_tx        = smarts1_uart_stop_tx,
++	.stop_rx        = smarts1_uart_stop_rx,
++	.startup        = smarts1_uart_startup,
++	.shutdown       = smarts1_uart_shutdown,
++	.set_termios    = smarts1_uart_set_termios,
++	.type           = smarts1_uart_type,
++	.request_port	= smarts1_uart_request_port,
++	.release_port	= smarts1_uart_release_port,
++	.config_port	= smarts1_uart_config_port,
++	.verify_port	= smarts1_uart_verify_port,
++};
++
++#ifdef CONFIG_SERIAL_SMARTS1_CONSOLE
++static void smarts1_uart_port_write(struct uart_port *port, const char *s,
++				u_int count)
++{
++	unsigned long flags;
++	int locked;
++
++	local_irq_save(flags);
++
++	if (port->sysrq) {
++		locked = 0;
++	} else if (oops_in_progress) {
++		locked = spin_trylock(&port->lock);
++	} else {
++		spin_lock(&port->lock);
++		locked = 1;
++	}
++
++	uart_console_write(port, s, count, smarts1_putchar);
++
++	if (locked)
++		spin_unlock(&port->lock);
++
++	local_irq_restore(flags);
++}
++
++static void smarts1_uart_console_write(struct console *co, const char *s,
++				   u_int count)
++{
++	struct smarts1_uart_port *smarts1_port;
++
++	smarts1_port = smarts1_uart_ports[co->index];
++	if (!smarts1_port)
++		return;
++
++	smarts1_uart_port_write(&smarts1_port->port, s, count);
++}
++
++static int smarts1_uart_console_setup(struct console *co, char *options)
++{
++	struct smarts1_uart_port *smarts1_port;
++	int baud = 115200;
++	int bits = 8;
++	int parity = 'n';
++	int flow = 'n';
++
++	if (co->index < 0 || co->index >= SMARTS1_UART_PORT_NUM)
++		return -EINVAL;
++
++	smarts1_port = smarts1_uart_ports[co->index];
++	if (!smarts1_port || !smarts1_port->port.membase)
++		return -ENODEV;
++
++	baud = smarts1_port->baud;
++	if (options)
++		uart_parse_options(options, &baud, &parity, &bits, &flow);
++
++	return uart_set_options(&smarts1_port->port, co, baud, parity, bits, flow);
++}
++
++static struct console smarts1_uart_console = {
++	.name = SMARTS1_UART_DEV_NAME,
++	.write = smarts1_uart_console_write,
++	.device = uart_console_device,
++	.setup = smarts1_uart_console_setup,
++	.flags = CON_PRINTBUFFER,
++	.index = -1,
++	.data = &smarts1_uart_driver,
++};
++
++static int __init smarts1_uart_console_init(void)
++{
++	register_console(&smarts1_uart_console);
++
++	return 0;
++}
++console_initcall(smarts1_uart_console_init);
++
++static void smarts1_uart_early_console_write(struct console *co,
++					 const char *s,
++					 u_int count)
++{
++	struct earlycon_device *dev = co->data;
++
++	smarts1_uart_port_write(&dev->port, s, count);
++}
++
++static int __init
++smarts1_uart_early_console_setup(struct earlycon_device *device, const char *opt)
++{
++	if (!device->port.membase)
++		return -ENODEV;
++
++	device->con->write = smarts1_uart_early_console_write;
++
++	return 0;
++}
++
++OF_EARLYCON_DECLARE(smarts1, "smartsens,s1-uart",
++		    smarts1_uart_early_console_setup);
++
++#define SMARTS1_UART_CONSOLE (&smarts1_uart_console)
++#else
++#define SMARTS1_UART_CONSOLE NULL
++#endif /* CONFIG_SERIAL_SMARTS1_CONSOLE */
++
++static struct uart_driver smarts1_uart_driver = {
++	.owner = THIS_MODULE,
++	.driver_name = "smarts1-uart",
++	.dev_name = SMARTS1_UART_DEV_NAME,
++	.nr = SMARTS1_UART_PORT_NUM,
++	.cons = SMARTS1_UART_CONSOLE,
++};
++
++static const struct of_device_id smarts1_uart_dt_matches[] = {
++	{ .compatible = "smartsens,s1-uart" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, smarts1_uart_dt_matches);
++
++static int smarts1_uart_probe(struct platform_device *pdev)
++{
++	struct resource *res_mem;
++	struct smarts1_uart_port *smarts1_port;
++	int ret, irq;
++
++	if (pdev->dev.of_node)
++		pdev->id = of_alias_get_id(pdev->dev.of_node, "serial");
++
++	if (pdev->id < 0 || pdev->id >= SMARTS1_UART_PORT_NUM) {
++		dev_err(&pdev->dev, "id %d out of range\n", pdev->id);
++		return -EINVAL;
++	}
++
++	res_mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	if (!res_mem) {
++		dev_err(&pdev->dev, "could not get mem\n");
++		return -ENODEV;
++	}
++
++	irq = platform_get_irq(pdev, 0);
++	if (irq < 0)
++		return irq;
++
++	if (smarts1_uart_ports[pdev->id]) {
++		dev_err(&pdev->dev, "port %d already allocated\n", pdev->id);
++		return -EBUSY;
++	}
++
++	smarts1_port = devm_kzalloc(&pdev->dev, sizeof(struct smarts1_uart_port), GFP_KERNEL);
++	if (!smarts1_port)
++		return -ENOMEM;
++
++	smarts1_port->port.dev = &pdev->dev;
++	smarts1_port->port.regshift = 0;
++	smarts1_port->port.line = pdev->id;
++	smarts1_port->port.type = PORT_SMARTS1;
++	smarts1_port->port.iotype = UPIO_MEM;
++	smarts1_port->port.mapbase = res_mem->start;
++	smarts1_port->port.irq = irq;
++	smarts1_port->port.flags = UPF_BOOT_AUTOCONF | UPF_IOREMAP;
++	smarts1_port->port.x_char = 0;
++	smarts1_port->port.fifosize = SMARTS1_UART_TX_FIFO_SIZE;
++	smarts1_port->port.ops = &smarts1_uart_ops;
++
++	if (of_property_read_u32(pdev->dev.of_node, "clock-frequency", &smarts1_port->port.uartclk)) {
++		dev_err(&pdev->dev, "clock-frequency property NOT set\n");
++		return -EINVAL;
++	}
++
++	if (of_property_read_u32(pdev->dev.of_node, "current-speed", &smarts1_port->baud)) {
++		dev_err(&pdev->dev, "current-speed property NOT set\n");
++		return -EINVAL;
++	}
++	smarts1_uart_ports[pdev->id] = smarts1_port;
++	platform_set_drvdata(pdev, smarts1_port);
++
++	ret = uart_add_one_port(&smarts1_uart_driver, &smarts1_port->port);
++	if (ret)
++    {
++        printk("smarts1 uart add one port fail\n");
++		smarts1_uart_ports[pdev->id] = NULL;
++    }
++
++	return ret;
++}
++
++static int smarts1_uart_remove(struct platform_device *pdev)
++{
++	struct smarts1_uart_port *smarts1_port = platform_get_drvdata(pdev);
++
++	uart_remove_one_port(&smarts1_uart_driver, &smarts1_port->port);
++	smarts1_uart_ports[pdev->id] = NULL;
++
++	return 0;
++}
++
++static struct platform_driver smarts1_uart_platform_driver = {
++	.probe = smarts1_uart_probe,
++	.remove = smarts1_uart_remove,
++	.driver = {
++		.name = "smarts1-uart",
++		.of_match_table = smarts1_uart_dt_matches,
++	},
++};
++
++static int __init smarts1_uart_init(void)
++{
++	int ret;
++
++	ret = uart_register_driver(&smarts1_uart_driver);
++	if (ret)
++		return ret;
++
++	ret = platform_driver_register(&smarts1_uart_platform_driver);
++	if (ret)
++		uart_unregister_driver(&smarts1_uart_driver);
++
++	return ret;
++}
++
++static void __exit smarts1_uart_exit(void)
++{
++	platform_driver_unregister(&smarts1_uart_platform_driver);
++	uart_unregister_driver(&smarts1_uart_driver);
++}
++
++module_init(smarts1_uart_init);
++module_exit(smarts1_uart_exit);
++
++MODULE_AUTHOR("wangwei @smartsens");
++MODULE_DESCRIPTION("smartsens s1 serial device driver");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/tty/serial/smarts1-uart.h b/drivers/tty/serial/smarts1-uart.h
+new file mode 100644
+index 000000000..244f0f554
+--- /dev/null
++++ b/drivers/tty/serial/smarts1-uart.h
+@@ -0,0 +1,65 @@
++#ifndef _SMARTS1_UART_H_
++#define _SMARTS1_UART_H_
++
++#include <asm/io.h>
++
++#define SMARTS1_REG_OFFSET(type, mem) ((unsigned int)&(((type *)0)->mem))
++
++#define SMARTS1_REG_RX_BAUD_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_rx_baud_div)
++#define SMARTS1_REG_RX_CTRL_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_rx_ctrl)
++#define SMARTS1_REG_RX_IRQ_EN_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_rx_irq_en)
++#define SMARTS1_REG_RX_IRQ_CLR_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_rx_irq_clr)
++#define SMARTS1_REG_RX_STATUS_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_rx_status)
++#define SMARTS1_REG_RX_FIFO_REMAIN_CNT_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_rx_fifo_remain_cnt)
++#define SMARTS1_REG_RX_DATA_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_rx_data)
++#define SMARTS1_REG_RX_RESET_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_rx_reset)
++#define SMARTS1_REG_TX_BAUD_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_tx_baud_div)
++#define SMARTS1_REG_TX_CTRL_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_tx_ctrl)
++#define SMARTS1_REG_TX_IRQ_EN_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_tx_irq_en)
++#define SMARTS1_REG_TX_IRQ_CLR_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_tx_irq_clr)
++#define SMARTS1_REG_TX_STATUS_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_tx_status)
++#define SMARTS1_REG_TX_DATA_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_tx_data)
++#define SMARTS1_REG_TX_RESET_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_tx_reset)
++#define SMARTS1_REG_TX_FIFO_FREE_CNT_OFFSET SMARTS1_REG_OFFSET(struct smarts1_uart_reg, reg_tx_fifo_free_cnt)
++
++#define SMARTS1_CLR_RX_TIMEOUT_ERR   (0x1 << 1)
++#define SMARTS1_CLR_STOP_SIG_ERR     (0x1 << 0)
++#define SMARTS1_CLR_PARITY_FAIL_ERR  (0x1 << 2)
++#define SMARTS1_CLR_RX_FIFO_FULL_ERR (0x1 << 3)
++#define SMARTS1_EN_STOP_SIG_IRQ      (0x1 << 4)
++#define SMARTS1_EN_RX_TIMEOUT_IRQ    (0x1 << 5)
++#define SMARTS1_EN_PARITY_FAIL_IRQ   (0x1 << 6)
++#define SMARTS1_EN_RX_FIFO_FULL_IRQ  (0x1 << 7)
++#define	SMARTS1_UART_RX_OVERFLOW_ERR 	(0x1u << 4)
++#define SMARTS1_UART_RX_PARITY_ERR   	(0x1u << 3)
++#define SMARTS1_UART_RX_TIMEOUT_ERR  	(0x1u << 2)
++#define SMARTS1_UART_RX_FRAMING_ERR  	(0x1u << 1)
++#define SMARTS1_UART_RX_DATA_AVAILABLE  (0x1u << 0)
++
++typedef struct smarts1_uart_reg {
++  /* uart rx */
++  /* 0x00 */ volatile unsigned int reg_rx_baud_div;
++  /* 0x04 */ volatile unsigned int reg_rx_ctrl;
++  /* 0x08 */ volatile unsigned int reg_rx_irq_en;
++  /* 0x0c */ volatile unsigned int reg_rx_irq_clr;
++  /* 0x10 */ volatile unsigned int reg_rx_status;
++  /* 0x14 */ volatile unsigned int reg_rx_fifo_remain_cnt;
++  /* 0x18 */ volatile unsigned int reg_reserved;
++  /* 0x1c */ volatile unsigned int reg_rx_data;
++  /* 0x20 */ volatile unsigned int reg_rx_reset;
++             volatile unsigned int reg_reserved2[8];
++  /* uart tx */
++  /* 0x44 */ volatile unsigned int reg_tx_baud_div;
++  /* 0x48 */ volatile unsigned int reg_tx_ctrl;
++  /* 0x4c */ volatile unsigned int reg_tx_irq_en;
++  /* 0x50 */ volatile unsigned int reg_tx_irq_clr;
++  /* 0x54 */ volatile unsigned int reg_tx_status;
++  /* 0x58 */ volatile unsigned char reg_tx_data;
++             volatile unsigned char rsv[3];
++  /* 0x5c */ volatile unsigned int reg_tx_reset;
++  /* 0x60 */ volatile unsigned int reg_tx_fifo_free_cnt;
++
++} SMARTS1_UART_REG_S;
++
++
++#endif
+diff --git a/include/uapi/linux/serial_core.h b/include/uapi/linux/serial_core.h
+index c4042dcfd..c0e403137 100644
+--- a/include/uapi/linux/serial_core.h
++++ b/include/uapi/linux/serial_core.h
+@@ -274,4 +274,7 @@
+ /* Freescale LINFlexD UART */
+ #define PORT_LINFLEXUART	122
+ 
++/* SmartS1 UART */
++#define PORT_SMARTS1	123
++
+ #endif /* _UAPILINUX_SERIAL_CORE_H */
+-- 
+2.43.0
+
