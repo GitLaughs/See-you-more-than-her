@@ -1,0 +1,45 @@
+name: a1_ci_runner
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'smartsens_sdk/**'
+
+jobs:
+  build:
+    name: Build and Upload
+    runs-on: a1_ci_builder
+    steps:
+      - name: Checkout code
+        uses: https://gitee.com/actions-mirror/checkout@v4
+      
+      - name: Copy cache and dl from host
+        run: |
+          # 检查 host 目录是否存在
+          if [ -d "/home/smartsens_flying_chip_a1_sdk/build_files/cache" ] && [ -d "/home/smartsens_flying_chip_a1_sdk/build_files/dl" ]; then
+            echo "Copying cache and dl from host..."
+            cp -r /home/smartsens_flying_chip_a1_sdk/build_files/cache smartsens_sdk/
+            cp -r /home/smartsens_flying_chip_a1_sdk/build_files/dl smartsens_sdk/
+          else
+            echo "Warning: /home/smartsens_flying_chip_a1_sdk/build_files/cache or /home/smartsens_flying_chip_a1_sdk/build_files/dl not found. Proceeding without cache."
+          fi
+
+      - name: Build smartsens_sdk
+        run: |
+          cd smartsens_sdk
+          ./scripts/a1_sc132gs_build.sh
+
+      - name: Prepare build artifacts
+        run: |
+          PR_ID=${{ github.event.pull_request.number }}
+          mkdir -p /home/ci_work/ci_upload/132/$PR_ID
+          cp smartsens_sdk/output/images/zImage.smartsens-m1-evb /home/ci_work/ci_upload/132/$PR_ID
+
+      - name: Upload to Seafile
+        run: |
+          PR_ID=${{ github.event.pull_request.number }}
+          if ! /opt/upload_seafile.sh "/home/ci_work/ci_upload/132/$PR_ID/zImage.smartsens-m1-evb" "A1_CI_OUTPUT/132/$PR_ID"; then
+            echo "Seafile upload failed"
+            exit 1
+          fi
