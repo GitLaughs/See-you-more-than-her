@@ -19,7 +19,7 @@ namespace osd{
 OsdDevice::OsdDevice()
     :m_height(0),
     m_width(0){
-
+    
 }
 
 OsdDevice::~OsdDevice(){
@@ -33,14 +33,14 @@ void OsdDevice::Initialize(int width, int height){
     // load osd color lut
     LoadLutFile(m_osd_lut_path.c_str());
 
-    // open osd device
+    // open osd device 
     m_osd_handle = osd_open_device();
-    // init osd
+    // init osd 
     osd_init_device(m_osd_handle, OSD_LAYER_SIZE, (char*)m_pcolor_lut);
 
     // init quad-rangle layer
     int dma_size = 1024;
-    for(int layer_index = 0; layer_index < OSD_LAYER_SIZE-1; layer_index++){
+    for(int layer_index = 0; layer_index < OSD_LAYER_SIZE; layer_index++){
         osd_alloc_buffer(m_osd_handle, m_layer_dma[layer_index].dma, dma_size);sleep(0.25);
         osd_alloc_buffer(m_osd_handle, m_layer_dma[layer_index].dma_2, dma_size);
         int dma_fd = osd_get_buffer_fd(m_osd_handle, m_layer_dma[layer_index].dma);
@@ -57,36 +57,36 @@ void OsdDevice::Initialize(int width, int height){
         osd_create_layer(m_osd_handle, (ssLAYER_HANDLE)layer_index, &osd_layer);
         osd_set_layer_buffer(m_osd_handle, (ssLAYER_HANDLE)layer_index, m_layer_dma[layer_index]);
     }
+    
 
+    // // init run-length layer
+    // {
+    //     // run-length 最后一层画标定线
+    //     int layer_index = OSD_LAYER_SIZE - 1;
+    //     osd_alloc_buffer(m_osd_handle, m_layer_dma[layer_index].dma, 0x20000);
+    //     int dma_fd = osd_get_buffer_fd(m_osd_handle, m_layer_dma[layer_index].dma);
+        
+    //     LAYER_ATTR_S osd_layer;
+    //     osd_layer.codeTYPE = SS_TYPE_RLE;
+    //     osd_layer.layer_data_RLE.osd_buf.buf_type = BUFFER_TYPE_DMABUF;
+    //     osd_layer.layer_data_RLE.osd_buf.buf.fd_dmabuf = dma_fd;
+    //     osd_layer.layerStart.layer_start_x = 0;
+    //     osd_layer.layerStart.layer_start_y = 0;
+    //     osd_layer.layerSize.layer_width = m_width;
+    //     osd_layer.layerSize.layer_height = m_height; 
+    //     osd_layer.layer_rgn = {TYPE_IMAGE, {m_width, m_height}};
+    //     osd_create_layer(m_osd_handle, (ssLAYER_HANDLE)layer_index, &osd_layer);
+    //     osd_set_layer_buffer(m_osd_handle, (ssLAYER_HANDLE)layer_index, m_layer_dma[layer_index]);
+    // }
 
-    // init run-length layer
-    {
-        // run-length 最后一层画标定线
-        int layer_index = OSD_LAYER_SIZE - 1;
-        osd_alloc_buffer(m_osd_handle, m_layer_dma[layer_index].dma, 0x20000);
-        int dma_fd = osd_get_buffer_fd(m_osd_handle, m_layer_dma[layer_index].dma);
-
-        LAYER_ATTR_S osd_layer;
-        osd_layer.codeTYPE = SS_TYPE_RLE;
-        osd_layer.layer_data_RLE.osd_buf.buf_type = BUFFER_TYPE_DMABUF;
-        osd_layer.layer_data_RLE.osd_buf.buf.fd_dmabuf = dma_fd;
-        osd_layer.layerStart.layer_start_x = 0;
-        osd_layer.layerStart.layer_start_y = 0;
-        osd_layer.layerSize.layer_width = m_width;
-        osd_layer.layerSize.layer_height = m_height;
-        osd_layer.layer_rgn = {TYPE_IMAGE, {m_width, m_height}};
-        osd_create_layer(m_osd_handle, (ssLAYER_HANDLE)layer_index, &osd_layer);
-        osd_set_layer_buffer(m_osd_handle, (ssLAYER_HANDLE)layer_index, m_layer_dma[layer_index]);
-    }
-
-    // draw image use run-length
-   //DrawTexture(m_texture_path.c_str(), OSD_LAYER_SIZE - 1);
+    // // draw image use run-length
+    // DrawTexture(m_texture_path.c_str(), OSD_LAYER_SIZE - 1);
 }
 
 
 void OsdDevice::Release(){
     std::cout << "OsdDevice Release" << std::endl;
-
+    
     // destroy layer and delete dma buf
     for(int i = 0; i < OSD_LAYER_SIZE; i++){
         osd_destroy_layer(m_osd_handle, (ssLAYER_HANDLE)i);
@@ -133,9 +133,9 @@ void OsdDevice::Draw(std::vector<OsdQuadRangle> &quad_rangle){
     for(auto &q : quad_rangle){
         GenQrangleBox(q.box, q.border);
         COVER_ATTR_S qrangle_attr = {q.color, q.type, q.alpha, m_qrangle_out, m_qrangle_in};
-        osd_add_quad_rangle(m_osd_handle, &qrangle_attr);
+        osd_add_quad_rangle(m_osd_handle, &qrangle_attr);                  
     }
-
+    
     // flush data to ddr
     osd_flush_quad_rangle(m_osd_handle);
 }
@@ -144,16 +144,20 @@ void OsdDevice::Draw(std::vector<OsdQuadRangle> &quad_rangle){
 void OsdDevice::Draw(std::vector<OsdQuadRangle> &quad_rangle, int layer_id){
     if ((quad_rangle.size() == 0)){
         osd_clean_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
+        printf("Draw --- osd_clean_layer\n");
         return;
     }
+    int ret = 0;
 
     // generate qrangle box
     for(auto &q : quad_rangle){
+        printf("Draw --- q.box: %f, %f, %f, %f\n", q.box[0], q.box[1], q.box[2], q.box[3]);
         GenQrangleBox(q.box, q.border);
         COVER_ATTR_S qrangle_attr = {q.color, q.type, q.alpha, m_qrangle_out, m_qrangle_in};
-        osd_add_quad_rangle_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id, &qrangle_attr);
+        ret = osd_add_quad_rangle_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id, &qrangle_attr);   
+        printf("Draw --- osd_add_quad_rangle_layer ret: %d\n", ret);
     }
-
+    
     // flush data to ddr
     osd_flush_quad_rangle_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
 }
@@ -164,29 +168,29 @@ void OsdDevice::Draw(std::vector<std::array<float, 4>>& boxes, int border, int l
         osd_clean_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
         return;
     }
-
+    
     int ret = 0;
     // generate qrangle box
     for (auto &box : boxes){
         GenQrangleBox(box, border);
         COVER_ATTR_S qrangle_attr = {color, type, alpha, m_qrangle_out, m_qrangle_in};
-        ret = osd_add_quad_rangle_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id, &qrangle_attr);
+        ret = osd_add_quad_rangle_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id, &qrangle_attr);                  
     }
-
+    
     // flush data to ddr
     osd_flush_quad_rangle_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
 }
 
 
-void OsdDevice::DrawTexture(const char* filename, int layer_id) {
-    BITMAP_INFO_S bm_info = {filename, TYPE_ALPHA100, {0, 0}};
+// void OsdDevice::DrawTexture(const char* filename, int layer_id) {
+//     BITMAP_INFO_S bm_info = {filename, TYPE_ALPHA100, {0, 0}};
 
-    osd_add_texture(m_osd_handle, &bm_info);
+//     osd_add_texture(m_osd_handle, &bm_info);
 
-    osd_flush_texture(m_osd_handle);
+//     osd_flush_texture(m_osd_handle);
 
-    osd_lock_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id, true);
-}
+//     osd_lock_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id, true);
+// }
 
 void OsdDevice::GenQrangleBox(std::array<float, 4>& det, int border){
     std::array<int, 16> box;
@@ -208,8 +212,7 @@ void OsdDevice::GenQrangleBox(std::array<float, 4>& det, int border){
     box[13] = std::min(m_height, std::max(0, int(det[3]+border)));
     box[14] = std::min(m_width, std::max(0, int(det[2]+border)));
     box[15] = std::min(m_height, std::max(0, int(det[1]-border)));
-
-
+    
     m_qrangle_in.points[0]={box[0], box[1]};
     m_qrangle_in.points[1]={box[2], box[3]};
     m_qrangle_in.points[2]={box[4], box[5]};
@@ -219,9 +222,6 @@ void OsdDevice::GenQrangleBox(std::array<float, 4>& det, int border){
     m_qrangle_out.points[2] = {box[12], box[13]};
     m_qrangle_out.points[3] = {box[14], box[15]};
 }
-
-
-
 
 } // namespace osd
 } // namespace device

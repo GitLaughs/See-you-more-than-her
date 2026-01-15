@@ -1,7 +1,7 @@
 /*
  * @Author: Jingwen Bai
  * @Date: 2024-07-04 11:07:00
- * @Description:
+ * @Description: 
  * @Filename: osd-device.hpp
  */
 #ifndef SST_OSD_DEVICE_HPP_
@@ -43,17 +43,17 @@ public:
 
 private:
     int LoadLutFile(const char* filename);
-    void DrawTexture(const char* filename, int layer_id);
+    // void DrawTexture(const char* filename, int layer_id);
     void GenQrangleBox(std::array<float, 4>& det, int border);
 
 private:
     handle_t m_osd_handle;
-    std::string m_osd_lut_path = "/app_demo/app_assets/imgs/colorLUT.sscl";
-    std::string m_texture_path = "/app_demo/app_assets/imgs/test_24.ssbmp";
+    std::string m_osd_lut_path = "/app_demo/app_assets/colorLUT.sscl";
+    // std::string m_texture_path = "/ai/imgs/test_24.ssbmp";
     uint8_t *m_pcolor_lut = nullptr;
     int m_file_size = 0;
     int m_height, m_width;
-
+    
     fdevice::DMA_BUFFER_ATTR_S m_layer_dma[OSD_LAYER_SIZE];
     fdevice::VERTEXS_S m_qrangle_out={0}, m_qrangle_in={0};
 };

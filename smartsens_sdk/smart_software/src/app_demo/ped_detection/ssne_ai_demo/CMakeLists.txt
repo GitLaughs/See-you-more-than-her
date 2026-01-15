@@ -9,8 +9,10 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O2")
 # 核心：禁用ABI变更提示
 add_compile_options(-Wno-psabi)
 
-add_executable(ssne_ai_demo ${PROJECT_SOURCE_DIR}/online_ped_osd_thread.cpp)
+# add_executable(ssne_ai_demo ${PROJECT_SOURCE_DIR}/online_ped_osd_thread.cpp)
 # add_executable(ssne_ai_demo ${PROJECT_SOURCE_DIR}/online_ped_osd.cpp)
+add_executable(ssne_ai_demo ${PROJECT_SOURCE_DIR}/demo_face.cpp)
+# add_executable(ssne_ai_demo ${PROJECT_SOURCE_DIR}/test_isp_debug.cpp)
 
 # 添加头文件目录
 include_directories(${M1_SDK_INC_DIR})
