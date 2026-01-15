@@ -13,3 +13,7 @@
 *.rej
 *~
 *.pyc
+/smart_software/toolchain
+/smart_software/src/linux-5.15.24
+/cache
+/package
