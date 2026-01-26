@@ -43,3 +43,80 @@ jobs:
             echo "Seafile upload failed"
             exit 1
           fi
+
+  # 任务 2: 烧录测试 (Windows)，依赖于 build 任务
+  flash_test:
+    name: Flash and Test M1 Board
+    needs: build
+    runs-on: windows
+    steps:
+      # 步骤 1: 从 Seafile 下载 build 生成的固件
+      - name: Download Firmware
+        run: |
+          $ROOT = "C:\Users\admin\Desktop"
+          $SENSOR = "132"
+          $seafilepsDir = "$ROOT\ci-tools"
+          $remoteDir = "132/${{ github.event.pull_request.number }}"
+          $LocalDLPath = "$ROOT\ci-tools\$SENSOR"
+
+          # 创建本地目录
+          New-Item -ItemType Directory -Force -Path $LocalDLPath
+          cd $seafilepsDir
+          # 执行下载脚本
+          powershell.exe -ExecutionPolicy Bypass -File ".\seafile.ps1" -mode "download" -remoteTargetDir $remoteDir -localDownloadPath $LocalDLPath
+
+      # 步骤 2: 打包固件
+      - name: Package Firmware
+        run: |
+          $ROOT = "C:\Users\admin\Desktop"
+          $SENSOR = "132"
+          $LocalDLPath = "$ROOT\ci-tools\$SENSOR"
+          $packDir = "$ROOT\ci-tools\$SENSOR\A1PackTool"
+          $PKG_NAME = "SC132GS_A1_720x1280_raw8_90fps_linux_ISP_V2.pkg"
+          $BIN_NAME = "SC132GS_A1_720x1280_raw8_90fps_linux_ISP_V2.bin"
+          $m1TestDir = "$ROOT\ci-tools\$SENSOR\M1_220AT\huichuang220AT\M1_test"
+
+          # 将下载的 zImage 复制到打包工具目录
+          cd $LocalDLPath
+          Copy-Item "$LocalDLPath\zImage.smartsens-m1-evb" "$packDir\zImage.smartsens-m1-evb" -Force
+
+          # 执行打包命令
+          cd $packDir
+          .\A1PackTool.exe -i $PKG_NAME -o $BIN_NAME
+
+          # 将打包好的 bin 文件复制到烧录脚本目录
+          cd $packDir
+          Copy-Item "$packDir\$BIN_NAME" "$m1TestDir\$BIN_NAME" -Force
+
+          
+      # 步骤 3: 烧录固件
+      - name: Flash to Board
+        run: |
+          $ROOT = "C:\Users\admin\Desktop"
+          $SENSOR = "132"
+          $packDir = "$ROOT\ci-tools\$SENSOR\A1PackTool"
+          $m1TestDir = "$ROOT\ci-tools\$SENSOR\M1_220AT\huichuang220AT\M1_test"
+          $BIN_NAME = "SC132GS_A1_720x1280_raw8_90fps_linux_ISP_V2.bin"
+          $testDir = "$ROOT\ci-tools\$SENSOR\test"
+
+          cd $testDir
+          C:\Users\admin\AppData\Local\Programs\Python\Python313\python.exe -X utf8 .\save_reference_image.py
+          Start-Sleep -Seconds 10
+
+          # 执行烧录脚本
+          cd $m1TestDir
+          C:\Users\admin\AppData\Local\Programs\Python\Python313\python.exe -X utf8 .\m1_test.py
+
+      # 步骤 4: 抓图与对比
+      - name: Capture and Check
+        run: |
+          $ROOT = "C:\Users\admin\Desktop"
+          $SENSOR = "132"
+          $testDir = "$ROOT\ci-tools\$SENSOR\test"
+        
+          cd $testDir
+          Write-Host "当前目录: $PWD"
+          Start-Sleep -Seconds 5
+          C:\Users\admin\AppData\Local\Programs\Python\Python313\python.exe -X utf8 .\close_device_uart.py
+          C:\Users\admin\AppData\Local\Programs\Python\Python313\python.exe -X utf8 .\open_device_uart.py
+          C:\Users\admin\AppData\Local\Programs\Python\Python313\python.exe -X utf8 .\capture_and_check.py
