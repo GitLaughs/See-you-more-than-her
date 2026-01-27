@@ -6,12 +6,12 @@ config BR2_PACKAGE_SSNE_AI_DEMO
 
 config BR2_PACKAGE_SSNE_AI_DEMO_APP
     string "ai demo src path"
-    default "ped_detection"
+    default "face_detection"
     help
         SMARTSENS ai app demo
 
 config BR2_M1_SDK_ROOT_PATH
     string "ai demo LIB path"
-    default "src/app_demo/ped_detection"
+    default "src/app_demo/face_detection"
     help
         SMARTSENS ai app demo
