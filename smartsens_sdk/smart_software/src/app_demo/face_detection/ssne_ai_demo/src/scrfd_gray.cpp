@@ -386,6 +386,11 @@ void SCRFDGRAY::Initialize(std::string& model_path, std::array<int, 2>* in_img_s
 
 int save_tensor_buffer(ssne_tensor_t tensor, const char* filepath);
 
+// 用于保存最后一帧的全局静态变量
+static ssne_tensor_t g_last_img;
+static ssne_tensor_t g_last_pipe_input;
+static bool g_has_frame = false;
+
 /**
  * @brief 执行人脸检测预测
  * @param img 输入图像tensor
@@ -405,9 +410,11 @@ void SCRFDGRAY::Predict(ssne_tensor_t* img, FaceDetectionResult* result, float c
         printf("ret: %d\n", ret);
         return;
     }
-    // 如果模型没有正常工作，通过保存tensor buffer进行调试
-    // save_tensor_buffer(*img, "dbg_in.raw");
-    // save_tensor_buffer(inputs[0], "dbg_in_pipe.raw");
+
+    // 保存当前帧的图像（每次调用都更新，最终保留最后一帧）
+    g_last_img = *img;
+    g_last_pipe_input = inputs[0];
+    g_has_frame = true;
     
     
     // 前向推理：在NPU上执行模型推理
@@ -496,6 +503,14 @@ void SCRFDGRAY::Predict(ssne_tensor_t* img, FaceDetectionResult* result, float c
  */
 void SCRFDGRAY::Release()
 {   
+    // 保存最后一帧的图像（如果有的话）
+    if (g_has_frame) {
+        printf("[INFO] Saving last frame images...\n");
+        save_tensor(g_last_img, "dbg_in.raw");
+        save_tensor(g_last_pipe_input, "dbg_in_pipe.raw");
+        printf("[INFO] Last frame saved successfully!\n");
+    }
+
     // 释放输入和输出tensor
     release_tensor(inputs[0]);
     release_tensor(outputs[0]);
