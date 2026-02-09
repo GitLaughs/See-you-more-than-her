@@ -8,6 +8,8 @@
 #include <fstream>
 #include <iostream>
 #include <cstring>
+#include <thread>
+#include <mutex>
 #include <fcntl.h>
 #include <regex>
 #include <dirent.h>
@@ -15,6 +17,43 @@
 #include "include/utils.hpp"
 
 using namespace std;
+
+// 全局退出标志（线程安全）
+bool g_exit_flag = false;
+// 保护退出标志的互斥锁
+std::mutex g_mtx;
+
+/**
+ * @brief 键盘监听程序，用于结束demo
+ */
+void keyboard_listener() {
+    std::string input;
+    std::cout << "键盘监听线程已启动，输入 'q' 退出程序..." << std::endl;
+
+    while (true) {
+        // 读取键盘输入（会阻塞直到有输入）
+        std::cin >> input;
+
+        // 加锁修改退出标志
+        std::lock_guard<std::mutex> lock(g_mtx);
+        if (input == "q" || input == "Q") {
+            g_exit_flag = true;
+            std::cout << "检测到退出指令，通知主线程退出..." << std::endl;
+            break;
+        } else {
+            std::cout << "输入无效（仅 'q' 有效），请重新输入：" << std::endl;
+        }
+    }
+}
+
+/**
+ * @brief 检查退出标志的辅助函数（线程安全）
+ * @return 是否需要退出
+ */
+bool check_exit_flag() {
+    std::lock_guard<std::mutex> lock(g_mtx);
+    return g_exit_flag;
+}
 
 /**
  * @brief 人脸检测演示程序主函数
@@ -70,12 +109,15 @@ int main() {
     
     uint16_t num_frames = 0;  // 帧计数器
     ssne_tensor_t img_sensor;  // 图像tensor定义
+
+    // 创建键盘监听线程
+    std::thread listener_thread(keyboard_listener);
     
     /******************************************************************************************
      * 3. 主处理循环
      ******************************************************************************************/
     //循环50000帧后推出，循环次数可以修改，也可以改成while(true)
-    while (num_frames < 50000) {
+    while (!check_exit_flag()) {
         
         // 从sensor获取图像（裁剪图）
         processor.GetImage(&img_sensor);
@@ -122,7 +164,12 @@ int main() {
             visualizer.Draw(empty_boxes);  // 传入空向量清除显示
         }
         
-        num_frames += 1;  // 帧计数器递增
+        //num_frames += 1;  // 帧计数器递增
+    }
+
+    // 等待监听线程退出，释放资源
+    if (listener_thread.joinable()) {
+        listener_thread.join();
     }
     
     /******************************************************************************************
