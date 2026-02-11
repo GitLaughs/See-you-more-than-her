@@ -65,6 +65,8 @@ jobs:
           # 执行下载脚本
           powershell.exe -ExecutionPolicy Bypass -File ".\seafile.ps1" -mode "download" -remoteTargetDir $remoteDir -localDownloadPath $LocalDLPath
 
+          Start-Sleep -Seconds 10
+
       # 步骤 2: 打包固件
       - name: Package Firmware
         run: |
@@ -80,9 +82,13 @@ jobs:
           cd $LocalDLPath
           Copy-Item "$LocalDLPath\zImage.smartsens-m1-evb" "$packDir\zImage.smartsens-m1-evb" -Force
 
+          Start-Sleep -Seconds 5
+
           # 执行打包命令
           cd $packDir
           .\A1PackTool.exe -i $PKG_NAME -o $BIN_NAME
+
+          Start-Sleep -Seconds 5
 
           # 将打包好的 bin 文件复制到烧录脚本目录
           cd $packDir
