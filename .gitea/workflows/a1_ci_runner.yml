@@ -107,7 +107,7 @@ jobs:
 
           cd $testDir
           C:\Users\admin\AppData\Local\Programs\Python\Python313\python.exe -X utf8 .\save_reference_image.py
-          Start-Sleep -Seconds 10
+          Start-Sleep -Seconds 20
 
           # 执行烧录脚本
           cd $m1TestDir
