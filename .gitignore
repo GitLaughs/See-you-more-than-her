@@ -1,5 +1,6 @@
 a1-sdk-builder-latest.tar
 data/
-ros2_ws/build/
-ros2_ws/install/
-ros2_ws/log/
+output/
+src/ros2_ws/build/
+src/ros2_ws/install/
+src/ros2_ws/log/
