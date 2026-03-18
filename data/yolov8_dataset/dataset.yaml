@@ -1,0 +1,10 @@
+# YOLOv8 dataset config
+path: data/yolov8_dataset
+train: images/train
+val: images/val
+test: images/test
+
+# Update class names for your project
+names:
+  0: person
+  1: car

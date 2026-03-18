@@ -54,6 +54,12 @@
 ```powershell
 git clone https://github.com/GitLaughs/See-you-more-than-her.git
 cd See-you-more-than-her
+
+# SDK 固定到验证通过版本（含 libssne 更新）
+cd data/A1_SDK_SC132GS
+git fetch --all --tags --prune
+git checkout 989a51550af0d474191436617eb1eebf94cb4424
+cd ../..
 ```
 
 ### Step 2: 启动开发容器
@@ -97,6 +103,24 @@ docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_
 docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; source /opt/ros/jazzy/setup.bash; colcon build --symlink-install"
 ```
 
+### Step 6.1: YOLOv8 训练环境（Python 3.9 + GPU）
+
+```powershell
+# 克隆官方训练仓库
+git clone https://github.com/ultralytics/ultralytics.git third_party/ultralytics
+
+# 创建并激活 Python 3.9 虚拟环境
+py -3.9 -m venv .venv39
+.\.venv39\Scripts\Activate.ps1
+
+# 安装 CUDA 版 PyTorch + YOLOv8 + 标注工具
+python -m pip install --upgrade pip
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install ultralytics labelimg
+```
+
+训练与数据准备文档见：`docs/YOLOV8_TRAINING.md`
+
 ### Step 7: 启动系统
 
 ```powershell
@@ -136,3 +160,22 @@ docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; source /opt/ros/jazzy/setu
 
 - 问题：`No rule to make target m1_sdk_lib-rebuild`
 	解决：先执行 `make BR2_EXTERNAL=./smart_software smartsens_m1pro_release_defconfig`。
+
+- 问题：`ld: .../libxxx.so: file format not recognized; treating as linker script`
+	现象：常见于 Windows 挂载目录，原本应为软链接的 `*.so`/`*.so.1` 被转换成文本文件。
+	解决：在容器内把文本占位文件恢复为软链接（按文件内容指向真实版本库），然后重跑：
+
+```bash
+cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk/output/opt/m1_sdk/usr/lib
+file lib*.so* | grep 'ASCII text'
+
+# 示例：把被文本化的链接修复为真实软链接
+rm -f libzlog.so.1 && ln -s libzlog.so.1.2 libzlog.so.1
+rm -f libzlog.so   && ln -s libzlog.so.1   libzlog.so
+
+cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk
+make m1_sdk_lib-rebuild
+bash scripts/a1_sc132gs_build.sh
+```
+
+	建议：SDK 源码尽量避免在 Windows 侧改写软链接文件；必要时优先在 Linux 容器内执行修复。
