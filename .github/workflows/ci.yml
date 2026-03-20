@@ -29,3 +29,30 @@ jobs:
           source /opt/ros/jazzy/setup.bash
           cd src/ros2_ws
           colcon build --event-handlers console_direct+
+  build-in-container:
+    runs-on: ubuntu-24.04
+    needs: build-ros2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build A1_Builder image
+        run: |
+          docker build -f docker/Dockerfile -t a1_builder .
+
+      - name: Run containerized full build (SDK + ROS2) and produce EVB
+        run: |
+          docker run --rm -v $GITHUB_WORKSPACE:/workspace -w /workspace a1_builder bash -lc "chmod +x smartsens_sdk/scripts/build_evb_from_src.sh && smartsens_sdk/scripts/build_evb_from_src.sh"
+
+      - name: Collect EVB artifacts
+        if: always()
+        run: |
+          mkdir -p evb_artifacts
+          if [ -d smartsens_sdk/output/images ]; then cp -v smartsens_sdk/output/images/* evb_artifacts/ || true; fi
+          find . -type f -name "*.evb" -exec cp -v {} evb_artifacts/ \; || true
+
+      - name: Upload EVB artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: evb-files
+          path: evb_artifacts/
