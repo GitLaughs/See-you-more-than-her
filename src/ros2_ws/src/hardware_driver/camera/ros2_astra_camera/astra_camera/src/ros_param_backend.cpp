@@ -17,14 +17,13 @@ ParametersBackend::ParametersBackend(rclcpp::Node *node)
 
 ParametersBackend::~ParametersBackend() {
   if (ros_callback_) {
-    node_->remove_on_set_parameters_callback(
-        (rclcpp::node_interfaces::OnSetParametersCallbackHandle *)(ros_callback_.get()));
+    node_->remove_on_set_parameters_callback(ros_callback_.get());
     ros_callback_.reset();
   }
 }
 
 void ParametersBackend::addOnSetParametersCallback(
-    rclcpp::node_interfaces::NodeParametersInterface::OnParametersSetCallbackType callback) {
+    rclcpp::Node::OnSetParametersCallbackType callback) {
   ros_callback_ = node_->add_on_set_parameters_callback(std::move(callback));
 }
 

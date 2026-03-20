@@ -1,7 +1,11 @@
 #pragma once
 
+#include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
+
+#include "rplidar.h"
 
 namespace ssne_demo {
 
@@ -19,10 +23,14 @@ class RplidarSdkAdapter {
   void Stop();
 
   bool configured() const { return configured_; }
+  bool ConnectDriver();
+  void ReleaseDriver();
+
 
  private:
   std::string serial_port_;
   int baudrate_{0};
+  rp::standalone::rplidar::RPlidarDriver* driver_{nullptr};
   bool configured_{false};
   bool running_{false};
 };

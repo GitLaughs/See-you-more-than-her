@@ -30,7 +30,7 @@ docker exec A1_Builder bash -lc "cd /app/src/ros2_ws && pwd && ls"
 
 ```powershell
 git status
-git add README.md docs/CONTAINER_OPERATION_GUIDE.md docs/RPLIDAR_SDK_GUIDE.md data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh src/ros2_ws/README.md src/ros2_ws/src/base_control_ros2 src/ros2_ws/src/hardware_driver src/ros2_ws/src/bingda_ros2_demos src/ros2_ws/src/ncnn_ros2 src/ros2_ws/src/depend_pkg src/ros2_ws/src/object_information_msgs_ros2 src/a1_ssne_ai_demo
+git add -A
 git commit -m "feat: replace ros workspace with upstream sources"
 git push origin main
 ```

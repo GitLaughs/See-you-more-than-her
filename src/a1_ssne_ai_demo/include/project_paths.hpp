@@ -12,6 +12,8 @@ struct ProjectPaths {
   int crop_offset_y{370};
   float confidence_threshold{0.4f};
   std::string face_model_path{"/app_demo/app_assets/models/face_640x480.m1model"};
+  std::string lidar_serial_port{"/dev/ttyUSB0"};
+  int lidar_baudrate{115200};
 };
 
 }  // namespace ssne_demo

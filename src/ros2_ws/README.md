@@ -10,6 +10,7 @@
 - `ncnn_ros2`：NCNN 视觉推理示例
 - `depend_pkg`：Humble/ROS2 依赖包集合，包含 `slam_gmapping`
 - `object_information_msgs_ros2`：目标检测消息类型
+- `hardware_driver/lidar/rplidar_ros2`：基于官方 Slamtec SDK 的 ROS2 雷达封装
 
 ## 目录约定
 
@@ -36,6 +37,7 @@ source install/setup.bash
 - `ros2 launch robot_vision_ros2 camera.launch.py`
 - `ros2 launch ncnn_ros2 yolov8_ros.launch.py`
 - `ros2 launch astra_camera camera.launch.py`
+- `ros2 launch rplidar_ros2 rplidar_launch.py`
 
 ## ROS 编译测试脚本
 
@@ -63,6 +65,7 @@ bash data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh --with-sdk
 - `ncnn_ros2`：视觉检测和推理示例
 - `depend_pkg`：`slam_gmapping` 等第三方依赖源码
 - `object_information_msgs_ros2`：检测结果消息定义
+- `hardware_driver/lidar/rplidar_ros2`：RPLidar ROS2 包，直接发布 `scan`
 
 ## RPLidar SDK 放置建议
 
@@ -78,3 +81,5 @@ bash data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh --with-sdk
 3. 在代码里通过 `RPlidarDriver::CreateDriver()` 打开串口，调用 `connect()`、`startScan()`、`grabScanData()`、`disconnect()`
 
 当前仓库里已经删除了自研 ROS 包，因此如果你要先在 SDK demo 里接雷达，建议先做成独立的 C++ 适配层，再决定后面是否重建 ROS 节点。
+
+官方 `rplidar_ros` ROS1 仓库保留在 `hardware_driver/lidar/rplidar_ros_upstream`，仅作参考，不参与 colcon 构建。

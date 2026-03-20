@@ -4,8 +4,6 @@
 #include <iostream>
 #include <utility>
 
-using namespace std::chrono_literals;
-
 namespace ssne_demo {
 
 FaceDetectionDemoApp::FaceDetectionDemoApp(ProjectPaths paths) : paths_(std::move(paths)) {}
@@ -19,9 +17,15 @@ void FaceDetectionDemoApp::Initialize() {
   detector_.Initialize(paths_.face_model_path, &paths_.crop_shape, &paths_.det_shape, false,
                        paths_.det_shape[0] * paths_.det_shape[1] / 512 * 21);
   visualizer_.Initialize(paths_.image_shape);
+  lidar_.Configure(paths_.lidar_serial_port, paths_.lidar_baudrate);
+  if (!lidar_.Start()) {
+    std::cerr << "[WARN] RPLidar SDK adapter failed to start" << std::endl;
+  } else {
+    std::cout << "[INFO] RPLidar SDK adapter started" << std::endl;
+  }
 
   std::cout << "sleep for 0.2 second!" << std::endl;
-  std::this_thread::sleep_for(200ms);
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
 }
 
 void FaceDetectionDemoApp::KeyboardLoop() {
@@ -48,6 +52,11 @@ void FaceDetectionDemoApp::ProcessOnce() {
   processor_.GetImage(&img_sensor);
   detector_.Predict(&img_sensor, &result_, paths_.confidence_threshold);
 
+  const auto lidar_samples = lidar_.ScanOnce();
+  if (!lidar_samples.empty()) {
+    std::cout << "[LIDAR] samples: " << lidar_samples.size() << std::endl;
+  }
+
   if (result_.boxes.empty()) {
     std::cout << "[INFO] No face detected" << std::endl;
     std::vector<std::array<float, 4>> empty_boxes;
@@ -65,6 +74,7 @@ void FaceDetectionDemoApp::ProcessOnce() {
 }
 
 void FaceDetectionDemoApp::Shutdown() {
+  lidar_.Stop();
   if (keyboard_thread_.joinable()) {
     keyboard_thread_.join();
   }

@@ -57,6 +57,7 @@
 - [YOLOv8 训练说明](docs/YOLOV8_TRAINING.md)
 - [数据集说明](data/yolov8_dataset/README.md)
 - [YDLidar 驱动说明](src/ros2_ws/src/hardware_driver/lidar/ydlidar_ros2_driver/README.md)
+- [RPLidar ROS2 驱动说明](src/ros2_ws/src/hardware_driver/lidar/rplidar_ros2/README.md)
 - [SLLidar 驱动说明](src/ros2_ws/src/hardware_driver/lidar/sllidar_ros2/README.md)
 - [NVILidar 驱动说明](src/ros2_ws/src/hardware_driver/lidar/nvilidar_ros2/README.md)
 - [GMapping 说明](src/ros2_ws/src/depend_pkg/slam_gmapping/README.md)
@@ -67,10 +68,13 @@
 
 - `base_control_ros2`
 - `hardware_driver`
+- `hardware_driver/lidar/rplidar_ros2`
 - `bingda_ros2_demos`
 - `ncnn_ros2`
 - `depend_pkg`
 - `object_information_msgs_ros2`
+
+`hardware_driver/lidar/rplidar_ros_upstream` 是官方 ROS1 仓库的参考副本，不参与当前 ROS2 编译。
 
 自研的 `a1_robot_stack` 已从工作区删除，不再作为参考保留。
 
