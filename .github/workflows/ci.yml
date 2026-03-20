@@ -25,7 +25,8 @@ jobs:
 
       - name: Install YDLidar SDK
         run: |
-          git clone --depth 1 https://github.com/YDLIDAR/YDLidar-SDK.git /tmp/YDLidar-SDK
+          # Pin to a specific released version of YDLidar-SDK for reproducible builds
+          git clone --depth 1 --branch v1.0.2 https://github.com/YDLIDAR/YDLidar-SDK.git /tmp/YDLidar-SDK
           cmake -S /tmp/YDLidar-SDK -B /tmp/YDLidar-SDK/build -DBUILD_EXAMPLES=OFF
           cmake --build /tmp/YDLidar-SDK/build --parallel $(nproc)
           sudo cmake --install /tmp/YDLidar-SDK/build
