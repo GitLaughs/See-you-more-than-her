@@ -20,7 +20,14 @@
 ├── src/
 │   ├── a1_ssne_ai_demo/                 # 官方 demo 同步副本
 │   └── ros2_ws/                         # ROS2 工作区
-│       └── src/a1_robot_stack/
+│       └── src/
+│           ├── base_control_ros2/
+│           ├── hardware_driver/
+│           ├── bingda_ros2_demos/
+│           ├── ncnn_ros2/
+│           ├── depend_pkg/
+│           ├── object_information_msgs_ros2/
+│           └── a1_robot_stack/          # 旧本地实现，已通过 .colcon_ignore 排除
 └── docs/
 ```
 
@@ -38,6 +45,19 @@
   - output 挂载到 /app/output
 
 因此本文中的 docker exec A1_Builder ... 命令与实际配置一致。
+
+## ROS 源码替换结果
+
+当前 `src/ros2_ws/src` 已替换为你提供的上游仓库集合：
+
+- `base_control_ros2`
+- `hardware_driver`
+- `bingda_ros2_demos`
+- `ncnn_ros2`
+- `depend_pkg`
+- `object_information_msgs_ros2`
+
+旧的 `a1_robot_stack` 保留在仓库中作为参考，但不会参与 colcon 编译。
 
 ## 从零开始部署（新手版）
 
@@ -103,29 +123,26 @@ docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_
 docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/a1_sc132gs_build.sh > /app/output/a1_sc132gs_build.log 2>&1"
 ```
 
-### Step 7：安装并构建 RPLidar SDK
+### Step 7：确认 ROS 源码已替换
 
-```powershell
-docker exec A1_Builder /bin/bash -c "mkdir -p /app/src/ros2_ws/src/a1_robot_stack/third_party && cd /app/src/ros2_ws/src/a1_robot_stack/third_party && git clone https://github.com/slamtec/rplidar_sdk.git rplidar_sdk --depth 1"
-docker exec A1_Builder /bin/bash -c "cd /app/src/ros2_ws/src/a1_robot_stack/third_party/rplidar_sdk/sdk && make"
-```
+`src/ros2_ws/src` 现在应包含 `base_control_ros2`、`hardware_driver`、`bingda_ros2_demos`、`ncnn_ros2`、`depend_pkg` 和 `object_information_msgs_ros2`，旧的 `a1_robot_stack` 仅作参考，不参与构建。
 
 ### Step 8：编译 ROS2
 
 ```powershell
-docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; source /opt/ros/jazzy/setup.bash; colcon build --symlink-install"
+docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; rm -rf build install log; set +u; source /opt/ros/jazzy/setup.bash; set -u; colcon build --symlink-install"
 ```
 
 ### Step 9：启动系统
 
-```powershell
-docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; source /opt/ros/jazzy/setup.bash; source install/setup.bash; ros2 launch a1_robot_stack bringup.launch.py"
-```
-
-低负载核心启动（推荐先用于板端联调）：
+按仓库里的 launch 入口启动对应能力，例如：
 
 ```powershell
-docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; source /opt/ros/jazzy/setup.bash; source install/setup.bash; ros2 launch a1_robot_stack bringup_a1_core.launch.py"
+docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; set +u; source /opt/ros/jazzy/setup.bash; source install/setup.bash; set -u; ros2 launch base_control_ros2 base_control.launch.py"
+docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; set +u; source /opt/ros/jazzy/setup.bash; source install/setup.bash; set -u; ros2 launch robot_navigation_ros2 robot_lidar.launch.py"
+docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; set +u; source /opt/ros/jazzy/setup.bash; source install/setup.bash; set -u; ros2 launch robot_vslam_ros2 robot_rgbd_lidar.launch.py"
+docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; set +u; source /opt/ros/jazzy/setup.bash; source install/setup.bash; set -u; ros2 launch robot_vision_ros2 camera.launch.py"
+docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; set +u; source /opt/ros/jazzy/setup.bash; source install/setup.bash; set -u; ros2 launch ncnn_ros2 yolov8_ros.launch.py"
 ```
 
 ### Step 10：YOLOv8 训练入口
@@ -134,7 +151,7 @@ YOLOv8 的详细中文手册见 docs/YOLOV8_TRAINING.md。
 
 ### Step 11：ROS 编译体检（新增）
 
-该脚本位于官方 SDK 脚本目录，便于统一维护：
+该脚本位于官方 SDK 脚本目录，便于统一维护，并会对当前上游 ROS2 源码集合执行编译测试：
 
 ```powershell
 docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/ros_a1_compile_test.sh"
