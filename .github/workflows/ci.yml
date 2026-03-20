@@ -23,6 +23,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ros-jazzy-ros-base python3-colcon-common-extensions
 
+      - name: Install YDLidar SDK
+        run: |
+          git clone --depth 1 https://github.com/YDLIDAR/YDLidar-SDK.git /tmp/YDLidar-SDK
+          cmake -S /tmp/YDLidar-SDK -B /tmp/YDLidar-SDK/build -DBUILD_EXAMPLES=OFF
+          cmake --build /tmp/YDLidar-SDK/build --parallel $(nproc)
+          sudo cmake --install /tmp/YDLidar-SDK/build
+          sudo ldconfig
+
       - name: Build
         shell: bash
         run: |
