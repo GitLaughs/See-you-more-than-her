@@ -1,6 +1,6 @@
 # A1 ROS2 工作区（容器内开发）
 
-本目录已经切换为你提供的上游 ROS2 仓库集合，仓库里不再保留本地自研的 ROS 包。
+这个目录承载当前仓库的 ROS2 上游源码集合，已经不再保留本地自研的 ROS 包。
 
 ## 当前源码来源
 
@@ -8,7 +8,7 @@
 - `hardware_driver`：相机与雷达驱动
 - `bingda_ros2_demos`：导航、视觉和 VSLAM 例程
 - `ncnn_ros2`：NCNN 视觉推理示例
-- `depend_pkg`：Humble/ROS2 依赖包集合，包含 `slam_gmapping`
+- `depend_pkg`：ROS2 依赖包集合，包含 `slam_gmapping`
 - `object_information_msgs_ros2`：目标检测消息类型
 - `hardware_driver/lidar/rplidar_ros2`：基于官方 Slamtec SDK 的 ROS2 雷达封装
 

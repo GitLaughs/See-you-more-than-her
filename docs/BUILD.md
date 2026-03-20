@@ -9,6 +9,9 @@
 主要脚本
 - `data/A1_SDK_SC132GS/smartsens_sdk/scripts/a1_sc132gs_build.sh`：SDK 原有的构建脚本（由供应商提供）。
 - `scripts/build_src_all.sh`：仓库新增封装脚本，会调用 SDK 构建并构建 ROS2 工作区，最后收集 EVB 工件。
+- `scripts/build_ros2_ws.sh`：ROS2 工作区构建脚本，支持全量构建和按包增量构建。
+- `scripts/collect_evb_artifacts.sh`：收集 SDK 和 ROS2 产物到 `output/evb/`。
+- `scripts/build_incremental.sh`：只编译改动部分的入口脚本，适合跳过长时间的全量编译。
 
 在本地使用 Docker 构建（推荐）
 1. 在仓库根目录构建镜像：
@@ -27,6 +30,18 @@ docker run --rm -v $(pwd):/workspace -w /workspace a1_builder \
 3. 构建完成后，检查这两个位置：
 - `data/A1_SDK_SC132GS/smartsens_sdk/output/images/`
 - `output/evb/`
+
+如果你只改了局部代码，不需要每次都跑完整链路，可以用增量脚本：
+
+```bash
+docker run --rm -v $(pwd):/workspace -w /workspace a1_builder bash -lc "bash scripts/build_incremental.sh sdk ssne_ai_demo"
+docker run --rm -v $(pwd):/workspace -w /workspace a1_builder bash -lc "bash scripts/build_incremental.sh ros --clean robot_navigation_ros2 ncnn_ros2"
+```
+
+说明：
+- `sdk ssne_ai_demo` 只重编 demo 这一层，适合改 C++ 业务代码
+- `ros ...` 只重编指定 ROS2 包及其依赖，适合改局部 ROS 节点
+- 如果你想回到完整链路，再执行 `scripts/build_src_all.sh`
 
 当前项目里真正可写入主板的镜像文件是：
 

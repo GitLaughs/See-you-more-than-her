@@ -11,6 +11,9 @@ echo "[build_src_all.sh] root=${ROOT_DIR}"
 echo "[build_src_all.sh] sdk=${SDK_DIR}"
 echo "[build_src_all.sh] ros=${ROS_DIR}"
 
+mkdir -p /app
+ln -sfn "${ROOT_DIR}/data" /app/smartsens_sdk
+
 if [ ! -d "${SDK_DIR}" ]; then
   echo "[build_src_all.sh] ERROR: SDK directory not found: ${SDK_DIR}" >&2
   exit 1
@@ -24,29 +27,10 @@ fi
 echo "[build_src_all.sh] Step 1: build SmartSens SDK and demo"
 bash "${SDK_DIR}/scripts/a1_sc132gs_build.sh"
 
-if [ -d "${ROS_DIR}" ]; then
-  echo "[build_src_all.sh] Step 2: build ROS2 workspace"
-  pushd "${ROS_DIR}" >/dev/null
-  rm -rf build install log
-  set +u
-  source /opt/ros/jazzy/setup.bash
-  set -u
-  colcon build --symlink-install
-  popd >/dev/null
-else
-  echo "[build_src_all.sh] WARN: ROS workspace not found: ${ROS_DIR}" >&2
-fi
-
-mkdir -p "${ARTIFACT_DIR}"
+echo "[build_src_all.sh] Step 2: build ROS2 workspace"
+bash "${ROOT_DIR}/scripts/build_ros2_ws.sh" --clean
 
 echo "[build_src_all.sh] Step 3: collect EVB artifacts"
-if [ -f "${SDK_EVB_IMAGE}" ]; then
-  cp -v "${SDK_EVB_IMAGE}" "${ARTIFACT_DIR}/"
-else
-  echo "[build_src_all.sh] WARN: expected EVB image not found: ${SDK_EVB_IMAGE}" >&2
-fi
-
-find "${SDK_DIR}/output/images" -type f \( -name "*.evb" -o -name "*evb" -o -name "*EVB*" \) -exec cp -v {} "${ARTIFACT_DIR}/" \; || true
-find "${ROS_DIR}" -type f -name "*.evb" -exec cp -v {} "${ARTIFACT_DIR}/" \; || true
+bash "${ROOT_DIR}/scripts/collect_evb_artifacts.sh"
 
 echo "[build_src_all.sh] Done"

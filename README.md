@@ -1,6 +1,6 @@
 # A1 Vision Robot Stack
 
-基于飞凌微 A1 开发套件与指定图像传感器的智能小车项目。
+这个仓库把 A1 平台的视觉、雷达和 ROS2 入口收拢到一起，目标是让新同事能在容器里快速复现构建结果。
 
 ## 项目目标
 
@@ -32,7 +32,7 @@
 
 ## Docker 配置核对结果
 
-已检查 Docker 相关配置，结论如下：
+仓库默认的 Docker 挂载关系如下：
 
 - 容器名是 A1_Builder
 - 服务名是 dev
@@ -43,7 +43,7 @@
   - models 挂载到 /app/models
   - output 挂载到 /app/output
 
-因此本文中的 docker exec A1_Builder ... 命令与实际配置一致。
+因此本文里的 `docker exec A1_Builder ...` 命令可以直接对照当前配置使用。
 
 ## 项目文档索引
 
@@ -54,6 +54,7 @@
 - [ROS2 工作区说明](src/ros2_ws/README.md)
 - [容器操作手册](docs/CONTAINER_OPERATION_GUIDE.md)
 - [详细编译手册](docs/BUILD.md)
+- [增量编译脚本](scripts/build_incremental.sh)
 - [RPLidar SDK 接入指南](docs/RPLIDAR_SDK_GUIDE.md)
 - [YOLOv8 训练说明](docs/YOLOV8_TRAINING.md)
 - [数据集说明](data/yolov8_dataset/README.md)
@@ -114,14 +115,7 @@ docker compose -f docker/docker-compose.yml down
 
 SDK 源码目录在 `data/A1_SDK_SC132GS`。如果你拿到的是一个不完整的工作区，请先把这个目录同步完整，再继续后面的编译步骤。
 
-如果团队要求固定到我们当前使用的 SDK 版本，可以在宿主机上执行：
-
-```powershell
-cd data/A1_SDK_SC132GS
-git fetch --all --tags --prune
-git checkout 989a51550af0d474191436617eb1eebf94cb4424
-cd ../..
-```
+如果团队需要锁定 SDK 版本，再按约定的 tag 或 commit 固定即可；日常开发默认跟随当前仓库主分支。
 
 ### 5. 进入容器后先做一次基础清理
 

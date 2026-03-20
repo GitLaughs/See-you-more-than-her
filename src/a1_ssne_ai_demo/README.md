@@ -97,6 +97,7 @@ ssne_ai_demo/
 - 真正可写入主板的镜像文件名是 `zImage.smartsens-m1-evb`
 - 这里的 `-evb` 是文件名后缀，不是 `.evb` 扩展名
 - 仓库新增的全量脚本是 [scripts/build_src_all.sh](../../scripts/build_src_all.sh)
+- 如果你只改了 demo 代码，可以直接用 [scripts/build_incremental.sh](../../scripts/build_incremental.sh) 只编译这一块
 
 推荐执行方式：
 
@@ -104,7 +105,13 @@ ssne_ai_demo/
 docker exec A1_Builder bash -lc "cd /app/src; chmod +x scripts/build_src_all.sh && scripts/build_src_all.sh"
 ```
 
-如果你只想单独编译 SDK demo，则继续使用 SDK 原有脚本：
+如果你只想单独编译 SDK demo，则优先用增量脚本；要保留 SDK 原有行为，也可以直接调用官方脚本：
+
+```powershell
+docker run --rm -v $(pwd):/workspace -w /workspace a1_builder bash -lc "bash scripts/build_incremental.sh sdk ssne_ai_demo"
+```
+
+或者继续使用 SDK 原有脚本：
 
 ```powershell
 docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/a1_sc132gs_build.sh"
@@ -144,7 +151,7 @@ demo 的实际工程路径是：
 建议的完整构建命令如下：
 
 ```powershell
-docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/a1_sc132gs_build.sh 2>&1 | tee /app/output/a1_sc132gs_build_rplidar.log"
+docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/a1_sc132gs_build.sh 2>&1 | tee /app/output/a1_sc132gs_build.log"
 ```
 
 构建成功后，关键结果是：
@@ -154,8 +161,7 @@ docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_
 
 你也可以查看本次构建留存的日志：
 
-- [output/a1_sc132gs_build_rplidar.log](../../output/a1_sc132gs_build_rplidar.log)
-- [output/a1_sc132gs_build_rplidar2.log](../../output/a1_sc132gs_build_rplidar2.log)
+- [output/a1_sc132gs_build.log](../../output/a1_sc132gs_build.log)
 
 ### 3. 编译 ROS2 工作区
 
@@ -198,10 +204,10 @@ ROS2 侧验证：
 
 ## 运行方式
 
-demo 的容器内运行入口仍然是：
+demo 的容器内运行入口现在是：
 
 ```powershell
-docker exec A1_Builder bash -lc "cd /app/a1_ssne_ai_demo && bash scripts/run.sh"
+docker exec A1_Builder bash -lc "cd /app/src/a1_ssne_ai_demo && bash scripts/run.sh"
 ```
 
 如果你要观察雷达接入效果，建议先确认串口设备已经映射到容器内，并且参数文件里的串口号是正确的。
