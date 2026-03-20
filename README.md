@@ -115,9 +115,31 @@ docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; source /opt/ros/jazzy/setu
 docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; source /opt/ros/jazzy/setup.bash; source install/setup.bash; ros2 launch a1_robot_stack bringup.launch.py"
 ```
 
+低负载核心启动（推荐先用于板端联调）：
+
+```powershell
+docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; source /opt/ros/jazzy/setup.bash; source install/setup.bash; ros2 launch a1_robot_stack bringup_a1_core.launch.py"
+```
+
 ### Step 9：YOLOv8 训练入口
 
 YOLOv8 的详细中文手册见 docs/YOLOV8_TRAINING.md。
+
+### Step 10：ROS 编译体检（新增）
+
+该脚本位于官方 SDK 脚本目录，便于统一维护：
+
+```powershell
+docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/ros_a1_compile_test.sh"
+```
+
+如需先跑官方整包编译再体检 ROS：
+
+```powershell
+docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/ros_a1_compile_test.sh --with-sdk"
+```
+
+报告输出：`output/ros_compile_test_report.txt`
 
 ## 新手 Git 操作手册（拉取与提交）
 

@@ -14,8 +14,8 @@
  * @param in_img_shape 输入图像尺寸 [宽度, 高度]
  * @param in_scale Binning降采样倍数（保留参数以兼容接口，但不使用）
  */
-// void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape, 
-//   BinningRatioType in_scale) {
+// 中文注释：已转写
+// 中文注释：已转写
 void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape) 
 {
     img_shape = *in_img_shape;      // 保存原始图像尺寸
@@ -25,7 +25,7 @@ void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
     uint16_t img_height = static_cast<uint16_t>(img_shape[1]);  // 原始图像高度
     format_online = SSNE_Y_8;                    // 图像格式：8位灰度图
     
-    // pipe0设置：用于获取裁剪后的图像（原图720×1280 -> 裁剪为720×540）
+    // 中文注释：已转写
     OnlineSetCrop(kPipeline0, 0, 720, 370, 910);  // 裁剪区域：x=0, w=720, y=370, h=540 (370+540=910)
     OnlineSetOutputImage(kPipeline0, format_online, 720, 540);  // 输出裁剪后的图像尺寸
     

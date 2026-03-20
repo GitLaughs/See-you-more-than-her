@@ -51,6 +51,42 @@ source install/setup.bash
 ros2 launch a1_robot_stack bringup.launch.py
 ```
 
+### A1 兼容性优先启动（推荐）
+
+为降低板端负载，建议先使用核心链路启动：
+
+```bash
+ros2 launch a1_robot_stack bringup_a1_core.launch.py
+```
+
+核心链路保留：
+
+- perception_node
+- lidar_ingest_node
+- chassis_controller_node
+- display_bridge_node
+- safety_supervisor_node
+
+说明：`performance_monitor_node` 可按需单独启用，不作为首轮板端稳定性验证的默认项。
+
+### ROS 编译测试脚本
+
+已新增脚本：`data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh`
+
+用法：
+
+```bash
+bash data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh
+```
+
+如需先执行官方 SDK 编译再测 ROS：
+
+```bash
+bash data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh --with-sdk
+```
+
+测试报告默认输出到：`output/ros_compile_test_report.txt`
+
 ## 下一步集成点（必须完成）
 
 - A1 摄像头灰度流接入（替换 mock 输入）
@@ -59,3 +95,40 @@ ros2 launch a1_robot_stack bringup.launch.py
 - 底盘串口协议适配（速度命令下发与回读）
 - 场景鲁棒性策略（曝光/增益/去噪自适应）
 - 功耗与实时性联合优化（动态调频、线程绑核、零拷贝）
+
+## 已补齐的硬件接口参数（2026-03）
+
+- `perception_node`
+  - `use_mock_input`：是否使用模拟输入
+  - `camera_topic`：真实图像输入话题，默认 `/a1/camera/mono`
+  - `camera_timeout_sec`：相机超时告警阈值
+- `lidar_ingest_node`
+  - `use_scan_topic`：`true` 使用 `/scan`，`false` 使用串口模式
+  - `scan_topic`：雷达话题名
+  - `serial_port` / `serial_baud` / `serial_poll_ms`：串口雷达参数
+- `chassis_controller_node`
+  - `use_uart_output`：启用底盘 UART 输出
+  - `uart_port` / `uart_baud`：底盘串口参数
+- `display_bridge_node`（新增）
+  - 订阅感知与告警话题，发布 `/display/overlay_text`
+  - 同步写入 `/tmp/a1_display_status.txt` 供 HDMI 控制台查看
+
+## 代码结构速查（本轮新增/更新）
+
+- `src/a1_robot_stack/src/perception_node.cpp`
+  - 新增真实图像输入模式（`camera_topic`）和相机超时告警
+  - 保留 mock 输入，便于无相机时联调
+- `src/a1_robot_stack/src/lidar_ingest_node.cpp`
+  - 支持话题模式（`/scan`）与串口模式双通道接入
+  - 串口模式用于 CH347/UART 雷达快速打通
+- `src/a1_robot_stack/src/chassis_controller_node.cpp`
+  - 新增 UART 底盘命令输出（端口、波特率可配置）
+  - 保留 `/chassis/cmd_out` 调试输出
+- `src/a1_robot_stack/src/display_bridge_node.cpp`（新增）
+  - 汇总感知/告警状态，输出显示叠字与状态文件
+- `src/a1_robot_stack/src/safety_supervisor_node.cpp`
+  - 新增 display 心跳监管，避免显示链路失效无告警
+- `src/a1_robot_stack/launch/bringup_a1_core.launch.py`（新增）
+  - 面向板端性能的核心节点启动编排
+- `data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh`（新增）
+  - 容器内 ROS 编译体检脚本，支持可选前置 SDK 编译

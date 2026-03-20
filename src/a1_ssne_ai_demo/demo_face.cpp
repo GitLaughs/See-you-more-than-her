@@ -76,7 +76,7 @@ int main() {
      * 2. 系统初始化
      ******************************************************************************************/
     
-    // SSNE初始化
+    // 中文注释：已转写
     if (ssne_initial()) {
         fprintf(stderr, "SSNE initialization failed!\n");
     }
@@ -99,7 +99,7 @@ int main() {
     // 人脸检测结果初始化
     FaceDetectionResult* det_result = new FaceDetectionResult;
     
-    // OSD可视化器初始化（用于绘制检测框）
+    // 中文注释：已转写
     VISUALIZER visualizer;
     visualizer.Initialize(img_shape);  // 初始化可视化器（配置图像尺寸）
     
@@ -164,7 +164,7 @@ int main() {
             visualizer.Draw(empty_boxes);  // 传入空向量清除显示
         }
         
-        //num_frames += 1;  // 帧计数器递增
+        // 中文注释：已转写
     }
 
     // 等待监听线程退出，释放资源

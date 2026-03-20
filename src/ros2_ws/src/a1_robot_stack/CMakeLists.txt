@@ -32,12 +32,16 @@ ament_target_dependencies(safety_supervisor_node rclcpp std_msgs sensor_msgs geo
 add_executable(performance_monitor_node src/performance_monitor_node.cpp)
 ament_target_dependencies(performance_monitor_node rclcpp std_msgs sensor_msgs geometry_msgs diagnostic_msgs)
 
+add_executable(display_bridge_node src/display_bridge_node.cpp)
+ament_target_dependencies(display_bridge_node rclcpp std_msgs sensor_msgs geometry_msgs diagnostic_msgs)
+
 install(TARGETS
   perception_node
   lidar_ingest_node
   chassis_controller_node
   safety_supervisor_node
   performance_monitor_node
+  display_bridge_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

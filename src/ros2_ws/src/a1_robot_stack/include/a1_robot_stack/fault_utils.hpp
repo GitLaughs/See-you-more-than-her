@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <string>
 #include <vector>
@@ -51,4 +51,4 @@ inline diagnostic_msgs::msg::DiagnosticStatus make_fault_status(
   return status;
 }
 
-}  // namespace a1_robot_stack
+}  // 命名空间 a1_robot_stack

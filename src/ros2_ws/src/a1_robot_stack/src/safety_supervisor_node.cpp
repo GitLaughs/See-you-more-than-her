@@ -1,4 +1,4 @@
-#include <chrono>
+﻿#include <chrono>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -34,6 +34,10 @@ class SafetySupervisorNode : public rclcpp::Node {
       "/system/heartbeat/chassis", 10, [this](const std_msgs::msg::UInt64::SharedPtr) {
         heartbeats_["chassis"] = this->now();
       });
+    sub_hb_display_ = this->create_subscription<std_msgs::msg::UInt64>(
+      "/system/heartbeat/display", 10, [this](const std_msgs::msg::UInt64::SharedPtr) {
+        heartbeats_["display"] = this->now();
+      });
 
     pub_safe_cmd_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel_safe", 20);
     pub_alarm_ = this->create_publisher<std_msgs::msg::String>("/system/alarm", 20);
@@ -42,6 +46,7 @@ class SafetySupervisorNode : public rclcpp::Node {
     heartbeats_["vision"] = now;
     heartbeats_["lidar"] = now;
     heartbeats_["chassis"] = now;
+    heartbeats_["display"] = now;
 
     timer_ = this->create_wall_timer(100ms, std::bind(&SafetySupervisorNode::watchdog_tick, this));
   }
@@ -86,6 +91,7 @@ class SafetySupervisorNode : public rclcpp::Node {
   rclcpp::Subscription<std_msgs::msg::UInt64>::SharedPtr sub_hb_vision_;
   rclcpp::Subscription<std_msgs::msg::UInt64>::SharedPtr sub_hb_lidar_;
   rclcpp::Subscription<std_msgs::msg::UInt64>::SharedPtr sub_hb_chassis_;
+  rclcpp::Subscription<std_msgs::msg::UInt64>::SharedPtr sub_hb_display_;
 
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr pub_safe_cmd_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_alarm_;

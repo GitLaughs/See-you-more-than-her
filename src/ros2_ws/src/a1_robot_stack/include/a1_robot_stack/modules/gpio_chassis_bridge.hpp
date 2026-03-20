@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 namespace a1_robot_stack::modules {
 
@@ -8,4 +8,4 @@ class GpioChassisBridge {
   void WriteMotion(float linear, float angular);
 };
 
-}  // namespace a1_robot_stack::modules
+}  // 命名空间 a1_robot_stack::modules
