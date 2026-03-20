@@ -18,16 +18,15 @@
 ├── data/                                # SDK 与训练数据模板
 ├── models/                              # 模型文件（ONNX、训练导出）
 ├── src/
-│   ├── a1_ssne_ai_demo/                 # 官方 demo 同步副本
-│   └── ros2_ws/                         # ROS2 工作区
+│   ├── a1_ssne_ai_demo/                 # SDK demo 与基础开发骨架
+│   └── ros2_ws/                         # ROS2 工作区（仅上游仓库）
 │       └── src/
 │           ├── base_control_ros2/
 │           ├── hardware_driver/
 │           ├── bingda_ros2_demos/
 │           ├── ncnn_ros2/
 │           ├── depend_pkg/
-│           ├── object_information_msgs_ros2/
-│           └── a1_robot_stack/          # 旧本地实现，已通过 .colcon_ignore 排除
+│           └── object_information_msgs_ros2/
 └── docs/
 ```
 
@@ -46,6 +45,22 @@
 
 因此本文中的 docker exec A1_Builder ... 命令与实际配置一致。
 
+## 项目文档索引
+
+下面这些 README 是按功能拆开的，建议新队友按这个顺序看：
+
+- [SDK 总说明](data/A1_SDK_SC132GS/README.md)
+- [SDK demo 人脸检测工程](src/a1_ssne_ai_demo/README.md)
+- [ROS2 工作区说明](src/ros2_ws/README.md)
+- [容器操作手册](docs/CONTAINER_OPERATION_GUIDE.md)
+- [RPLidar SDK 接入指南](docs/RPLIDAR_SDK_GUIDE.md)
+- [YOLOv8 训练说明](docs/YOLOV8_TRAINING.md)
+- [数据集说明](data/yolov8_dataset/README.md)
+- [YDLidar 驱动说明](src/ros2_ws/src/hardware_driver/lidar/ydlidar_ros2_driver/README.md)
+- [SLLidar 驱动说明](src/ros2_ws/src/hardware_driver/lidar/sllidar_ros2/README.md)
+- [NVILidar 驱动说明](src/ros2_ws/src/hardware_driver/lidar/nvilidar_ros2/README.md)
+- [GMapping 说明](src/ros2_ws/src/depend_pkg/slam_gmapping/README.md)
+
 ## ROS 源码替换结果
 
 当前 `src/ros2_ws/src` 已替换为你提供的上游仓库集合：
@@ -57,24 +72,44 @@
 - `depend_pkg`
 - `object_information_msgs_ros2`
 
-旧的 `a1_robot_stack` 保留在仓库中作为参考，但不会参与 colcon 编译。
+自研的 `a1_robot_stack` 已从工作区删除，不再作为参考保留。
 
-## 从零开始部署（新手版）
+## 从零开始安装 SDK 和 ROS（给新队友的完整流程）
 
-### Step 0：准备环境
+下面这套流程假设你是第一次接触这个仓库，只想在 Windows + Docker Desktop 环境里把 SDK、ROS2 和对应固件都跑起来。
 
-- Windows + Docker Desktop
+### 1. 准备本地环境
+
+- Windows 10/11
+- Docker Desktop
 - Git
-- Python 3.9（用于 YOLOv8 训练）
+- Python 3.9 或更高版本（如果还要做 YOLOv8 训练）
 
-### Step 1：第一次克隆代码
+### 2. 克隆仓库
 
 ```powershell
 git clone https://github.com/GitLaughs/See-you-more-than-her.git
 cd See-you-more-than-her
 ```
 
-### Step 2：固定 SDK 版本（含 libssne 更新）
+### 3. 启动 Docker 容器
+
+```powershell
+docker compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml ps
+```
+
+容器名固定为 `A1_Builder`。如果需要停止容器，执行：
+
+```powershell
+docker compose -f docker/docker-compose.yml down
+```
+
+### 4. 确认 SDK 源码已经在位
+
+SDK 源码目录在 `data/A1_SDK_SC132GS`。如果你拿到的是一个不完整的工作区，请先把这个目录同步完整，再继续后面的编译步骤。
+
+如果团队要求固定到我们当前使用的 SDK 版本，可以在宿主机上执行：
 
 ```powershell
 cd data/A1_SDK_SC132GS
@@ -83,59 +118,87 @@ git checkout 989a51550af0d474191436617eb1eebf94cb4424
 cd ../..
 ```
 
-### Step 3：启动开发容器
+### 5. 进入容器后先做一次基础清理
 
-```powershell
-docker compose -f docker/docker-compose.yml up -d
-docker compose -f docker/docker-compose.yml ps
-```
-
-如果你要停止容器：
-
-```powershell
-docker compose -f docker/docker-compose.yml down
-```
-
-### Step 4：首次建议执行 CRLF 清理
-
-SDK 文件若被 Windows 工具改写，可能出现 bash\r 报错。
+Windows 挂载目录有时会把换行改坏，导致 `bash\r` 报错。首次接入时建议先清理一次：
 
 ```powershell
 docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; grep -rIl $'\r' . | xargs -r sed -i 's/\r$//'"
 ```
 
-### Step 5：编译基础 SDK 库
+### 6. 安装 SDK 构建依赖
+
+如果容器里还没有 SDK 相关依赖，先执行一次基础工具与库安装。团队里新机器通常先跑这一段：
+
+```powershell
+docker exec A1_Builder bash -lc "apt-get update && apt-get install -y build-essential cmake git rsync unzip libgflags-dev libgoogle-glog-dev libusb-1.0-0-dev libuvc-dev"
+```
+
+### 7. 编译 SDK 基础库
 
 ```powershell
 docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; make BR2_EXTERNAL=./smart_software smartsens_m1pro_release_defconfig"
 docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; make m1_sdk_lib-rebuild"
 ```
 
-### Step 6：执行整包构建
+如果你要把 SDK 的完整编译日志保存下来，可以重定向到 `output/`：
+
+```powershell
+docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/a1_sc132gs_build.sh 2>&1 | tee /app/output/a1_sc132gs_build.log"
+```
+
+### 8. 生成 EVB 镜像文件
+
+官方构建脚本会输出可烧录的 EVB 镜像。标准路径如下：
+
+```text
+/app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk/output/images/zImage.smartsens-m1-evb
+```
+
+直接执行整包构建：
 
 ```powershell
 docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/a1_sc132gs_build.sh"
 ```
 
-可选日志输出：
+### 9. 安装 ROS2 运行依赖
+
+当前工作区使用的是 ROS2 Jazzy。为了让 `hardware_driver`、`astra_camera`、`ncnn_ros2` 等包能编译，通过容器补齐这些常用依赖：
 
 ```powershell
-docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/a1_sc132gs_build.sh > /app/output/a1_sc132gs_build.log 2>&1"
+docker exec A1_Builder bash -lc "apt-get update && apt-get install -y ros-jazzy-camera-info-manager ros-jazzy-cv-bridge ros-jazzy-image-geometry ros-jazzy-image-publisher ros-jazzy-image-transport ros-jazzy-message-filters ros-jazzy-tf2-msgs ros-jazzy-tf2-sensor-msgs ros-jazzy-tf2-ros ros-jazzy-rclcpp-components ros-jazzy-class-loader ros-jazzy-vision-opencv libusb-1.0-0-dev libuvc-dev libgflags-dev libgoogle-glog-dev nlohmann-json3-dev"
 ```
 
-### Step 7：确认 ROS 源码已替换
+如果后续编译还提示缺包，再按日志继续补安装即可。
 
-`src/ros2_ws/src` 现在应包含 `base_control_ros2`、`hardware_driver`、`bingda_ros2_demos`、`ncnn_ros2`、`depend_pkg` 和 `object_information_msgs_ros2`，旧的 `a1_robot_stack` 仅作参考，不参与构建。
+### 10. 确认 ROS 源码替换完成
 
-### Step 8：编译 ROS2
+`src/ros2_ws/src` 里应该是这组上游仓库：
+
+- `base_control_ros2`
+- `hardware_driver`
+- `bingda_ros2_demos`
+- `ncnn_ros2`
+- `depend_pkg`
+- `object_information_msgs_ros2`
+
+旧的 `a1_robot_stack` 只保留参考，不参与 colcon 编译。
+
+### 11. 编译 ROS2 工作区
 
 ```powershell
 docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; rm -rf build install log; set +u; source /opt/ros/jazzy/setup.bash; set -u; colcon build --symlink-install"
 ```
 
-### Step 9：启动系统
+如果要留日志，建议这样跑：
 
-按仓库里的 launch 入口启动对应能力，例如：
+```powershell
+docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; rm -rf build install log; set +u; source /opt/ros/jazzy/setup.bash; set -u; colcon build --symlink-install 2>&1 | tee /app/output/ros2_colcon_build.log"
+```
+
+### 12. 验证构建结果
+
+编译完成后，先加载工作区环境，再启动对应功能：
 
 ```powershell
 docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; set +u; source /opt/ros/jazzy/setup.bash; source install/setup.bash; set -u; ros2 launch base_control_ros2 base_control.launch.py"
@@ -145,25 +208,19 @@ docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; set +u; source /opt/ros/ja
 docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; set +u; source /opt/ros/jazzy/setup.bash; source install/setup.bash; set -u; ros2 launch ncnn_ros2 yolov8_ros.launch.py"
 ```
 
-### Step 10：YOLOv8 训练入口
+### 13. ROS 编译体检
 
-YOLOv8 的详细中文手册见 docs/YOLOV8_TRAINING.md。
-
-### Step 11：ROS 编译体检（新增）
-
-该脚本位于官方 SDK 脚本目录，便于统一维护，并会对当前上游 ROS2 源码集合执行编译测试：
-
-```powershell
-docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/ros_a1_compile_test.sh"
-```
-
-如需先跑官方整包编译再体检 ROS：
+仓库里额外准备了一个统一体检脚本，适合在安装完 SDK 和 ROS 依赖后快速确认环境：
 
 ```powershell
 docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/ros_a1_compile_test.sh --with-sdk"
 ```
 
 报告输出：`output/ros_compile_test_report.txt`
+
+### 14. YOLOv8 训练入口
+
+YOLOv8 的详细中文手册见 [docs/YOLOV8_TRAINING.md](docs/YOLOV8_TRAINING.md)。
 
 ## 新手 Git 操作手册（拉取与提交）
 

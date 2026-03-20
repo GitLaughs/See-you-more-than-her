@@ -3,6 +3,7 @@
 #ifndef _NVILIDAR_SERIAL_UNIX
 #define _NVILIDAR_SERIAL_UNIX
 
+#include <cstdint>
 #include <string>
 #include <termios.h> /* POSIX terminal control definitions */
 

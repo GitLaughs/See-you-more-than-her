@@ -1,6 +1,6 @@
 # A1 ROS2 工作区（容器内开发）
 
-本目录已经从本地自研的 `a1_robot_stack` 切换为你提供的上游 ROS2 仓库集合。
+本目录已经切换为你提供的上游 ROS2 仓库集合，仓库里不再保留本地自研的 ROS 包。
 
 ## 当前源码来源
 
@@ -14,7 +14,7 @@
 ## 目录约定
 
 - 上游仓库直接放在 `ros2_ws/src/` 下，colcon 会递归发现其中的包
-- 旧的 `a1_robot_stack` 已保留为本地参考，但通过 `.colcon_ignore` 排除，不参与编译
+- 不再保留自研的 `a1_robot_stack`
 
 ## 容器内构建
 
@@ -64,3 +64,17 @@ bash data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh --with-sdk
 - `depend_pkg`：`slam_gmapping` 等第三方依赖源码
 - `object_information_msgs_ros2`：检测结果消息定义
 
+## RPLidar SDK 放置建议
+
+如果要接入 Slamtec 的 `rplidar_sdk`，建议把它放在“使用它的驱动包”旁边，而不是放到 `data/A1_SDK_SC132GS` 根目录下。推荐路径示例：
+
+- `src/a1_ssne_ai_demo/third_party/rplidar_sdk/`：如果你先做独立 demo 适配
+- `src/ros2_ws/src/<your_lidar_package>/third_party/rplidar_sdk/`：如果后续再接回 ROS 包
+
+使用方式上，通常是：
+
+1. 在 CMake 里把 `rplidar_sdk/include` 加到 `include_directories()`
+2. 把 `rplidar_sdk/src` 编进库或者链接到目标
+3. 在代码里通过 `RPlidarDriver::CreateDriver()` 打开串口，调用 `connect()`、`startScan()`、`grabScanData()`、`disconnect()`
+
+当前仓库里已经删除了自研 ROS 包，因此如果你要先在 SDK demo 里接雷达，建议先做成独立的 C++ 适配层，再决定后面是否重建 ROS 节点。

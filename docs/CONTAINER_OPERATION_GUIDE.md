@@ -26,13 +26,11 @@ docker exec A1_Builder bash -lc "cd /app/src/ros2_ws && pwd && ls"
 - `depend_pkg`
 - `object_information_msgs_ros2`
 
-旧的 `a1_robot_stack` 仅保留参考，不参与构建。
-
 ## 3. 代码提交到 GitHub
 
 ```powershell
 git status
-git add README.md docs/CONTAINER_OPERATION_GUIDE.md data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh src/ros2_ws/README.md src/ros2_ws/src/a1_robot_stack/.colcon_ignore src/ros2_ws/src/base_control_ros2 src/ros2_ws/src/hardware_driver src/ros2_ws/src/bingda_ros2_demos src/ros2_ws/src/ncnn_ros2 src/ros2_ws/src/depend_pkg src/ros2_ws/src/object_information_msgs_ros2
+git add README.md docs/CONTAINER_OPERATION_GUIDE.md docs/RPLIDAR_SDK_GUIDE.md data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh src/ros2_ws/README.md src/ros2_ws/src/base_control_ros2 src/ros2_ws/src/hardware_driver src/ros2_ws/src/bingda_ros2_demos src/ros2_ws/src/ncnn_ros2 src/ros2_ws/src/depend_pkg src/ros2_ws/src/object_information_msgs_ros2 src/a1_ssne_ai_demo
 git commit -m "feat: replace ros workspace with upstream sources"
 git push origin main
 ```
@@ -40,6 +38,12 @@ git push origin main
 如果 `main` 不允许直接推送，请改用你的功能分支再发 PR。
 
 ## 4. 容器内编译 ROS2
+
+如果是第一次在这台容器里编译，先补齐常用依赖：
+
+```powershell
+docker exec A1_Builder bash -lc "apt-get update && apt-get install -y ros-jazzy-camera-info-manager ros-jazzy-cv-bridge ros-jazzy-image-geometry ros-jazzy-image-publisher ros-jazzy-image-transport ros-jazzy-message-filters ros-jazzy-tf2-msgs ros-jazzy-tf2-sensor-msgs ros-jazzy-tf2-ros ros-jazzy-rclcpp-components ros-jazzy-class-loader ros-jazzy-vision-opencv libusb-1.0-0-dev libuvc-dev libgflags-dev libgoogle-glog-dev nlohmann-json3-dev"
+```
 
 ```powershell
 docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; rm -rf build install log; set +u; source /opt/ros/jazzy/setup.bash; set -u; colcon build --symlink-install"
@@ -52,6 +56,13 @@ docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; set +u; source /opt/ros/ja
 ```
 
 ## 5. 生成 EVB 镜像文件
+
+如果 SDK 源码刚同步完成，建议先执行基础库编译：
+
+```powershell
+docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; make BR2_EXTERNAL=./smart_software smartsens_m1pro_release_defconfig"
+docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; make m1_sdk_lib-rebuild"
+```
 
 `smartsens_sdk` 的官方编译脚本会输出 EVB 固件：
 
@@ -72,5 +83,4 @@ docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_
 ## 6. 常见问题
 
 - 如果 `source` 报 `AMENT_TRACE_SETUP_FILES: unbound variable`，请保持脚本里的 `set +u` / `set -u` 包裹。
-- 如果 `colcon` 找到旧的本地 `a1_robot_stack`，检查 `.colcon_ignore` 是否存在。
 - 如果生成的 `zImage.smartsens-m1-evb` 不在 `output/images/`，优先查看 `scripts/a1_sc132gs_build.sh` 的执行日志。
