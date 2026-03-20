@@ -15,7 +15,12 @@ find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 
-include_directories(include)
+include_directories(include ${CMAKE_CURRENT_SOURCE_DIR}/third_party/rplidar_sdk/include)
+
+# If the rplidar SDK header is present in third_party, enable SDK-specific code paths
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/rplidar_sdk/include/rplidar.h)
+  add_compile_definitions(RPLIDAR_SDK_PRESENT)
+endif()
 
 add_executable(perception_node src/perception_node.cpp)
 ament_target_dependencies(perception_node rclcpp std_msgs sensor_msgs geometry_msgs diagnostic_msgs)

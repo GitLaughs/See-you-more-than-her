@@ -104,6 +104,7 @@ bash data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh --with-sdk
   - `camera_timeout_sec`：相机超时告警阈值
 - `lidar_ingest_node`
   - `use_scan_topic`：`true` 使用 `/scan`，`false` 使用串口模式
+  - `use_rplidar_sdk`：是否使用 RPLidar SDK 直接驱动雷达
   - `scan_topic`：雷达话题名
   - `serial_port` / `serial_baud` / `serial_poll_ms`：串口雷达参数
 - `chassis_controller_node`
@@ -121,6 +122,9 @@ bash data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh --with-sdk
 - `src/a1_robot_stack/src/lidar_ingest_node.cpp`
   - 支持话题模式（`/scan`）与串口模式双通道接入
   - 串口模式用于 CH347/UART 雷达快速打通
+  - 新增 `use_rplidar_sdk` 参数，支持使用 RPLidar SDK 直接驱动雷达
+- `src/a1_robot_stack/third_party/rplidar_sdk/`（新增）
+  - RPLidar SDK 库，用于直接驱动 Slamtec 激光雷达
 - `src/a1_robot_stack/src/chassis_controller_node.cpp`
   - 新增 UART 底盘命令输出（端口、波特率可配置）
   - 保留 `/chassis/cmd_out` 调试输出

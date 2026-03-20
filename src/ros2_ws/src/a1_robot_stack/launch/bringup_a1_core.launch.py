@@ -23,8 +23,8 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'obstacle_threshold_m': 0.7,
-                'use_scan_topic': True,
-                'scan_topic': '/scan',
+                'use_scan_topic': False,
+                'use_rplidar_sdk': True,
                 'serial_port': '/dev/ttyUSB0',
                 'serial_baud': 230400,
             }],

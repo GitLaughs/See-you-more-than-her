@@ -20,8 +20,8 @@ def generate_launch_description():
             name='lidar_ingest_node',
             output='screen',
             parameters=[{
-                'use_scan_topic': True,
-                'scan_topic': '/scan',
+                'use_scan_topic': False,
+                'use_rplidar_sdk': True,
                 'serial_port': '/dev/ttyUSB0',
                 'serial_baud': 230400,
             }],

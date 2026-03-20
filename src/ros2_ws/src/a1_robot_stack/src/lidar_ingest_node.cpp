@@ -10,6 +10,10 @@
 #include <termios.h>
 #include <unistd.h>
 
+#ifdef RPLIDAR_SDK_PRESENT
+#include "rplidar.h"
+#endif
+
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
@@ -24,6 +28,7 @@ class LidarIngestNode : public rclcpp::Node {
   LidarIngestNode() : Node("lidar_ingest_node") {
     obstacle_threshold_ = this->declare_parameter<double>("obstacle_threshold_m", 0.7);
     use_scan_topic_ = this->declare_parameter<bool>("use_scan_topic", true);
+    use_rplidar_sdk_ = this->declare_parameter<bool>("use_rplidar_sdk", false);
     scan_topic_ = this->declare_parameter<std::string>("scan_topic", "/scan");
     serial_port_ = this->declare_parameter<std::string>("serial_port", "/dev/ttyUSB0");
     serial_baud_ = this->declare_parameter<int>("serial_baud", 230400);
@@ -167,6 +172,7 @@ class LidarIngestNode : public rclcpp::Node {
 
   double obstacle_threshold_{0.7};
   bool use_scan_topic_{true};
+  bool use_rplidar_sdk_{false};
   std::string scan_topic_;
   std::string serial_port_;
   int serial_baud_{230400};
