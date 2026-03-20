@@ -85,6 +85,31 @@ ssne_ai_demo/
 - SDK 根目录挂载到 `/app/smartsens_sdk`
 - 源码根目录挂载到 `/app/src`
 
+## 详细编译手册
+
+如果你要按当前仓库的真实目录结构从头编译，请优先查看仓库级手册：
+
+- [docs/BUILD.md](../../docs/BUILD.md)
+
+这里先给出最关键的结论：
+
+- SDK demo 的产物是在 `data/A1_SDK_SC132GS/smartsens_sdk/output/images/` 下生成的
+- 真正可写入主板的镜像文件名是 `zImage.smartsens-m1-evb`
+- 这里的 `-evb` 是文件名后缀，不是 `.evb` 扩展名
+- 仓库新增的全量脚本是 [scripts/build_src_all.sh](../../scripts/build_src_all.sh)
+
+推荐执行方式：
+
+```powershell
+docker exec A1_Builder bash -lc "cd /app/src; chmod +x scripts/build_src_all.sh && scripts/build_src_all.sh"
+```
+
+如果你只想单独编译 SDK demo，则继续使用 SDK 原有脚本：
+
+```powershell
+docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/a1_sc132gs_build.sh"
+```
+
 如果容器还没启动，可以先执行：
 
 ```powershell

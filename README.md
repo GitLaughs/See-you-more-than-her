@@ -53,6 +53,7 @@
 - [SDK demo 人脸检测工程](src/a1_ssne_ai_demo/README.md)
 - [ROS2 工作区说明](src/ros2_ws/README.md)
 - [容器操作手册](docs/CONTAINER_OPERATION_GUIDE.md)
+- [详细编译手册](docs/BUILD.md)
 - [RPLidar SDK 接入指南](docs/RPLIDAR_SDK_GUIDE.md)
 - [YOLOv8 训练说明](docs/YOLOV8_TRAINING.md)
 - [数据集说明](data/yolov8_dataset/README.md)

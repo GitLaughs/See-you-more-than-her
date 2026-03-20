@@ -7,8 +7,8 @@
 - 已安装 Docker（本地）或在 CI 中可使用 Docker Runner
 
 主要脚本
-- `smartsens_sdk/scripts/a1_sc132gs_build.sh`：SDK 原有的构建脚本（由供应商提供）。
-- `smartsens_sdk/scripts/build_evb_from_src.sh`：仓库新增封装脚本，会调用 SDK 构建并构建 ROS2 工作区，最后收集 *.evb 工件。
+- `data/A1_SDK_SC132GS/smartsens_sdk/scripts/a1_sc132gs_build.sh`：SDK 原有的构建脚本（由供应商提供）。
+- `scripts/build_src_all.sh`：仓库新增封装脚本，会调用 SDK 构建并构建 ROS2 工作区，最后收集 EVB 工件。
 
 在本地使用 Docker 构建（推荐）
 1. 在仓库根目录构建镜像：
@@ -17,26 +17,35 @@
 docker build -f docker/Dockerfile -t a1_builder .
 ```
 
-2. 运行容器进行全量构建（会打印日志到控制台并在完成后把 EVB 放到 `smartsens_sdk/output/images/`）：
+2. 运行容器进行全量构建（会打印日志到控制台并在完成后把 EVB 放到 `data/A1_SDK_SC132GS/smartsens_sdk/output/images/` 和仓库级 `output/evb/`）：
 
 ```bash
 docker run --rm -v $(pwd):/workspace -w /workspace a1_builder \
-  bash -lc "chmod +x smartsens_sdk/scripts/build_evb_from_src.sh && smartsens_sdk/scripts/build_evb_from_src.sh"
+  bash -lc "chmod +x scripts/build_src_all.sh && scripts/build_src_all.sh"
 ```
 
-3. 构建完成后，检查 `smartsens_sdk/output/images/` 目录下的文件：
-- 如果出现以 `.evb` 结尾的文件（或供应商指定的镜像文件），这就是可写入主板的固件（一般为 EVB/board image）。
+3. 构建完成后，检查这两个位置：
+- `data/A1_SDK_SC132GS/smartsens_sdk/output/images/`
+- `output/evb/`
+
+当前项目里真正可写入主板的镜像文件是：
+
+```text
+data/A1_SDK_SC132GS/smartsens_sdk/output/images/zImage.smartsens-m1-evb
+```
+
+注意这里的 `-evb` 是文件名后缀，不是 `.evb` 扩展名。它就是我们当前需要的板端镜像名。
 
 在 CI（GitHub Actions）中的运行
-- 仓库的 CI 增加了 `build-in-container` 作业：在构建 Docker 镜像后，会运行 `smartsens_sdk/scripts/build_evb_from_src.sh` 并上传 `evb-files` 工件到 Actions 页面。
+- 仓库的 CI 增加了 `build-in-container` 作业：在构建 Docker 镜像后，会运行 `scripts/build_src_all.sh` 并上传 `evb-files` 工件到 Actions 页面。
 
 如何判断生成的文件是否可写入主板
-- 一般供应商会给出固件文件名/格式要求（你的主板需要 `-evb` 格式）。本脚本会尝试收集 `smartsens_sdk/output/images/` 下的文件以及仓库内所有 `*.evb` 文件。
-- 若 `*.evb` 文件存在且供应商说明一致，则可以直接使用厂商提供的刷写工具/脚本将其写入主板。
+- 一般供应商会给出固件文件名/格式要求（你的主板需要 `-evb` 文件名后缀）。当前 SDK 构建产物就是 `zImage.smartsens-m1-evb`，它属于你要的板端可写入镜像。
+- `scripts/build_src_all.sh` 会把这个镜像复制到 `output/evb/`，便于后续刷板或上传到 CI 工件。
 
 如果没有生成 `.evb`
-- 请检查 `smartsens_sdk/scripts/a1_sc132gs_build.sh` 的日志，确认 SDK 构建步骤是否会产出镜像并放置到 `output/images` 或其它目录。
-- 若 SDK 默认不生成 EVB，则需要在 SDK 构建后增加镜像打包或转换步骤（可以在 `build_evb_from_src.sh` 中补充）。
+- 请检查 `data/A1_SDK_SC132GS/smartsens_sdk/scripts/a1_sc132gs_build.sh` 的日志，确认 SDK 构建步骤是否会产出镜像并放置到 `output/images` 或其它目录。
+- 若 SDK 默认不生成 EVB，则需要在 SDK 构建后增加镜像打包或转换步骤（可以在 `scripts/build_src_all.sh` 中补充）。
 
 日志与调试
 - 构建日志会直接输出到控制台；在 CI 中，Actions 会保存日志供诊断。
@@ -45,8 +54,8 @@ docker run --rm -v $(pwd):/workspace -w /workspace a1_builder \
 ```bash
 docker run --rm -it -v $(pwd):/workspace -w /workspace a1_builder bash
 # 进入后手动执行：
-# chmod +x smartsens_sdk/scripts/build_evb_from_src.sh
-# smartsens_sdk/scripts/build_evb_from_src.sh
+# chmod +x scripts/build_src_all.sh
+# scripts/build_src_all.sh
 ```
 
 常见问题
