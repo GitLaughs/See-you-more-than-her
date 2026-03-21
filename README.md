@@ -318,7 +318,12 @@ git push origin 你的分支名
 - 问题：git push 被拒绝（non-fast-forward）
   - 解决：先 git pull --rebase origin main，处理冲突后再 push。
  
-注：-改 demo C++ 后：
+注：
+-改 demo C++ 后：
+```
 docker run --rm -v $(pwd):/workspace -w /workspace a1_builder bash -lc "bash scripts/build_incremental.sh sdk ssne_ai_demo"
+```
 -改 ROS2 包后：
+```
 docker run --rm -v $(pwd):/workspace -w /workspace a1_builder bash -lc "bash build_incremental.sh ros --clean robot_navigation_ros2 ncnn_ros2"
+```
