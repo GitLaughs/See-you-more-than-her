@@ -1,0 +1,28 @@
+nvilidar_ros2_node:
+  ros__parameters:
+    serialport_name: "/dev/lidar"
+    serialport_baud: 512000
+    ip_addr: "192.168.1.200"
+    lidar_udp_port: 8100
+    config_udp_port: 8200
+    frame_id: "laser_frame"
+    resolution_fixed: true
+    auto_reconnect: true
+    reversion: false
+    inverted: false
+    angle_min: -180.0
+    angle_max: 180.0
+    range_min: 0.001
+    range_max: 64.0
+    aim_speed: 8.0
+    sampling_rate: 10
+    sensitive: false
+    tailing_level: 6
+    angle_offset_change_flag: false
+    angle_offset: 0.0
+    apd_change_flag: false
+    apd_value: 500
+    ignore_array_string: ""
+    filter_jump_enable: true
+    filter_jump_value_min: 3
+    filter_jump_value_max: 50

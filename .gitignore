@@ -1,0 +1,9 @@
+a1-sdk-builder-latest.tar
+data/A1_SDK_SC132GS/
+data/yolov8_dataset/raw/
+output/
+src/ros2_ws/build/
+src/ros2_ws/install/
+src/ros2_ws/log/
+third_party/ultralytics/
+.venv39/
