@@ -1,6 +1,6 @@
 /**
  * @file vision_app.cpp
- * @brief Main application loop integrating YOLOv8, face detection, lidar, and OSD
+ * @brief 集成YOLOv8、人脸检测、激光雷达和OSD的主应用循环
  */
 
 #include "../include/vision_app.hpp"
@@ -13,43 +13,43 @@ namespace ssne_demo {
 VisionApp::VisionApp(ProjectPaths paths) : paths_(std::move(paths)) {}
 
 void VisionApp::Initialize() {
-  // Initialize SSNE hardware
+  // 初始化SSNE硬件
   if (ssne_initial()) {
-    std::fprintf(stderr, "[FATAL] SSNE initialization failed!\n");
+    std::fprintf(stderr, "[FATAL] SSNE初始化失败!\n");
     return;
   }
 
-  // Image pipeline
+  // 图像管道
   processor_.Initialize(&paths_.image_shape);
 
-  // Face detector (SCRFD)
+  // 人脸检测器（SCRFD）
   face_detector_.Initialize(
       paths_.face_model_path, &paths_.crop_shape, &paths_.det_shape,
       false, paths_.det_shape[0] * paths_.det_shape[1] / 512 * 21);
 
-  // YOLOv8 object detector
+  // YOLOv8目标检测器
   yolo_detector_.Initialize(
       paths_.yolo_model_path,
-      paths_.crop_shape,     // reuse cropped ROI
-      paths_.yolo_det_shape, // e.g. 640x640
+      paths_.crop_shape,     // 重用裁剪的ROI
+      paths_.yolo_det_shape, // 例如 640x640
       paths_.yolo_num_classes,
       paths_.yolo_confidence_threshold,
       paths_.yolo_nms_threshold);
   yolo_detector_.SetClassNames(paths_.yolo_class_names);
 
-  // OSD visualizer
+  // OSD可视化器
   visualizer_.Initialize(paths_.image_shape);
 
-  // RPLidar
+  // RPLidar激光雷达
   lidar_.Configure(paths_.lidar_serial_port, paths_.lidar_baudrate);
   if (!lidar_.Start()) {
-    std::cerr << "[WARN] RPLidar adapter failed to start" << std::endl;
+    std::cerr << "[WARN] RPLidar适配器启动失败" << std::endl;
   } else {
-    std::cout << "[INFO] RPLidar adapter started" << std::endl;
+    std::cout << "[INFO] RPLidar适配器已启动" << std::endl;
   }
 
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  std::cout << "[INFO] VisionApp initialized" << std::endl;
+  std::cout << "[INFO] VisionApp初始化完成" << std::endl;
 }
 
 void VisionApp::KeyboardLoop() {
@@ -74,21 +74,21 @@ void VisionApp::ProcessOnce() {
   face_result_.Clear();
   yolo_result_.Clear();
 
-  // 1. Capture image
+  // 1. 捕获图像
   processor_.GetImage(&img_sensor);
 
-  // 2. Face detection
+  // 2. 人脸检测
   face_detector_.Predict(&img_sensor, &face_result_, paths_.confidence_threshold);
 
-  // 3. YOLOv8 object detection
+  // 3. YOLOv8目标检测
   yolo_detector_.Predict(&img_sensor, &yolo_result_);
 
-  // 4. Lidar scan
+  // 4. 激光雷达扫描
   const auto lidar_samples = lidar_.ScanOnce();
 
-  // 5. OSD rendering
+  // 5. OSD渲染
 
-  // Face boxes - transform to original image coords
+  // 人脸框 - 转换到原始图像坐标
   std::vector<std::array<float, 4>> face_boxes;
   face_boxes.reserve(face_result_.boxes.size());
   for (const auto& box : face_result_.boxes) {
@@ -98,12 +98,12 @@ void VisionApp::ProcessOnce() {
   }
   visualizer_.DrawFaces(face_boxes);
 
-  // YOLOv8 detection boxes (already in original image coords)
+  // YOLOv8检测框（已经在原始图像坐标中）
   visualizer_.DrawDetections(yolo_result_);
 
-  // Lidar proximity warning overlay
+  // 激光雷达 proximity 警告覆盖
   if (!lidar_samples.empty()) {
-    // Find minimum distance in front sector (±30°)
+    // 寻找前方区域（±30°）的最小距离
     float min_dist = 999.0f;
     for (const auto& s : lidar_samples) {
       float angle_deg = s.angle_deg * 180.0f / 3.14159f;
@@ -113,13 +113,13 @@ void VisionApp::ProcessOnce() {
         }
       }
     }
-    // Show red warning overlay if obstacle < 0.5m ahead
+    // 如果前方障碍物小于0.5m，显示红色警告覆盖
     if (min_dist < 0.5f) {
       visualizer_.DrawInfoRegion({0, 0, 100, 50}, kColorObstacle);
     }
   }
 
-  // 6. Debug log
+  // 6. 调试日志
   LogDetections(yolo_result_, face_result_, lidar_samples);
 }
 
@@ -156,9 +156,9 @@ void VisionApp::Shutdown() {
   visualizer_.Release();
 
   if (ssne_release()) {
-    std::fprintf(stderr, "SSNE release failed!\n");
+    std::fprintf(stderr, "SSNE释放失败!\n");
   }
-  std::cout << "[INFO] VisionApp shutdown complete" << std::endl;
+  std::cout << "[INFO] VisionApp关闭完成" << std::endl;
 }
 
 int VisionApp::Run() {

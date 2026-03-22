@@ -30,15 +30,15 @@ void OsdDevice::Initialize(int width, int height){
     m_width = width;
     m_height = height;
 
-    // 中文注释：已转写
+    
     LoadLutFile(m_osd_lut_path.c_str());
 
-    // 中文注释：已转写
+    
     m_osd_handle = osd_open_device();
-    // 中文注释：已转写
+    
     osd_init_device(m_osd_handle, OSD_LAYER_SIZE, (char*)m_pcolor_lut);
 
-    // 中文注释：已转写
+    
     int dma_size = 1024;
     for(int layer_index = 0; layer_index < OSD_LAYER_SIZE; layer_index++){
         osd_alloc_buffer(m_osd_handle, m_layer_dma[layer_index].dma, dma_size);sleep(0.25);
@@ -62,32 +62,32 @@ void OsdDevice::Initialize(int width, int height){
     // // init run-length layer
     // {
     //     // run-length 最后一层画标定线
-    // 中文注释：已转写
-    // 中文注释：已转写
-    // 中文注释：已转写
+    
+    
+    
         
-    // 中文注释：已转写
-    // 中文注释：已转写
-    // 中文注释：已转写
-    // 中文注释：已转写
-    // 中文注释：已转写
-    // 中文注释：已转写
-    // 中文注释：已转写
-    // 中文注释：已转写
-    // 中文注释：已转写
-    // 中文注释：已转写
-    // 中文注释：已转写
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     // }
 
     // // draw image use run-length
-    // 中文注释：已转写
+    
 }
 
 
 void OsdDevice::Release(){
     std::cout << "OsdDevice Release" << std::endl;
     
-    // 中文注释：已转写
+    
     for(int i = 0; i < OSD_LAYER_SIZE; i++){
         osd_destroy_layer(m_osd_handle, (ssLAYER_HANDLE)i);
 
@@ -122,25 +122,25 @@ int OsdDevice::LoadLutFile(const char* filename){
     return 0;
 }
 
-// 中文注释：已转写
+
 void OsdDevice::Draw(std::vector<OsdQuadRangle> &quad_rangle){
     if ((quad_rangle.size() == 0)){
         osd_clean_all_layer(m_osd_handle);
         return;
     }
 
-    // 中文注释：已转写
+    
     for(auto &q : quad_rangle){
         GenQrangleBox(q.box, q.border);
         COVER_ATTR_S qrangle_attr = {q.color, q.type, q.alpha, m_qrangle_out, m_qrangle_in};
         osd_add_quad_rangle(m_osd_handle, &qrangle_attr);                  
     }
     
-    // 中文注释：已转写
+    
     osd_flush_quad_rangle(m_osd_handle);
 }
 
-// 中文注释：已转写
+
 void OsdDevice::Draw(std::vector<OsdQuadRangle> &quad_rangle, int layer_id){
     if ((quad_rangle.size() == 0)){
         osd_clean_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
@@ -149,7 +149,7 @@ void OsdDevice::Draw(std::vector<OsdQuadRangle> &quad_rangle, int layer_id){
     }
     int ret = 0;
 
-    // 中文注释：已转写
+    
     for(auto &q : quad_rangle){
         printf("Draw --- q.box: %f, %f, %f, %f\n", q.box[0], q.box[1], q.box[2], q.box[3]);
         GenQrangleBox(q.box, q.border);
@@ -158,11 +158,11 @@ void OsdDevice::Draw(std::vector<OsdQuadRangle> &quad_rangle, int layer_id){
         printf("Draw --- osd_add_quad_rangle_layer ret: %d\n", ret);
     }
     
-    // 中文注释：已转写
+    
     osd_flush_quad_rangle_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
 }
 
-// 中文注释：已转写
+
 void OsdDevice::Draw(std::vector<std::array<float, 4>>& boxes, int border, int layer_id, tagQUADRANGLETYPE type, tagALPHATYPE alpha, int color){
     if ((boxes.size() == 0)){
         osd_clean_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
@@ -170,26 +170,26 @@ void OsdDevice::Draw(std::vector<std::array<float, 4>>& boxes, int border, int l
     }
     
     int ret = 0;
-    // 中文注释：已转写
+    
     for (auto &box : boxes){
         GenQrangleBox(box, border);
         COVER_ATTR_S qrangle_attr = {color, type, alpha, m_qrangle_out, m_qrangle_in};
         ret = osd_add_quad_rangle_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id, &qrangle_attr);                  
     }
     
-    // 中文注释：已转写
+    
     osd_flush_quad_rangle_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
 }
 
 
-// 中文注释：已转写
-// 中文注释：已转写
 
-// 中文注释：已转写
 
-// 中文注释：已转写
 
-// 中文注释：已转写
+
+
+
+
+
 // }
 
 void OsdDevice::GenQrangleBox(std::array<float, 4>& det, int border){

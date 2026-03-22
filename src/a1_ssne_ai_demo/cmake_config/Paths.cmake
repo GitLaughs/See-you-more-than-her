@@ -1,14 +1,14 @@
-# 中文注释：已转写
+
 # ===========
 
-# 中文注释：已转写
+
 set(SDK_ROOT "$ENV{BASE_DIR}/$ENV{EXPORT_LIB_M1_SDK_ROOT_PATH}" CACHE PATH "SDK root directory")
 
 # 第三方库路径
 set(THIRD_PARTY_DIR "${SDK_ROOT}/third_party" CACHE PATH "Third-party libraries directory")
-# 中文注释：已转写
+
 set(M1_SDK_INC_DIR "${SDK_ROOT}/include" CACHE PATH "M1-SDK include directory")
-# 中文注释：已转写
+
 set(M1_SDK_LIB_DIR "${SDK_ROOT}/lib" CACHE PATH "M1-SDK libraries directory")
 
 # 自定义库搜索路径

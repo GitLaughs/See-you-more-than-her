@@ -43,13 +43,13 @@ public:
 
 private:
     int LoadLutFile(const char* filename);
-    // 中文注释：已转写
+
     void GenQrangleBox(std::array<float, 4>& det, int border);
 
 private:
     handle_t m_osd_handle;
     std::string m_osd_lut_path = "/app_demo/app_assets/colorLUT.sscl";
-    // 中文注释：已转写
+
     uint8_t *m_pcolor_lut = nullptr;
     int m_file_size = 0;
     int m_height, m_width;
