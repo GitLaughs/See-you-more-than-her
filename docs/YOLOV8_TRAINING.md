@@ -151,16 +151,71 @@ names:
 .\.venv39\Scripts\yolo.exe export model=runs/train/a1_yolov8/weights/best.pt format=onnx opset=13 simplify=True
 ```
 
-## 8. 常见问题排查
+## 8. SSNE 模型转换（部署到 A1 主板）
 
-- 问题：`torch.cuda.is_available()` 为 `False`
+训练完成后，需要将 ONNX 模型转换为 SSNE NPU 格式（`.m1model`），才能在 A1 开发板上运行。
+
+### 8.1 导出 ONNX（固定输入尺寸 640×640）
+
+```powershell
+.\.venv39\Scripts\yolo.exe export `
+    model=runs/train/a1_yolov8/weights/best.pt `
+    format=onnx opset=13 simplify=True `
+    imgsz=640
+```
+
+导出产物：`runs/train/a1_yolov8/weights/best.onnx`
+
+### 8.2 转换为 .m1model
+
+使用 SmartSens 提供的模型转换工具（位于 SDK 内）：
+
+```bash
+# 在容器内执行
+docker exec A1_Builder bash -lc "
+  cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk/output/host/bin &&
+  ./ssne_convert \
+    --input /app/models/best.onnx \
+    --output /app/models/yolov8n_640x640.m1model \
+    --input_shape 1,1,640,640 \
+    --input_dtype float32
+"
+```
+
+> 注意：SC132GS 传感器输出为灰度图（单通道），因此 `input_shape` 第二维为 `1`（非 `3`）。  
+> 训练时建议将数据集图片转为灰度以提升精度。
+
+### 8.3 部署模型到演示程序
+
+将转换好的 `.m1model` 文件放置到：
+
+```
+src/a1_ssne_ai_demo/app_assets/models/yolov8n_640x640.m1model
+```
+
+并确认 `project_paths.hpp` 中的路径配置：
+
+```cpp
+std::string yolo_model_path{"/app_demo/app_assets/models/yolov8n_640x640.m1model"};
+int yolo_num_classes{2};  // 与训练时的类别数一致
+std::vector<std::string> yolo_class_names{"person", "car"};  // 与 dataset.yaml names 一致
+```
+
+重新编译后烧录至主板即可运行。
+
+## 9. 常见问题排查
+
+- 问题：`torch.cuda.is_available()` 为 `False`  
   处理：确认 NVIDIA 驱动正常、安装的是 `+cu121` 版本 torch、未误装 CPU 版覆盖。
 
-- 问题：下载依赖超时或 SSL 失败
+- 问题：下载依赖超时或 SSL 失败  
   处理：优先设置代理 `127.0.0.1:7897`，并使用清华源安装 Python 包。
 
-- 问题：训练时报类别数量不一致
+- 问题：训练时报类别数量不一致  
   处理：检查标注类别与 `dataset.yaml` 的 `names` 顺序是否一致。
 
-- 问题：`split_dataset.py` 报缺少标签
+- 问题：`split_dataset.py` 报缺少标签  
   处理：确保 `raw/images/xxx.jpg` 对应 `raw/labels/xxx.txt`。
+
+- 问题：`.m1model` 转换失败  
+  处理：确认 ONNX opset 版本为 13，输入尺寸为正方形（640×640），且已 simplify。
