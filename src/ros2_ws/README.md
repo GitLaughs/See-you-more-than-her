@@ -1,85 +1,113 @@
-# A1 ROS2 工作区（容器内开发）
+# A1 ROS2 工作区
 
-这个目录承载当前仓库的 ROS2 上游源码集合，已经不再保留本地自研的 ROS 包。
+基于 ROS2 Jazzy 的 A1 机器人软件栈，覆盖底盘控制、传感器驱动、导航和视觉推理。
 
-## 当前源码来源
+## 包概览
 
-- `base_control_ros2`：底盘驱动与控制
-- `hardware_driver`：相机与雷达驱动
-- `bingda_ros2_demos`：导航、视觉和 VSLAM 例程
-- `ncnn_ros2`：NCNN 视觉推理示例
-- `depend_pkg`：ROS2 依赖包集合，包含 `slam_gmapping`
-- `object_information_msgs_ros2`：目标检测消息类型
-- `hardware_driver/lidar/rplidar_ros2`：基于官方 Slamtec SDK 的 ROS2 雷达封装
+| 包目录 | 功能 |
+|---|---|
+| `base_control_ros2` | 底盘 UART 驱动与运动控制 |
+| `hardware_driver` | 相机（Astra）、激光雷达（RPLidar/YDLidar）驱动 |
+| `bingda_ros2_demos` | 导航（Nav2）、视觉、VSLAM 完整例程 |
+| `ncnn_ros2` | 基于 NCNN 的 YOLOv8 视觉推理节点 |
+| `depend_pkg` | `slam_gmapping` 等第三方依赖源码 |
+| `object_information_msgs_ros2` | 目标检测消息类型定义 |
+| `a1_robot_stack` | A1 硬件整合 bringup（坐标系、传感器联调） |
 
 ## 目录约定
 
-- 上游仓库直接放在 `ros2_ws/src/` 下，colcon 会递归发现其中的包
-- 不再保留自研的 `a1_robot_stack`
+```text
+ros2_ws/
+├── src/
+│   ├── a1_robot_stack/             # A1 硬件整合与 bringup
+│   ├── base_control_ros2/          # 底盘控制
+│   ├── hardware_driver/            # 传感器驱动（相机、雷达）
+│   │   └── lidar/rplidar_ros2/     # RPLidar ROS2 封装
+│   ├── bingda_ros2_demos/          # 导航/视觉/VSLAM 例程
+│   │   ├── robot_navigation_ros2/
+│   │   ├── robot_vision_ros2/
+│   │   └── robot_vslam_ros2/
+│   ├── ncnn_ros2/                  # NCNN 视觉推理节点
+│   ├── depend_pkg/                 # slam_gmapping 等依赖
+│   └── object_information_msgs_ros2/  # 检测消息类型
+└── README.md
+```
 
-## 容器内构建
+colcon 会递归发现 `src/` 下所有包，无需手动配置。
+
+## 容器内快速构建
 
 ```bash
+# 进入容器
+docker exec -it A1_Builder bash
+
+# 首次安装依赖
+apt-get update && apt-get install -y \
+  ros-jazzy-camera-info-manager ros-jazzy-cv-bridge \
+  ros-jazzy-image-transport ros-jazzy-tf2-ros \
+  ros-jazzy-rclcpp-components libusb-1.0-0-dev \
+  libuvc-dev nlohmann-json3-dev
+
+# 全量构建
 cd /app/src/ros2_ws
 rm -rf build install log
-set +u
-source /opt/ros/jazzy/setup.bash
-set -u
+set +u && source /opt/ros/jazzy/setup.bash && set -u
 colcon build --symlink-install
+
+# 使用构建结果
 source install/setup.bash
+```
+
+或使用项目脚本（推荐）：
+
+```bash
+bash scripts/build_ros2_ws.sh --clean
 ```
 
 ## 常用 launch 入口
 
-- `ros2 launch base_control_ros2 base_control.launch.py`
-- `ros2 launch robot_navigation_ros2 robot_lidar.launch.py`
-- `ros2 launch robot_vslam_ros2 robot_rgbd_lidar.launch.py`
-- `ros2 launch robot_vision_ros2 camera.launch.py`
-- `ros2 launch ncnn_ros2 yolov8_ros.launch.py`
-- `ros2 launch astra_camera camera.launch.py`
-- `ros2 launch rplidar_ros2 rplidar_launch.py`
+| 功能 | 命令 |
+|---|---|
+| 底盘控制 | `ros2 launch base_control_ros2 base_control.launch.py` |
+| 导航 | `ros2 launch robot_navigation_ros2 robot_lidar.launch.py` |
+| VSLAM | `ros2 launch robot_vslam_ros2 robot_rgbd_lidar.launch.py` |
+| 相机 | `ros2 launch astra_camera camera.launch.py` |
+| 雷达 | `ros2 launch rplidar_ros2 rplidar_launch.py` |
+| YOLOv8 推理 | `ros2 launch ncnn_ros2 yolov8_ros.launch.py` |
+| A1 完整 bringup | `ros2 launch a1_robot_stack bringup.launch.py` |
 
-## ROS 编译测试脚本
-
-脚本位置：`data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh`
-
-用法：
+## ROS 编译测试
 
 ```bash
+# 仅编译测试（生成报告）
 bash data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh
-```
 
-如需先执行官方 SDK 编译再测 ROS：
-
-```bash
+# SDK + ROS 全链路测试
 bash data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh --with-sdk
 ```
 
-该脚本会在容器内对当前工作区的整套上游 ROS2 源码执行 `colcon build`，并把报告写到 `output/ros_compile_test_report.txt`。
+报告输出：`output/ros_compile_test_report.txt`
 
-## 代码职责速查
+## 话题速查
 
-- `base_control_ros2`：底盘控制和基础运动接口
-- `hardware_driver`：`astra_camera`、`astra_camera_msgs`、`sllidar_ros2`、`ydlidar_ros2_driver` 等驱动包
-- `bingda_ros2_demos`：`robot_navigation_ros2`、`robot_vision_ros2`、`robot_vslam_ros2`
-- `ncnn_ros2`：视觉检测和推理示例
-- `depend_pkg`：`slam_gmapping` 等第三方依赖源码
-- `object_information_msgs_ros2`：检测结果消息定义
-- `hardware_driver/lidar/rplidar_ros2`：RPLidar ROS2 包，直接发布 `scan`
+| 话题 | 类型 | 发布节点 |
+|---|---|---|
+| `/a1/camera/mono` | `sensor_msgs/Image` | 相机驱动 |
+| `/scan` | `sensor_msgs/LaserScan` | RPLidar 驱动 |
+| `/cmd_vel` | `geometry_msgs/Twist` | 导航/手柄控制 |
+| `/chassis/cmd_out` | 自定义 | 底盘控制节点 |
+| `/object_information` | `object_information_msgs/ObjectInfo` | NCNN 推理节点 |
+| `/display/overlay_text` | `std_msgs/String` | 显示桥节点 |
 
-## RPLidar SDK 放置建议
+## 与 SSNE Demo 的关系
 
-如果要接入 Slamtec 的 `rplidar_sdk`，建议把它放在“使用它的驱动包”旁边，而不是放到 `data/A1_SDK_SC132GS` 根目录下。推荐路径示例：
+`src/a1_ssne_ai_demo` 中的 `ssne_vision_demo` 通过 TCP 端口 `9090` 向外推送感知数据，
+Aurora 调试工具或自定义 ROS 桥节点可订阅该数据流并转为 ROS 话题。
 
-- `src/a1_ssne_ai_demo/third_party/rplidar_sdk/`：如果你先做独立 demo 适配
-- `src/ros2_ws/src/<your_lidar_package>/third_party/rplidar_sdk/`：如果后续再接回 ROS 包
+详细说明见 [src/a1_ssne_ai_demo/README.md](../a1_ssne_ai_demo/README.md)。
 
-使用方式上，通常是：
+## 常见问题
 
-1. 在 CMake 里把 `rplidar_sdk/include` 加到 `include_directories()`
-2. 把 `rplidar_sdk/src` 编进库或者链接到目标
-3. 在代码里通过 `RPlidarDriver::CreateDriver()` 打开串口，调用 `connect()`、`startScan()`、`grabScanData()`、`disconnect()`
-
-当前仓库里已经删除了自研 ROS 包，因此如果你要先在 SDK demo 里接雷达，建议先做成独立的 C++ 适配层，再决定后面是否重建 ROS 节点。
-
-官方 `rplidar_ros` ROS1 仓库保留在 `hardware_driver/lidar/rplidar_ros_upstream`，仅作参考，不参与 colcon 构建。
+- `AMENT_TRACE_SETUP_FILES: unbound variable`：在 `source` 前后添加 `set +u` / `set -u`。
+- 编译报缺少依赖：参考上方 `apt-get install` 命令补充。
+- colcon 找不到包：确认包目录下有 `package.xml` 和 `CMakeLists.txt`（或 `setup.py`）。

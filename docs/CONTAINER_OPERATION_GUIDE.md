@@ -1,86 +1,116 @@
 # 容器内操作手册
 
-本文档用于在 Windows + Docker Desktop 环境下，完成 A1 项目的源码替换、Git 提交和固件编译。
+本文档说明在 Windows + Docker Desktop 环境下，操作 `A1_Builder` 容器执行源码编译、调试和固件生成的常用命令。
 
-## 1. 启动容器
+## 1. 容器生命周期管理
 
 ```powershell
+# 启动容器（后台运行）
 docker compose -f docker/docker-compose.yml up -d
+
+# 查看容器状态
 docker compose -f docker/docker-compose.yml ps
+
+# 停止容器
+docker compose -f docker/docker-compose.yml down
+
+# 进入交互式 Shell
+docker exec -it A1_Builder bash
 ```
 
-容器名：`A1_Builder`
+## 2. 目录结构（容器内视角）
 
-## 2. 进入 ROS 工作区
+| 容器路径 | 说明 | 对应主机路径 |
+|---|---|---|
+| `/app/smartsens_sdk` | SmartSens SDK | `./data` |
+| `/app/src` | C++ 源码 + ROS2 工作区 | `./src` |
+| `/app/models` | NPU 模型文件 | `./models` |
+| `/app/output` | 编译产物输出 | `./output` |
+
+## 3. SDK 全量构建
 
 ```powershell
-docker exec A1_Builder bash -lc "cd /app/src/ros2_ws && pwd && ls"
+# 使用全量构建脚本（推荐）
+docker exec A1_Builder bash -lc "bash /app/src/scripts/build_vision_stack.sh 2>&1 | tee /app/output/build.log"
 ```
 
-当前 `ros2_ws/src` 里应包含：
-
-- `base_control_ros2`
-- `hardware_driver`
-- `bingda_ros2_demos`
-- `ncnn_ros2`
-- `depend_pkg`
-- `object_information_msgs_ros2`
-
-## 3. 代码提交到 GitHub
+手动逐步执行：
 
 ```powershell
-git status
-git add -A
-git commit -m "feat: replace ros workspace with upstream sources"
-git push origin main
+# step 1：配置 SDK defconfig
+docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk && make BR2_EXTERNAL=./smart_software smartsens_m1pro_release_defconfig"
+
+# step 2：构建 SDK 基础库
+docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk && make m1_sdk_lib-rebuild"
+
+# step 3：编译 ssne_ai_demo（人脸检测）
+docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk && rm -rf output/build/ssne_ai_demo && make BR2_EXTERNAL=./smart_software ssne_ai_demo"
+
+# step 4：编译 ssne_vision_demo（综合视觉）
+docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk && rm -rf output/build/ssne_vision_demo && make BR2_EXTERNAL=./smart_software ssne_vision_demo"
 ```
 
-如果 `main` 不允许直接推送，请改用你的功能分支再发 PR。
+## 4. 增量构建
 
-## 4. 容器内编译 ROS2
+```powershell
+# 只重编 ssne_vision_demo
+docker exec A1_Builder bash -lc "bash /app/src/scripts/build_incremental.sh sdk ssne_vision_demo"
 
-如果是第一次在这台容器里编译，先补齐常用依赖：
+# 只重编 ROS2 工作区
+docker exec A1_Builder bash -lc "bash /app/src/scripts/build_incremental.sh ros"
+```
+
+## 5. ROS2 工作区构建
+
+首次构建前安装依赖：
 
 ```powershell
 docker exec A1_Builder bash -lc "apt-get update && apt-get install -y ros-jazzy-camera-info-manager ros-jazzy-cv-bridge ros-jazzy-image-geometry ros-jazzy-image-publisher ros-jazzy-image-transport ros-jazzy-message-filters ros-jazzy-tf2-msgs ros-jazzy-tf2-sensor-msgs ros-jazzy-tf2-ros ros-jazzy-rclcpp-components ros-jazzy-class-loader ros-jazzy-vision-opencv libusb-1.0-0-dev libuvc-dev libgflags-dev libgoogle-glog-dev nlohmann-json3-dev"
 ```
 
-```powershell
-docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; rm -rf build install log; set +u; source /opt/ros/jazzy/setup.bash; set -u; colcon build --symlink-install"
-```
-
-编译后可执行：
+全量构建 ROS2：
 
 ```powershell
-docker exec A1_Builder bash -lc "cd /app/src/ros2_ws; set +u; source /opt/ros/jazzy/setup.bash; source install/setup.bash; set -u; ros2 launch base_control_ros2 base_control.launch.py"
+docker exec A1_Builder bash -lc "cd /app/src/ros2_ws && rm -rf build install log && set +u && source /opt/ros/jazzy/setup.bash && set -u && colcon build --symlink-install"
 ```
 
-## 5. 生成 EVB 镜像文件
-
-如果 SDK 源码刚同步完成，建议先执行基础库编译：
+## 6. 查看编译产物
 
 ```powershell
-docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; make BR2_EXTERNAL=./smart_software smartsens_m1pro_release_defconfig"
-docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; make m1_sdk_lib-rebuild"
+# SDK 固件（板端镜像）
+docker exec A1_Builder bash -lc "ls -lh /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk/output/images/"
+
+# SSNE Demo 产物
+docker exec A1_Builder bash -lc "ls -lh /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk/output/target/app_demo/"
+
+# ROS2 包列表
+docker exec A1_Builder bash -lc "cd /app/src/ros2_ws && set +u && source /opt/ros/jazzy/setup.bash && source install/setup.bash && set -u && ros2 pkg list | grep -E 'base_control|ncnn|rplidar'"
 ```
 
-`smartsens_sdk` 的官方编译脚本会输出 EVB 固件：
-
-输出文件：`data/A1_SDK_SC132GS/smartsens_sdk/output/images/zImage.smartsens-m1-evb`
-
-在容器中执行：
+## 7. 代码提交到 GitHub
 
 ```powershell
-docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/a1_sc132gs_build.sh"
+cd e:\See-you-more-than-her
+git status
+git add -A
+git commit -m "feat: add YOLOv8 vision demo and update docs"
+git push origin main
 ```
 
-若需要先执行 SDK 体检脚本：
+若 `main` 分支有保护规则，请使用功能分支：
 
 ```powershell
-docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk; bash scripts/ros_a1_compile_test.sh --with-sdk"
+git checkout -b feat/yolov8-vision-demo
+git push origin feat/yolov8-vision-demo
+# 然后在 GitHub 页面发起 PR
 ```
 
-## 6. 常见问题
+## 8. 常见问题
 
-- 如果 `source` 报 `AMENT_TRACE_SETUP_FILES: unbound variable`，请保持脚本里的 `set +u` / `set -u` 包裹。
-- 如果生成的 `zImage.smartsens-m1-evb` 不在 `output/images/`，优先查看 `scripts/a1_sc132gs_build.sh` 的执行日志。
+| 现象 | 解决方法 |
+|---|---|
+| `source` 报 `unbound variable` | 用 `set +u` ... `set -u` 包裹 `source` 命令 |
+| `zImage.smartsens-m1-evb` 未生成 | 查看 `a1_sc132gs_build.sh` 执行日志 |
+| 容器内无法联网 | 检查 Docker Desktop 代理配置 |
+| 模型文件找不到 | 确认 `.m1model` 文件放置在 `app_assets/models/` 且卷已挂载 |
+| `make ssne_vision_demo` 报错 | 先执行 `make m1_sdk_lib-rebuild` 确保基础库存在 |
