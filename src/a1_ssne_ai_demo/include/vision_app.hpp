@@ -11,17 +11,16 @@
 
 namespace ssne_demo {
 
-/// Main application integrating YOLOv8 object detection, face detection,
-/// RPLidar scanning, and OSD rendering.
+/// 集成YOLOv8目标检测、人脸检测、RPLidar扫描和OSD渲染的主应用。
 ///
-/// Pipeline per frame:
-///   1. Capture sensor image (720×1280 grayscale)
-///   2. Run SCRFD face detection on cropped ROI
-///   3. Run YOLOv8 object detection on same or full-frame input
-///   4. Read one lidar scan (360° point cloud)
-///   5. Render face boxes (green), yolo boxes (per-class colored), and
-///      lidar warning info overlay via OSD hardware
-///   6. Output detection + lidar data to debug interface (JSON over TCP)
+/// 每帧处理流程：
+///   1. 捕获传感器图像（720×1280灰度图）
+///   2. 在裁剪的ROI上运行SCRFD人脸检测
+///   3. 在相同或全帧输入上运行YOLOv8目标检测
+///   4. 读取一次激光雷达扫描（360°点云）
+///   5. 通过OSD硬件渲染人脸框（绿色）、YOLO框（按类别着色）和
+///      激光雷达警告信息覆盖
+///   6. 将检测结果+激光雷达数据输出到调试接口（通过TCP的JSON）
 class VisionApp {
  public:
   explicit VisionApp(ProjectPaths paths = ProjectPaths{});
@@ -34,7 +33,7 @@ class VisionApp {
   void StartKeyboardThread();
   void KeyboardLoop();
 
-  /// Print detection summary to stdout for debug
+  /// 将检测摘要打印到标准输出以进行调试
   void LogDetections(const DetectionResult& yolo_result,
                      const FaceDetectionResult& face_result,
                      const std::vector<LidarSample>& lidar_samples);

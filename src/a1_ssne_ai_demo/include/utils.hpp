@@ -30,6 +30,6 @@ class VISUALIZER {
     void Draw(const std::vector<std::array<float, 4>>& boxes);
 
   private:
-    // 中文注释：已转写
+
     sst::device::osd::OsdDevice osd_device;
 };

@@ -18,23 +18,23 @@
  */
 struct FaceDetectionResult {
   /** \brief All the detected object boxes for an input image.
-   * 中文注释：已转写
-   * 中文注释：已转写
+
+
    */
   std::vector<std::array<float, 4>> boxes;
   /** \brief
-   * 中文注释：已转写
-   * 中文注释：已转写
+
+
   */
   std::vector<std::array<float, 2>> landmarks;
   /** \brief
-   * 中文注释：已转写
-   * 中文注释：已转写
+
+
    */
   std::vector<float> scores;
   /** \brief
    * `landmarks_per_face` indicates the number of face landmarks for each detected face
-   * 中文注释：已转写
+
   */
   int landmarks_per_face;
 
@@ -61,7 +61,7 @@ class IMAGEPROCESSOR {
       * \param[in] in_scale online输入图像和online输出图像之间的尺度倍数（保留参数以兼容接口，但不使用）。
       * \return none
       */
-    // 中文注释：已转写
+
     void Initialize(std::array<int, 2>* in_img_shape);
     /**
      * 获取offline或者online的图像。
@@ -73,7 +73,7 @@ class IMAGEPROCESSOR {
     /*
      * 对检测坐标进行后处理，还原缩放和padding导致的坐标变化。
     */
-    // 中文注释：已转写
+
 
     // 释放资源
     void Release();
@@ -82,7 +82,7 @@ class IMAGEPROCESSOR {
     std::array<int, 2> img_shape;
   
   private:
-    // 中文注释：已转写
+
     uint8_t format_online;
 };
 
@@ -146,7 +146,7 @@ class SCRFDGRAY {
     // 释放资源
     void Release();
 
-    // 中文注释：已转写
+
     void saveImageBin(const void* data, int w, int h, const char* filename);
     void saveFloatBin(const float* data, int length, const char* filename);
 
@@ -156,7 +156,7 @@ class SCRFDGRAY {
     ssne_tensor_t inputs[1];
     // 输出顺序：bboxes，scores
     ssne_tensor_t outputs[6];
-    // 中文注释：已转写
+
     AiPreprocessPipe pipe_offline = GetAIPreprocessPipe();
 
     // 模型的锚点框

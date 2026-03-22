@@ -114,7 +114,7 @@ void NMS(FaceDetectionResult* result, float iou_threshold, int top_k) {
                        (result->boxes[i][3] - result->boxes[i][1] + 1);
   }
   
-  // 中文注释：已转写
+
   for (size_t i = 0; i < result->boxes.size(); ++i) {
     if (suppressed[i] == 1) {
       continue;  // 跳过已被抑制的框
@@ -278,13 +278,13 @@ void SCRFDGRAY::DecodeBoxes(std::vector<std::array<float, 4>>& boxes) {
     size_t numBoxes = boxes.size();
     for (unsigned int i = 0; i < numBoxes; i++) {
         // 将相对坐标转换为绝对坐标：[x1, y1, x2, y2]
-        // 中文注释：已转写
+      
         boxes[i][0] = fmax(0.0f, anchors[i][0] - boxes[i][0]);
-        // 中文注释：已转写
+      
         boxes[i][1] = fmax(0.0f, anchors[i][1] - boxes[i][1]);
-        // 中文注释：已转写
+      
         boxes[i][2] = fmin(det_shape[0], anchors[i][0] + boxes[i][2]);
-        // 中文注释：已转写
+      
         boxes[i][3] = fmin(det_shape[1], anchors[i][1] + boxes[i][3]);
     }
 }
@@ -399,12 +399,12 @@ static bool g_has_frame = false;
  * @description 完整的检测流程：预处理、推理、后处理
  */
 void SCRFDGRAY::Predict(ssne_tensor_t* img, FaceDetectionResult* result, float conf_threshold) {
-    // 中文注释：已转写
-    // 中文注释：已转写
+  
+  
 
-    // 中文注释：已转写
+  
     int ret = RunAiPreprocessPipe(pipe_offline, *img, inputs[0]);
-    // 中文注释：已转写
+  
     if (ret != 0) {
         printf("[ERROR] Failed to run AI preprocess pipe!\n");
         printf("ret: %d\n", ret);
@@ -440,7 +440,7 @@ void SCRFDGRAY::Predict(ssne_tensor_t* img, FaceDetectionResult* result, float c
     float *out_bboxes2 = (float*)get_data(outputs[5]);  // 第三层检测框输出
     
     // 处理第一层输出（最细粒度，检测框数量最多）
-    // 中文注释：已转写
+  
     int idx_s = 0;  // 分数索引
     int idx_b = 0;  // 检测框索引
     int num_bbox = det_shape[0] * det_shape[1] / 1024;  // 每层的检测框数量
@@ -459,7 +459,7 @@ void SCRFDGRAY::Predict(ssne_tensor_t* img, FaceDetectionResult* result, float c
     }
 
     // 处理第二层输出（中等粒度）
-    // 中文注释：已转写
+  
     idx_s = 0;
     idx_b = 0;
     for (int i = 0; i < num_bbox * 4; i++) {
@@ -476,7 +476,7 @@ void SCRFDGRAY::Predict(ssne_tensor_t* img, FaceDetectionResult* result, float c
     }
 
     // 处理第三层输出（最粗粒度，检测框数量最少）
-    // 中文注释：已转写
+  
     idx_s = 0;
     idx_b = 0;    
     for (int i = 0; i < num_bbox; i++) {
@@ -523,7 +523,7 @@ void SCRFDGRAY::Release()
     ReleaseAIPreprocessPipe(pipe_offline);
 }
 
-/* 中文注释：已转写
+
 /**
  * @brief 保存图像数据到二进制文件（调试用）
  * @param data 图像数据指针
@@ -545,7 +545,7 @@ void SCRFDGRAY::saveImageBin(const void* data, int w, int h, const char* filenam
         std::cerr << "failed to write " << filename << std::endl;
     }
 }
-/* 中文注释：已转写
+
 /**
  * @brief 保存浮点数组到二进制文件（调试用）
  * @param data 浮点数组指针
