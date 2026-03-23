@@ -2,6 +2,9 @@
 # build_vision_stack.sh — 全栈构建脚本
 # 依次完成：SDK 基础库 → ssne_ai_demo → ssne_vision_demo → ROS2 工作区 → 收集产物
 #
+# 参考: data/A1_SDK_SC132GS/smartsens_sdk/scripts/a1_sc132gs_build.sh
+#       data/A1_SDK_SC132GS/smartsens_sdk/scripts/ros_a1_compile_test.sh
+#
 # 用法（在 A1_Builder 容器内执行）：
 #   bash /app/src/scripts/build_vision_stack.sh [--skip-sdk] [--skip-ros] [--skip-collect]
 #
@@ -10,6 +13,10 @@
 #   --skip-demo     跳过 SSNE Demo 构建（只构建 ROS）
 #   --skip-ros      跳过 ROS2 工作区构建
 #   --skip-collect  跳过产物收集
+#
+# P1 增强包（已通过 COLCON_IGNORE 暂时屏蔽）：
+#   wheeltec_robot_kcf, wheeltec_robot_urdf, wheeltec_rviz2,
+#   aruco_ros, usb_cam-ros2, web_video_server-ros2
 
 set -euo pipefail
 

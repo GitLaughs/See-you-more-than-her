@@ -45,16 +45,20 @@ src/
 | `wheeltec_multi` | 底盘驱动和多传感器融合 | x3_src_250401 |
 | `wheeltec_robot_keyboard` | 键盘遥控 | x3_src_250401 |
 
-### P1 增强包（推荐）
+### P1 增强包（暂时屏蔽 — COLCON_IGNORE）
 
-| 包名 | 功能 | 算力需求 |
-|-----|------|---------|
-| `wheeltec_robot_kcf` | 目标追踪（KCF 算法） | ~50MOPS |
-| `wheeltec_robot_urdf` | 机器人模型定义 | 无 |
-| `wheeltec_rviz2` | 可视化配置 | 无 |
-| `aruco_ros` | ArUco 标记检测 | ~100MOPS |
-| `usb_cam-ros2` | 摄像头驱动 | 无 |
-| `web_video_server-ros2` | 网络视频流 | ~50MOPS |
+以下包已在各自目录放置 `COLCON_IGNORE` 文件，在执行 `colcon build` 时**不会被编译**，待硬件资源评估后按计划逐步启用：
+
+| 包名 | 功能 | 算力需求 | 屏蔽原因 | 计划启用 |
+|-----|------|---------|---------|---------|
+| `wheeltec_robot_kcf` | 目标追踪（KCF 算法） | ~50MOPS | 算力受限 | Sprint 4 |
+| `wheeltec_robot_urdf` | 机器人模型定义 | 无 | 依赖 RViz2 | Sprint 3 |
+| `wheeltec_rviz2` | 可视化配置 | 无 | 无板端显示 | Sprint 3 |
+| `aruco_ros` | ArUco 标记检测 | ~100MOPS | 超算力预算 | Sprint 4 |
+| `usb_cam-ros2` | 摄像头驱动 | 无 | 驱动冲突 | Sprint 1 后评估 |
+| `web_video_server-ros2` | 网络视频流 | ~50MOPS | 带宽受限 | Sprint 4 |
+
+> 解屏蔽方法：删除对应包目录下的 `COLCON_IGNORE` 文件，再执行 `bash scripts/build_ros2_ws.sh`
 
 ## 编译环境要求
 

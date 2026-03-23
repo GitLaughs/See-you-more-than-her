@@ -11,6 +11,8 @@ services:
       - ../data:/app/smartsens_sdk
       # 挂载 src 目录
       - ../src:/app/src
+      # 挂载构建脚本目录
+      - ../scripts:/app/scripts
       # 挂载模型目录
       - ../models:/app/models
       # 挂载输出目录
