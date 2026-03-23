@@ -6,30 +6,21 @@
 
 | 包目录 | 功能 |
 |---|---|
-| `base_control_ros2` | 底盘 UART 驱动与运动控制 |
-| `hardware_driver` | 相机（Astra）、激光雷达（RPLidar/YDLidar）驱动 |
-| `bingda_ros2_demos` | 导航（Nav2）、视觉、VSLAM 完整例程 |
-| `ncnn_ros2` | 基于 NCNN 的 YOLOv8 视觉推理节点 |
-| `depend_pkg` | `slam_gmapping` 等第三方依赖源码 |
+| `base_control_ros2` | STM32 AKM 小车 UART 驱动与运动控制 |
+| `hardware_driver` | 激光雷达（RPLidar）驱动及其他传感器接口 |
 | `object_information_msgs_ros2` | 目标检测消息类型定义 |
-| `a1_robot_stack` | A1 硬件整合 bringup（坐标系、传感器联调） |
+| `a1_robot_stack` | 硬件整合 bringup（坐标系、传感器联调） |
 
 ## 目录约定
 
 ```text
 ros2_ws/
 ├── src/
-│   ├── a1_robot_stack/             # A1 硬件整合与 bringup
-│   ├── base_control_ros2/          # 底盘控制
-│   ├── hardware_driver/            # 传感器驱动（相机、雷达）
-│   │   └── lidar/rplidar_ros2/     # RPLidar ROS2 封装
-│   ├── bingda_ros2_demos/          # 导航/视觉/VSLAM 例程
-│   │   ├── robot_navigation_ros2/
-│   │   ├── robot_vision_ros2/
-│   │   └── robot_vslam_ros2/
-│   ├── ncnn_ros2/                  # NCNN 视觉推理节点
-│   ├── depend_pkg/                 # slam_gmapping 等依赖
-│   └── object_information_msgs_ros2/  # 检测消息类型
+│   ├── a1_robot_stack/                 # 硬件整合与 bringup
+│   ├── base_control_ros2/              # STM32 AKM 小车底盘控制
+│   ├── hardware_driver/                # 传感器驱动（激光雷达等）
+│   │   └── lidar/rplidar_ros2/         # RPLidar ROS2 封装
+│   └── object_information_msgs_ros2/   # 检测消息类型
 └── README.md
 ```
 
@@ -69,11 +60,7 @@ bash scripts/build_ros2_ws.sh --clean
 | 功能 | 命令 |
 |---|---|
 | 底盘控制 | `ros2 launch base_control_ros2 base_control.launch.py` |
-| 导航 | `ros2 launch robot_navigation_ros2 robot_lidar.launch.py` |
-| VSLAM | `ros2 launch robot_vslam_ros2 robot_rgbd_lidar.launch.py` |
-| 相机 | `ros2 launch astra_camera camera.launch.py` |
 | 雷达 | `ros2 launch rplidar_ros2 rplidar_launch.py` |
-| YOLOv8 推理 | `ros2 launch ncnn_ros2 yolov8_ros.launch.py` |
 | A1 完整 bringup | `ros2 launch a1_robot_stack bringup.launch.py` |
 
 ## ROS 编译测试
