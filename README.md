@@ -10,7 +10,7 @@
 | SCRFD 人脸检测 | 灰度图多尺度人脸检测 | ✅ 已完成 |
 | RPLidar 激光雷达 | 360° 点云采集与避障决策 | ✅ 已完成 |
 | OSD 硬件叠加 | 多图层检测框渲染（DMA 硬件加速） | ✅ 已完成 |
-| ROS2 底盘控制 | UART 底盘驱动 + 导航 + SLAM | 集成中 |
+| ROS2 底盘控制 | UART 底盘驱动 + 导航 + SLAM | ✅ 已完成 |
 | 调试接口 | TCP JSON 数据流 → Aurora 桌面工具可视化 | 开发中 |
 
 ## 仓库结构
@@ -26,7 +26,13 @@
 ├── scripts/                     # 构建脚本（全量 / 增量）
 ├── src/
 │   ├── a1_ssne_ai_demo/         # 主应用（YOLOv8 + 人脸 + 雷达 + OSD）
-│   └── ros2_ws/                 # ROS2 工作区（底盘 / 雷达 / 导航）
+│   ├── ros2_ws/                 # ROS2 工作区（STM32 AKM底盘 / 雷达 / 导航）
+│   │   └── src/
+│   │       ├── base_control_ros2/       # STM32 AKM UART驱动
+│   │       ├── hardware_driver/         # RPLidar驱动
+│   │       ├── a1_robot_stack/          # 硬件bringup
+│   │       └── object_information_msgs_ros2/  # 消息定义
+│   └── stm32_akm_driver/        # STM32 AKM控制板源代码和集成文档
 ├── third_party/
 │   └── ultralytics/             # YOLOv8 训练框架
 └── tools/
@@ -81,6 +87,8 @@ output/evb/zImage.smartsens-m1-evb
 | [容器操作指南](docs/CONTAINER_OPERATION_GUIDE.md) | Docker 环境搭建与日常操作 |
 | [YOLOv8 训练指南](docs/YOLOV8_TRAINING.md) | 标注 → 划分 → 训练 → 导出 |
 | [RPLidar 接入指南](docs/RPLIDAR_SDK_GUIDE.md) | 激光雷达 SDK 集成说明 |
+| [STM32 AKM 集成指南](src/stm32_akm_driver/README.md) | STM32F407 小车控制板接入 |
+| [STM32 兼容性分析](src/stm32_akm_driver/COMPATIBILITY_ANALYSIS.md) | ROS2驱动兼容性评估 |
 | [SDK 说明](data/A1_SDK_SC132GS/README.md) | SmartSens SDK 目录与构建 |
 | [Demo 工程说明](src/a1_ssne_ai_demo/README.md) | 主应用架构与模块说明 |
 | [ROS2 工作区](src/ros2_ws/README.md) | ROS2 包列表与构建方法 |
