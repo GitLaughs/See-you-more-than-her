@@ -119,8 +119,8 @@ fi
 if [[ ${SKIP_ROS} -eq 0 ]]; then
     step "Step 4/5: ROS2 工作区编译 (colcon build)"
     if [[ -f /opt/ros/jazzy/setup.bash ]]; then
-        log "Sourcing ROS2 Jazzy..."
-        bash "${ROOT_DIR}/scripts/build_ros2_ws.sh" \
+        log "Building ROS2 workspace (jazzy)..."
+        bash "${ROOT_DIR}/scripts/build_ros2_ws.sh" --clean \
             2>&1 | tee "${LOG_DIR}/ros2_ws.log" \
             || {
                 log "WARN: ROS2 build had errors (non-fatal). Check ${LOG_DIR}/ros2_ws.log"

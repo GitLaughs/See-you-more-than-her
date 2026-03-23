@@ -1,0 +1,365 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="top_omni_robot">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="0.000162349725411019 0.00190797321626078 0.0407914838285059"
+        rpy="0 0 0" />
+      <mass
+        value="3.39737926123101" />
+      <inertia
+        ixx="0.0211328571278065"
+        ixy="4.38676762315427E-06"
+        ixz="2.3044824076869E-07"
+        iyy="0.0209049304668755"
+        iyz="-4.32498944421786E-07"
+        izz="0.0408049369808656" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="quanxiang_wheel1_link">
+    <inertial>
+      <origin
+        xyz="1.28702213713614E-07 0.00240831193269025 3.00934248353979E-09"
+        rpy="0 0 0" />
+      <mass
+        value="0.225139706737604" />
+      <inertia
+        ixx="0.000250170315003475"
+        ixy="-1.28118563293493E-09"
+        ixz="1.22992081634769E-11"
+        iyy="0.00045368203804365"
+        iyz="-9.57253055145053E-11"
+        izz="0.000250170177147773" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/quanxiang_wheel1_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/quanxiang_wheel1_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="quanxiang_wheel1_joint"
+    type="continuous">
+    <origin
+      xyz="0.291186652658148 0.000149252540249246 0.043000000000001"
+      rpy="0 0 1.5707963267949" />
+    <parent
+      link="base_link" />
+    <child
+      link="quanxiang_wheel1_link" />
+    <axis
+      xyz="0 0.999999999972373 0" />
+  </joint>
+  <link
+    name="quanxiang_wheel2_link">
+    <inertial>
+      <origin
+        xyz="-2.82360883036015E-07 0.00240909429058983 3.30892666045024E-09"
+        rpy="0 0 0" />
+      <mass
+        value="0.225140228575666" />
+      <inertia
+        ixx="0.000250170368181162"
+        ixy="-1.27739673890247E-09"
+        ixz="-6.51814989951876E-12"
+        iyy="0.000453682328977403"
+        iyz="-9.40329945439142E-11"
+        izz="0.000250170247771797" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/quanxiang_wheel2_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/quanxiang_wheel2_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="quanxiang_wheel2_joint"
+    type="continuous">
+    <origin
+      xyz="-0.145075347341852 0.252029252540249 0.0429999999999992"
+      rpy="0 0 -2.61799387799149" />
+    <parent
+      link="base_link" />
+    <child
+      link="quanxiang_wheel2_link" />
+    <axis
+      xyz="0 0.999999999972373 0" />
+  </joint>
+  <link
+    name="quanxiang_wheel3_link">
+    <inertial>
+      <origin
+        xyz="1.43370406768817E-07 0.00240917198295848 2.5350976942673E-09"
+        rpy="0 0 0" />
+      <mass
+        value="0.225140217305556" />
+      <inertia
+        ixx="0.000250170356887716"
+        ixy="-1.3502455844768E-09"
+        ixz="1.9142513283927E-11"
+        iyy="0.000453682330899294"
+        iyz="-9.26834316659075E-11"
+        izz="0.000250170254974086" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/quanxiang_wheel3_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/quanxiang_wheel3_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="quanxiang_wheel3_joint"
+    type="continuous">
+    <origin
+      xyz="-0.145078347341852 -0.251724747459751 0.0430000000000027"
+      rpy="0 0 -0.5235987755983" />
+    <parent
+      link="base_link" />
+    <child
+      link="quanxiang_wheel3_link" />
+    <axis
+      xyz="0 0.999999999972372 0" />
+  </joint>
+  <link
+    name="controller_link">
+    <inertial>
+      <origin
+        xyz="-0.0186693330360403 -0.0297305955474186 0.00755226601975803"
+        rpy="0 0 0" />
+      <mass
+        value="0.000688936355708765" />
+      <inertia
+        ixx="7.1682630367809E-09"
+        ixy="7.19688198444219E-24"
+        ixz="1.69595035315484E-25"
+        iyy="7.16826303678089E-09"
+        iyz="-3.51032211388333E-23"
+        izz="2.14393937026335E-09" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/controller_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/controller_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="controller_joint"
+    type="fixed">
+    <origin
+      xyz="0.0481270870349519 -0.102981937037452 0.00400000000000172"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="controller_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="camera_link">
+    <inertial>
+      <origin
+        xyz="-4.04586736502122E-07 3.20891111157937E-07 1.0752468700137E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.0559842529551971" />
+      <inertia
+        ixx="0.000130802189180016"
+        ixy="-9.97283694320926E-07"
+        ixz="1.6229931784721E-06"
+        iyy="1.9123638192004E-05"
+        iyz="-4.42430122013258E-08"
+        izz="0.000131387473788046" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/camera_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/camera_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="camera_joint"
+    type="fixed">
+    <origin
+      xyz="0.217331652658148 0.000264252540249734 0.112704000000001"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="camera_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="laser_link">
+    <inertial>
+      <origin
+        xyz="3.40775287738238E-07 -1.24508052568918E-06 -0.0286630730699483"
+        rpy="0 0 0" />
+      <mass
+        value="0.00487350279505623" />
+      <inertia
+        ixx="1.86258757615298E-06"
+        ixy="-2.58793766067608E-09"
+        ixz="-2.38955290015385E-14"
+        iyy="1.86258749560106E-06"
+        iyz="-2.28903487763288E-15"
+        izz="2.11422294867293E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/laser.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_omni_robot_meshes/laser.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="laser_joint"
+    type="fixed">
+    <origin
+      xyz="0.143995652658148 -0.000177747459750089 0.138056000000001"
+      rpy="0 0 -3.14159265358979" />
+    <parent
+      link="base_link" />
+    <child
+      link="laser_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+</robot>

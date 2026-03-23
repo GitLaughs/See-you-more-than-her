@@ -1,0 +1,365 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="mini_omni_robot">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.00215152015512567 -0.00354771497616371 -0.00238850986636495"
+        rpy="0 0 0" />
+      <mass
+        value="0.316971084822964" />
+      <inertia
+        ixx="0.000420307413554536"
+        ixy="8.53304678996615E-07"
+        ixz="3.25484281157172E-11"
+        iyy="0.000423240319736897"
+        iyz="-2.92206846665081E-11"
+        izz="0.000803923344739989" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="front_wheel_link">
+    <inertial>
+      <origin
+        xyz="5.74714974423331E-05 0.00320699063859495 -4.61768854820438E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0418742906509581" />
+      <inertia
+        ixx="1.11530020202845E-05"
+        ixy="2.36675244306518E-08"
+        ixz="-5.43279459256917E-08"
+        iyy="1.8768089937325E-05"
+        iyz="-4.01883681793204E-08"
+        izz="1.11464768270902E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/front_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/front_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="front_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="0.10975 8.5571E-05 -0.0358"
+      rpy="0 0 1.5708" />
+    <parent
+      link="base_link" />
+    <child
+      link="front_wheel_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="left_wheel_link">
+    <inertial>
+      <origin
+        xyz="5.74678573044898E-05 0.00320699471167032 -4.61750060654284E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.041874288756166" />
+      <inertia
+        ixx="1.11530017211417E-05"
+        ixy="2.36641581685783E-08"
+        ixz="-5.43274481797102E-08"
+        iyy="1.87681100612576E-05"
+        iyz="-4.01888165769215E-08"
+        izz="1.11464785833887E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/left_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/left_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="-0.054729 0.095045 -0.0358"
+      rpy="0 0 -2.618" />
+    <parent
+      link="base_link" />
+    <child
+      link="left_wheel_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="right_wheel_link">
+    <inertial>
+      <origin
+        xyz="5.74721854603097E-05 0.00320699380279695 -4.61761038215297E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0418742868228469" />
+      <inertia
+        ixx="1.11530020877519E-05"
+        ixy="2.36755527469659E-08"
+        ixz="-5.43278673691997E-08"
+        iyy="1.87681107970762E-05"
+        iyz="-4.0189135655947E-08"
+        izz="1.11464784876816E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/right_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/right_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="-0.054729 -0.094874 -0.0358"
+      rpy="0 0 -0.5236" />
+    <parent
+      link="base_link" />
+    <child
+      link="right_wheel_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="controller_link">
+    <inertial>
+      <origin
+        xyz="-0.0166307508329173 0.0377059276016881 0.0221732694812525"
+        rpy="0 0 0" />
+      <mass
+        value="0.0388361502106471" />
+      <inertia
+        ixx="2.23207514180048E-05"
+        ixy="9.5272750875175E-07"
+        ixz="-5.84384794338806E-08"
+        iyy="2.46082780117255E-05"
+        iyz="3.14216783338302E-07"
+        izz="4.60494109024797E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/controller_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/controller_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="controller_joint"
+    type="fixed">
+    <origin
+      xyz="-0.05003 -0.044286 0.0515"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="controller_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="laser_link">
+    <inertial>
+      <origin
+        xyz="0.0023946067243534 -4.3623586159597E-06 0.00454035676315102"
+        rpy="0 0 0" />
+      <mass
+        value="0.0391766918292892" />
+      <inertia
+        ixx="2.82296075691487E-05"
+        ixy="-2.19900290000419E-09"
+        ixz="1.07118438746105E-06"
+        iyy="3.37984497834087E-05"
+        iyz="6.83963658170686E-10"
+        izz="4.50920076493152E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/laser.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/laser.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="laser_joint"
+    type="fixed">
+    <origin
+      xyz="0.005095 8.5571E-05 0.097524"
+      rpy="0 0 3.1416" />
+    <parent
+      link="base_link" />
+    <child
+      link="laser_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="camera_link">
+    <inertial>
+      <origin
+        xyz="-1.30544696302914E-07 -9.32154475080064E-08 1.07624265707762E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.0559842512081409" />
+      <inertia
+        ixx="0.000130810959339877"
+        ixy="1.20255128069094E-07"
+        ixz="1.62335437079563E-06"
+        iyy="1.91148634968207E-05"
+        iyz="-2.80016756154036E-08"
+        izz="0.00013138746952371" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/camera_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_omni_robot_meshes/camera_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="camera_joint"
+    type="fixed">
+    <origin
+      xyz="0.085700005871124 0.000163315147966551 0.076204"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="camera_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+</robot>
