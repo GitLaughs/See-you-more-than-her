@@ -1,0 +1,534 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="top_akm_bs_robot">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.0627224623750732 0.00156829198504152 0.0439219098701147"
+        rpy="0 0 0" />
+      <mass
+        value="5.46103195024466" />
+      <inertia
+        ixx="0.0341508088531725"
+        ixy="-5.47558607514105E-06"
+        ixz="5.12081376811511E-07"
+        iyy="0.077385076761577"
+        iyz="-1.61063629136711E-06"
+        izz="0.109715050399458" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="lb_wheel_link">
+    <inertial>
+      <origin
+        xyz="8.36835138722652E-07 -0.00342999982378706 -2.96872888082278E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.456418795825616" />
+      <inertia
+        ixx="0.00129841436076177"
+        ixy="-6.01131370351809E-08"
+        ixz="2.43007715342763E-08"
+        iyy="0.00244027942859642"
+        iyz="-2.81376711468704E-09"
+        izz="0.00129845523647505" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/lb_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/lb_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="lb_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="-0.304491119929346 0.259191299292908 0.0449989999999978"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="lb_wheel_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="rb_wheel_link">
+    <inertial>
+      <origin
+        xyz="-8.36838943977375E-07 0.00342999982337544 -2.96871938666038E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.456418795841581" />
+      <inertia
+        ixx="0.00129841436062444"
+        ixy="-6.01131537627299E-08"
+        ixz="-2.43007651731468E-08"
+        iyy="0.0024402794284114"
+        iyz="2.81380789358764E-09"
+        izz="0.00129845523643883" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/rb_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/rb_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="rb_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="-0.304463119929348 -0.259522700707092 0.0449989999999978"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="rb_wheel_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="laser_link">
+    <inertial>
+      <origin
+        xyz="0.00196458631178764 -3.57895547477599E-06 -0.000201831632454685"
+        rpy="0 0 0" />
+      <mass
+        value="0.0477519163736196" />
+      <inertia
+        ixx="3.38461999753332E-05"
+        ixy="-2.19897275826209E-09"
+        ixz="1.07118468728171E-06"
+        iyy="3.94150415872122E-05"
+        iyz="6.83977518785031E-10"
+        izz="5.60787042116227E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/laser.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/laser.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="laser_joint"
+    type="fixed">
+    <origin
+      xyz="0.239792880070651 -0.000165700707091571 0.153024183741431"
+      rpy="0 0 3.14159265358979" />
+    <parent
+      link="base_link" />
+    <child
+      link="laser_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="camera_link">
+    <inertial>
+      <origin
+        xyz="-1.60068326593432E-07 -3.49052168589943E-07 1.07621370815103E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.0559842497043461" />
+      <inertia
+        ixx="0.000130810953974031"
+        ixy="1.20254707530912E-07"
+        ixz="1.62335436371515E-06"
+        iyy="1.91148630453015E-05"
+        iyz="-2.80018622215662E-08"
+        izz="0.000131387463778885" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/camera_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/camera_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="camera_joint"
+    type="fixed">
+    <origin
+      xyz="0.312397880070653 -3.77007070938337E-05 0.134704"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="camera_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="controller_link">
+    <inertial>
+      <origin
+        xyz="-0.0200133932689981 0.0406197869640426 0.00856001464882"
+        rpy="0 0 0" />
+      <mass
+        value="0.00107921954114688" />
+      <inertia
+        ixx="2.26830021861907E-07"
+        ixy="3.94092662514742E-09"
+        ixz="-5.23015112125978E-10"
+        iyy="1.16330109995669E-08"
+        iyz="3.69212982719966E-10"
+        izz="2.25657044103408E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/controller_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/controller_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="controller_joint"
+    type="fixed">
+    <origin
+      xyz="0.125923947385507 -0.131609076380086 0.00600000000000006"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="controller_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="left1_link">
+    <inertial>
+      <origin
+        xyz="5.51544276916616E-09 0.0147356305236095 -0.031506961905034"
+        rpy="0 0 0" />
+      <mass
+        value="0.0871302221739116" />
+      <inertia
+        ixx="5.3517572766116E-05"
+        ixy="5.40203853372506E-12"
+        ixz="-6.58727402696931E-12"
+        iyy="4.29068264448891E-05"
+        iyz="-2.35715444494149E-07"
+        izz="5.01875161028647E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/left1_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/left1_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left1_joint"
+    type="revolute">
+    <origin
+      xyz="0.289297880070653 0.162834299292906 0.0711999999999999"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="left1_link" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-0.52"
+      upper="0.52"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="lf_wheel_link">
+    <inertial>
+      <origin
+        xyz="-1.08112324928022E-05 -0.000997354446081733 -3.40928467553597E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.453923897773642" />
+      <inertia
+        ixx="0.00129994212021918"
+        ixy="-5.70884988318329E-08"
+        ixz="-2.06931639169823E-08"
+        iyy="0.00243922513867318"
+        iyz="-1.27200689062723E-09"
+        izz="0.00129993538678745" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/lf_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/lf_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="lf_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="0 0.091957 -0.031686"
+      rpy="0 0 0" />
+    <parent
+      link="left1_link" />
+    <child
+      link="lf_wheel_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="right1_link">
+    <inertial>
+      <origin
+        xyz="1.59206681482615E-06 -0.0147356304375998 -0.0315069619050355"
+        rpy="0 0 0" />
+      <mass
+        value="0.0871302221738955" />
+      <inertia
+        ixx="5.35175726402328E-05"
+        ixy="1.15577968572864E-09"
+        ixz="-1.89681195563151E-11"
+        iyy="4.2906826570777E-05"
+        iyz="2.35715443820803E-07"
+        izz="5.01875161028745E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/right1_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/right1_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right1_joint"
+    type="revolute">
+    <origin
+      xyz="0.289297880070607 -0.163165700707053 0.0711999999999999"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="right1_link" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-0.52"
+      upper="0.52"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="rf_wheel_link">
+    <inertial>
+      <origin
+        xyz="9.94850877467091E-06 0.000997357189352788 4.02425503458204E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.453923899457485" />
+      <inertia
+        ixx="0.00129992115967317"
+        ixy="-2.6222791336253E-07"
+        ixz="-3.68622232340792E-08"
+        iyy="0.00243922509241007"
+        iyz="2.59712221026958E-08"
+        izz="0.00129995638894646" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/rf_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_akm_bs_robot_meshes/rf_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="rf_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="2.4000000044988E-05 -0.0919570000000404 -0.0317010000000001"
+      rpy="0 0 0" />
+    <parent
+      link="right1_link" />
+    <child
+      link="rf_wheel_link" />
+    <axis
+      xyz="-0.000108416280945453 0.999999994122955 0" />
+  </joint>
+</robot>

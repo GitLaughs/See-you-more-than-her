@@ -1,0 +1,418 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="mini_mec_robot">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.0176284106363391 -0.0212065922126046 0.00705733641663178"
+        rpy="0 0 0" />
+      <mass
+        value="0.679600252032273" />
+      <inertia
+        ixx="0.000516343641288595"
+        ixy="-1.73660367632987E-06"
+        ixz="-4.24522803621893E-07"
+        iyy="0.000760747638398563"
+        iyz="-2.61267723541993E-07"
+        izz="0.00116528983259254" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="lf_wheel_link">
+    <inertial>
+      <origin
+        xyz="-4.83478163075103E-05 -0.00361887872849199 2.36591801651906E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0567325127195103" />
+      <inertia
+        ixx="2.10255136964011E-05"
+        ixy="-1.1023479242183E-08"
+        ixz="3.75231887164477E-09"
+        iyy="3.39275378717873E-05"
+        iyz="-8.51218162606208E-10"
+        izz="2.10059722946959E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/lf_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/lf_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="lf_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="0.0788906867829701 0.099101092708038 -0.0363"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="lf_wheel_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="lb_wheel_link">
+    <inertial>
+      <origin
+        xyz="-4.83408897442028E-05 -0.00361520799598775 2.36829907694566E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0567315810184634" />
+      <inertia
+        ixx="2.1025058702354E-05"
+        ixy="-1.10244929776427E-08"
+        ixz="3.74419002283728E-09"
+        iyy="3.39268129235868E-05"
+        iyz="-8.4580757766921E-10"
+        izz="2.10055351725051E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/lb_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/lb_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="lb_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="-0.0930093132170299 0.0990810927080387 -0.0363"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="lb_wheel_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="rb_wheel_link">
+    <inertial>
+      <origin
+        xyz="4.83478187074671E-05 0.00361887872849198 2.36591801651906E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0567325127195101" />
+      <inertia
+        ixx="2.1025513696401E-05"
+        ixy="-1.1023479242199E-08"
+        ixz="-3.7523188716606E-09"
+        iyy="3.39275378717872E-05"
+        iyz="8.5121816261345E-10"
+        izz="2.10059722946958E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/rb_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/rb_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="rb_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="-0.0930093132170305 -0.0989229072919614 -0.0363"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="rb_wheel_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="rf_wheel_link">
+    <inertial>
+      <origin
+        xyz="4.83408906942385E-05 0.0036152079959877 2.36829907694774E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0567315810184633" />
+      <inertia
+        ixx="2.1025058702354E-05"
+        ixy="-1.10244929776398E-08"
+        ixz="-3.74419002285257E-09"
+        iyy="3.39268129235868E-05"
+        iyz="8.45807577677436E-10"
+        izz="2.10055351725051E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/rf_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/rf_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="rf_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="0.0788906867829694 -0.098902907291962 -0.0363"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="rf_wheel_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="controller_link">
+    <inertial>
+      <origin
+        xyz="-0.017877242180046 0.0389174701067245 0.0213653101693057"
+        rpy="0 0 0" />
+      <mass
+        value="0.0391683061674007" />
+      <inertia
+        ixx="2.20183096868336E-05"
+        ixy="1.2570811872774E-06"
+        ixz="1.53420711428688E-09"
+        iyy="2.40630534171015E-05"
+        iyz="2.2778658628168E-07"
+        izz="4.51084285172614E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/controller_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/controller_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="controller_joint"
+    type="fixed">
+    <origin
+      xyz="-0.0556343132168706 -0.0407821141826353 0.0519999999999999"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="controller_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="laser_link">
+    <inertial>
+      <origin
+        xyz="0.001964586310461 -3.5789542839353E-06 -0.00020183163277164"
+        rpy="0 0 0" />
+      <mass
+        value="0.0477519163775583" />
+      <inertia
+        ixx="3.38461999766101E-05"
+        ixy="-2.19897141949925E-09"
+        ixz="1.07118468648131E-06"
+        iyy="3.94150415881323E-05"
+        iyz="6.83978165807927E-10"
+        izz="5.60787042136425E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/laser.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/laser.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="laser_joint"
+    type="fixed">
+    <origin
+      xyz="0.0316310367407428 9.05810809802502E-05 0.095024183741431"
+      rpy="0 0 3.14159265358979" />
+    <parent
+      link="base_link" />
+    <child
+      link="laser_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="camera_link">
+    <inertial>
+      <origin
+        xyz="3.50190324457239E-07 9.10362272514738E-08 1.0762423485744E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.0559842512080123" />
+      <inertia
+        ixx="0.000130810959339217"
+        ixy="1.20255128206215E-07"
+        ixz="1.62335437080132E-06"
+        iyy="1.911486349679E-05"
+        iyz="-2.80016755799908E-08"
+        izz="0.00013138746952303" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/camera_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/mini_mec_robot_meshes/camera_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="camera_joint"
+    type="fixed">
+    <origin
+      xyz="0.10709468678297 0.000317092708037946 0.076204"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="camera_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+</robot>

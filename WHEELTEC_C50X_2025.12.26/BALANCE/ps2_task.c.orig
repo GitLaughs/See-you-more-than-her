@@ -1,0 +1,23 @@
+#include "ps2_task.h"
+
+/**************************************************************************
+Function: Ps2 handle task
+Input   : none
+Output  : none
+函数功能：PS2手柄任务
+入口参数：无
+返回  值：无
+**************************************************************************/	
+void pstwo_task(void *pvParameters)
+{
+    u32 lastWakeTime = getSysTickCnt();
+    while(1)
+    {	
+			//The task is run at 100hz
+			//此任务以100Hz的频率运行 	
+			vTaskDelayUntil(&lastWakeTime, F2T(RATE_20_HZ));
+			//Read the ps2 data
+			//读取PS2的数据	
+      PS2_Read(); 	
+    }
+}  

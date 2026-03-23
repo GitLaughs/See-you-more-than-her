@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="brushless_senior_diff">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.0424469101292318 -0.00969708702451111 0.115352514737036"
+        rpy="0 0 0" />
+      <mass
+        value="6.68739846096177" />
+      <inertia
+        ixx="0.030526117501119"
+        ixy="-0.000167780644719383"
+        ixz="-0.00427357734732513"
+        iyy="0.0339325346162789"
+        iyz="-1.11619574072303E-06"
+        izz="0.0537483941973775" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/brushless_senior_diff_meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/brushless_senior_diff_meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="lb_wheel_link">
+    <inertial>
+      <origin
+        xyz="2.47041210994781E-07 0.00495036305166716 9.44784144598157E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.327436213515774" />
+      <inertia
+        ixx="0.000713929308931744"
+        ixy="-1.8343333407906E-09"
+        ixz="1.6571694371827E-08"
+        iyy="0.00131015458351941"
+        iyz="3.03256240972014E-08"
+        izz="0.00071400666665183" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/brushless_senior_diff_meshes/lb_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/brushless_senior_diff_meshes/lb_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="lb_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="-0.188639266058778 0.213573 0.016176921922286"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="lb_wheel_link" />
+    <axis
+      xyz="0 -1 0" />
+    <dynamics
+      damping="100"
+      friction="100" />
+  </joint>
+  <link
+    name="rb_wheel_link">
+    <inertial>
+      <origin
+        xyz="-1.65029223331975E-07 -0.00495036366749957 9.44092341311625E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.327436242159506" />
+      <inertia
+        ixx="0.000713929487253753"
+        ixy="-1.8383182434554E-09"
+        ixz="-1.66282086900089E-08"
+        iyy="0.00131015472203341"
+        iyz="-3.03407228998224E-08"
+        izz="0.000714006629310361" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/brushless_senior_diff_meshes/rb_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/brushless_senior_diff_meshes/rb_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="rb_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="-0.188639266058778 -0.213573 0.016176921922286"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="rb_wheel_link" />
+    <axis
+      xyz="0 1 0" />
+    <dynamics
+      damping="100"
+      friction="100" />
+  </joint>
+  <link
+    name="camera_link">
+    <inertial>
+      <origin
+        xyz="4.74349649337569E-07 2.24930421104748E-07 -0.00699984021654487"
+        rpy="0 0 0" />
+      <mass
+        value="0.0225531117355389" />
+      <inertia
+        ixx="1.64134349365822E-05"
+        ixy="2.20860838140145E-09"
+        ixz="7.59285211713348E-09"
+        iyy="1.40668273876307E-06"
+        iyz="7.30398212709695E-09"
+        izz="1.58739295808283E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/brushless_senior_diff_meshes/camera_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/brushless_senior_diff_meshes/camera_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="camera_joint"
+    type="fixed">
+    <origin
+      xyz="0.190243733941222 -0.000234999999999987 0.220221921922286"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="camera_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="laser_link">
+    <inertial>
+      <origin
+        xyz="0.00178645988443693 -3.03002020384401E-06 -0.00220244097062422"
+        rpy="0 0 0" />
+      <mass
+        value="0.0525133534269945" />
+      <inertia
+        ixx="3.5707507087464E-05"
+        ixy="-3.73931185793229E-09"
+        ixz="1.07118523896704E-06"
+        iyy="4.12747717480446E-05"
+        iyz="7.35438624249993E-10"
+        izz="5.81937599648018E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/brushless_senior_diff_meshes/laser.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/brushless_senior_diff_meshes/laser.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="laser_joint"
+    type="fixed">
+    <origin
+      xyz="0.101154812773979 0 0.236182105663717"
+      rpy="0 0 -3.14159265358979" />
+    <parent
+      link="base_link" />
+    <child
+      link="laser_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="controller_link">
+    <inertial>
+      <origin
+        xyz="-0.053903036889008 0.0534424103477666 0.00212517657143976"
+        rpy="0 0 0" />
+      <mass
+        value="0.0207979393257728" />
+      <inertia
+        ixx="5.91820104197495E-06"
+        ixy="-2.31247274021234E-07"
+        ixz="1.37177009629614E-06"
+        iyy="1.38986311204689E-05"
+        iyz="1.2427751412565E-07"
+        izz="1.85561975351842E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/brushless_senior_diff_meshes/controller_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/brushless_senior_diff_meshes/controller_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="controller_joint"
+    type="fixed">
+    <origin
+      xyz="0.113281206629993 0.0622012251396801 0.125099999999996"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="controller_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+</robot>

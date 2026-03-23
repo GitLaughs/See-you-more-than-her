@@ -1,0 +1,630 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="top_mec_EightDrive_robot">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.00350919100045993 0.000972422198653344 0.0616787989007192"
+        rpy="0 0 0" />
+      <mass
+        value="10.253042543006" />
+      <inertia
+        ixx="0.0619463430125723"
+        ixy="-0.000100508981373811"
+        ixz="-5.21260994334635E-10"
+        iyy="0.0696888082681683"
+        iyz="-5.12172864748334E-07"
+        izz="0.121037039687914" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="left_wheel1_link">
+    <inertial>
+      <origin
+        xyz="-4.32739781150437E-06 -0.00188129053000718 -4.23069412872068E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.237009465446872" />
+      <inertia
+        ixx="0.000456058933700928"
+        ixy="2.2694210391122E-07"
+        ixz="-5.85157010891908E-08"
+        iyy="0.000867137219361634"
+        iyz="-3.30594169904979E-08"
+        izz="0.000455509021601446" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/left_wheel1_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/left_wheel1_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_wheel1_joint"
+    type="continuous">
+    <origin
+      xyz="0.305831276324481 0.289764120331855 0.037994000000001"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="left_wheel1_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="left_wheel2_link">
+    <inertial>
+      <origin
+        xyz="-4.32739781364155E-06 -0.00188129053000696 -4.23069412837374E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.237009465446874" />
+      <inertia
+        ixx="0.000456058933700931"
+        ixy="2.26942103910967E-07"
+        ixz="-5.85157010927438E-08"
+        iyy="0.000867137219361633"
+        iyz="-3.30594169900124E-08"
+        izz="0.000455509021601441" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/left_wheel2_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/left_wheel2_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_wheel2_joint"
+    type="continuous">
+    <origin
+      xyz="0.125831276324481 0.289764120331855 0.037994000000001"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="left_wheel2_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="left_wheel3_link">
+    <inertial>
+      <origin
+        xyz="-4.32739812805671E-06 -0.00188129052980335 -4.23069336007165E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.23700946544203" />
+      <inertia
+        ixx="0.000456058933692087"
+        ixy="2.26942101619565E-07"
+        ixz="-5.85157043036887E-08"
+        iyy="0.000867137219350863"
+        iyz="-3.3059414560331E-08"
+        izz="0.00045550902159644" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/left_wheel3_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/left_wheel3_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_wheel3_joint"
+    type="continuous">
+    <origin
+      xyz="-0.126168723675519 0.289764120331854 0.037994000000001"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="left_wheel3_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="left_wheel4_link">
+    <inertial>
+      <origin
+        xyz="-4.18164729454329E-06 -0.00188129053000707 -4.23069412830435E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.237009465446872" />
+      <inertia
+        ixx="0.000456058933700929"
+        ixy="2.2694210391183E-07"
+        ixz="-5.85157010877687E-08"
+        iyy="0.000867137219361631"
+        iyz="-3.30594169902435E-08"
+        izz="0.000455509021601441" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/left_wheel4_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/left_wheel4_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_wheel4_joint"
+    type="continuous">
+    <origin
+      xyz="-0.308185723675519 0.289764120331853 0.0379940000000009"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="left_wheel4_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="right_wheel1_link">
+    <inertial>
+      <origin
+        xyz="4.18164749280137E-06 0.00188129052986371 -4.23069381033647E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.237009465444897" />
+      <inertia
+        ixx="0.000456058933697109"
+        ixy="2.26942102964819E-07"
+        ixz="5.85157029869317E-08"
+        iyy="0.000867137219357441"
+        iyz="3.30594154553728E-08"
+        izz="0.00045550902159955" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/right_wheel1_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/right_wheel1_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_wheel1_joint"
+    type="continuous">
+    <origin
+      xyz="0.305832276324483 -0.290119879668145 0.037993999999999"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="right_wheel1_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="right_wheel2_link">
+    <inertial>
+      <origin
+        xyz="4.18164734405924E-06 0.00188129052998636 -4.23069403451826E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.237009465446237" />
+      <inertia
+        ixx="0.000456058933699739"
+        ixy="2.26942103704383E-07"
+        ixz="5.85157015802966E-08"
+        iyy="0.000867137219360443"
+        iyz="3.30594166271188E-08"
+        izz="0.00045550902160078" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/right_wheel2_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/right_wheel2_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_wheel2_joint"
+    type="continuous">
+    <origin
+      xyz="0.125832276324483 -0.290119879668145 0.037993999999999"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="right_wheel2_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="right_wheel3_link">
+    <inertial>
+      <origin
+        xyz="4.18164729443227E-06 0.00188129053000742 -4.23069412851251E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.237009465446872" />
+      <inertia
+        ixx="0.000456058933700926"
+        ixy="2.26942103911649E-07"
+        ixz="5.85157010898774E-08"
+        iyy="0.000867137219361628"
+        iyz="3.30594169928342E-08"
+        izz="0.000455509021601442" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/right_wheel3_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/right_wheel3_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_wheel3_joint"
+    type="continuous">
+    <origin
+      xyz="-0.126167723675517 -0.290119879668146 0.037993999999999"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="right_wheel3_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="right_wheel4_link">
+    <inertial>
+      <origin
+        xyz="4.18164729465431E-06 0.00188129053000732 -4.23069412759658E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.237009465446872" />
+      <inertia
+        ixx="0.000456058933700925"
+        ixy="2.26942103911215E-07"
+        ixz="5.85157010895202E-08"
+        iyy="0.000867137219361627"
+        iyz="3.30594169934995E-08"
+        izz="0.000455509021601442" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/right_wheel4_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/right_wheel4_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_wheel4_joint"
+    type="continuous">
+    <origin
+      xyz="-0.306167723675517 -0.290119879668147 0.037993999999999"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="right_wheel4_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="controller_link">
+    <inertial>
+      <origin
+        xyz="-0.0322400404542142 0.0783872861331458 0.0455371464156543"
+        rpy="0 0 0" />
+      <mass
+        value="12.2099817302285" />
+      <inertia
+        ixx="0.431652049697927"
+        ixy="0.000505367850571908"
+        ixz="-0.000119235167873323"
+        iyy="0.694813961148576"
+        iyz="0.00050210104108111"
+        izz="1.0794722287436" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/controller_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.741176470588235 0.901960784313726 0.956862745098039 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/controller_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="controller_joint"
+    type="fixed">
+    <origin
+      xyz="0.0308912883979451 -0.0775982034519097 0.0129999999999997"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="controller_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="camera_link">
+    <inertial>
+      <origin
+        xyz="-1.49835977937551E-07 1.57122770766405E-07 1.07518939862494E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.0559842530198433" />
+      <inertia
+        ixx="0.000130802201327715"
+        ixy="-9.96618940991044E-07"
+        ixz="1.62299343648538E-06"
+        iyy="1.91236263376392E-05"
+        iyz="-4.42333554798426E-08"
+        izz="0.000131387474089775" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/camera_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/camera_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="camera_joint"
+    type="fixed">
+    <origin
+      xyz="0.339617276324482 4.51203318548865E-05 0.169704"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="camera_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="laser_link">
+    <inertial>
+      <origin
+        xyz="-1.41239660400583E-06 -4.97603036553329E-09 -0.0286630730699492"
+        rpy="0 0 0" />
+      <mass
+        value="0.00487350279505622" />
+      <inertia
+        ixx="1.86258760691645E-06"
+        ixy="-2.58793766001559E-09"
+        ixz="-2.38955186132337E-14"
+        iyy="1.86258746483758E-06"
+        iyz="-2.28917185194285E-15"
+        izz="2.11422294867293E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/laser.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.376470588235294 0.376470588235294 0.376470588235294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://wheeltec_robot_urdf/meshes/top_mec_EightDrive_robot_meshes/laser.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="laser_joint"
+    type="fixed">
+    <origin
+      xyz="0.265826276324482 -0.000177879668145448 0.195056"
+      rpy="0 0 -3.14159265358979" />
+    <parent
+      link="base_link" />
+    <child
+      link="laser_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+</robot>
