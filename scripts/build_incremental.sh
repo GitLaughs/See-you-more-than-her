@@ -1,29 +1,35 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
+# build_incremental.sh — 增量构建脚本
+#
+# 参考: data/A1_SDK_SC132GS/smartsens_sdk/scripts/build_app.sh
+#
+# 用法:
+#   build_incremental.sh sdk [ssne_ai_demo|ssne_vision_demo|m1_sdk_lib|linux|full]
+#   build_incremental.sh ros [--clean] [--verbose] [package ...]
+#   build_incremental.sh collect
+#
+# 示例:
+#   build_incremental.sh sdk ssne_ai_demo
+#   build_incremental.sh sdk ssne_vision_demo
+#   build_incremental.sh sdk m1_sdk_lib
+#   build_incremental.sh ros turn_on_wheeltec_robot wheeltec_multi
+#   build_incremental.sh ros --clean
+#   build_incremental.sh collect
 
-ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+set -e
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]-$0}")" && pwd)
+ROOT_DIR=$(cd "${SCRIPT_DIR}/.." && pwd)
 SDK_DIR="${ROOT_DIR}/data/A1_SDK_SC132GS/smartsens_sdk"
 
-mkdir -p /app
-ln -sfn "${ROOT_DIR}/data" /app/smartsens_sdk
+mkdir -p /app 2>/dev/null || true
+ln -sfn "${ROOT_DIR}/data" /app/smartsens_sdk 2>/dev/null || true
 
 usage() {
-  cat <<'EOF'
-Usage:
-  build_incremental.sh sdk [ssne_ai_demo|ssne_vision_demo|m1_sdk_lib|linux|full]
-  build_incremental.sh ros [--clean] [package ...]
-  build_incremental.sh collect
-
-Examples:
-  build_incremental.sh sdk ssne_ai_demo
-  build_incremental.sh sdk ssne_vision_demo
-  build_incremental.sh sdk m1_sdk_lib
-  build_incremental.sh ros --clean robot_navigation_ros2 ncnn_ros2
-  build_incremental.sh collect
-EOF
+  grep '^#' "$0" | head -20 | sed 's/^# \{0,2\}//'
 }
 
-if [ $# -lt 1 ]; then
+if [[ $# -lt 1 ]]; then
   usage
   exit 1
 fi
@@ -37,26 +43,26 @@ case "${mode}" in
     cd "${SDK_DIR}"
     case "${target}" in
       ssne_ai_demo|demo)
-        echo "[build_incremental.sh] Building ssne_ai_demo (face detection)"
+        echo "[build_incremental.sh] 构建 ssne_ai_demo（人脸检测）"
         rm -rf output/build/ssne_ai_demo/
         make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg ssne_ai_demo
         ;;
       ssne_vision_demo|vision)
-        echo "[build_incremental.sh] Building ssne_vision_demo (YOLOv8+OSD+lidar)"
+        echo "[build_incremental.sh] 构建 ssne_vision_demo（YOLOv8+OSD+雷达）"
         rm -rf output/build/ssne_vision_demo/
         make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg ssne_vision_demo
         ;;
       m1_sdk_lib|lib)
-        echo "[build_incremental.sh] Rebuilding SDK library only"
+        echo "[build_incremental.sh] 重新构建 SDK 基础库"
         make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg m1_sdk_lib-rebuild
         ;;
       linux|kernel)
-        echo "[build_incremental.sh] Rebuilding kernel with initramfs"
+        echo "[build_incremental.sh] 重新构建内核 (with initramfs)"
         make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg linux-rebuild-with-initramfs
         ;;
       full)
-        echo "[build_incremental.sh] Running full SDK build"
-        bash scripts/a1_sc132gs_build.sh
+        echo "[build_incremental.sh] 完整 SDK 构建"
+        bash "${SDK_DIR}/scripts/a1_sc132gs_build.sh"
         ;;
       *)
         usage
@@ -65,10 +71,11 @@ case "${mode}" in
     esac
     ;;
   ros)
-    bash "${ROOT_DIR}/scripts/build_ros2_ws.sh" "$@"
+    # 传递所有剩余参数给 build_ros2_ws.sh（支持 --clean/--verbose/包名）
+    bash "${SCRIPT_DIR}/build_ros2_ws.sh" "$@"
     ;;
   collect)
-    bash "${ROOT_DIR}/scripts/collect_evb_artifacts.sh"
+    bash "${SCRIPT_DIR}/collect_evb_artifacts.sh"
     ;;
   *)
     usage
