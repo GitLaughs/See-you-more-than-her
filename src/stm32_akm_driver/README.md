@@ -191,7 +191,7 @@ ros2 topic pub /cmd_vel geometry_msgs/Twist '{linear: {x: 0.0, y: 0.0, z: 0.0}, 
 - `WHEELTEC_C50X_2025.12.26/源码工程使用指南.pdf` - 详细的Keil工程说明
 - `WHEELTEC_C50X_2025.12.26/更新记录.txt` - 版本更新日志
 - `base_control_ros2/README.MD` - ROS驱动详细说明
-- `hardware_connection.md` - A1开发板与STM32小车的连接方案
+- `docs/硬件连接说明.md` - A1开发板与STM32小车的连接方案
 
 ## 后续优化方向
 
