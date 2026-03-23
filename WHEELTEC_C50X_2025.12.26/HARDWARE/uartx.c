@@ -1,0 +1,246 @@
+#include "uartx.h"
+
+//app按键定义
+APP_CONTROL_t appkey;
+
+void APPKey_Param_Init(APP_CONTROL_t *p)
+{
+	p->DirectionFlag = 0;
+	p->ParamSaveFlag = 0;
+	p->ParamSendflag = 0;
+	p->TurnFlag = 0;
+	p->TurnPage = 0;
+}
+
+/**************************************************************************
+Function: Serial port 1 initialization
+Input   : none
+Output  : none
+函数功能：串口1初始化
+入口参数：无
+返 回 值：无
+**************************************************************************/
+void UART1_Init(u32 bound)
+{
+    GPIO_InitTypeDef GPIO_InitStructure;
+    USART_InitTypeDef USART_InitStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;
+
+    //对应引脚、对应串口时钟开启
+    ENABLE_UART1_TX_PIN_CLOCK;
+    ENABLE_UART1_RX_PIN_CLOCK;
+    ENABLE_UART1_CLOCK;
+
+    //AF初始化
+    GPIO_PinAFConfig(UART1_TX_PORT,UART1_TX_Soure,GPIO_AF_USART1);
+    GPIO_PinAFConfig(UART1_RX_PORT,UART1_RX_Soure,GPIO_AF_USART1);
+
+    //对应引脚端口初始化
+    GPIO_InitStructure.GPIO_Pin = UART1_TX_PIN;
+    GPIO_InitStructure.GPIO_Mode=GPIO_Mode_AF;
+    GPIO_InitStructure.GPIO_OType=GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_Speed=GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_PuPd=GPIO_PuPd_UP;
+    GPIO_Init(UART1_TX_PORT, &GPIO_InitStructure);
+
+    GPIO_InitStructure.GPIO_Pin = UART1_RX_PIN;
+    GPIO_InitStructure.GPIO_Mode=GPIO_Mode_AF;
+    GPIO_InitStructure.GPIO_OType=GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_Speed=GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_PuPd=GPIO_PuPd_UP;
+    GPIO_Init(UART1_RX_PORT, &GPIO_InitStructure);
+
+    //UsartNVIC configuration //UsartNVIC配置
+    NVIC_InitStructure.NVIC_IRQChannel = USART1_IRQn;
+    //Preempt priority //抢占优先级
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority= 4;
+    //Subpriority //子优先级
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
+    //Enable the IRQ channel //IRQ通道使能
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+    //Initialize the VIC register with the specified parameters
+    //根据指定的参数初始化VIC寄存器
+    NVIC_Init(&NVIC_InitStructure);
+
+    //USART Initialization Settings 初始化设置
+    USART_InitStructure.USART_BaudRate = bound; //Port rate //串口波特率
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b; //The word length is 8 bit data format //字长为8位数据格式
+    USART_InitStructure.USART_StopBits = USART_StopBits_1; //A stop bit //一个停止位
+    USART_InitStructure.USART_Parity = USART_Parity_No; //Prosaic parity bits //无奇偶校验位
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None; //No hardware data flow control //无硬件数据流控制
+    USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;	//Sending and receiving mode //收发模式
+    USART_Init(USART1, &USART_InitStructure); //Initialize serial port 1 //初始化串口1
+
+    USART_ITConfig(USART1, USART_IT_RXNE, ENABLE); //Open the serial port to accept interrupts //开启串口接受中断
+    USART_Cmd(USART1, ENABLE);                     //Enable serial port 1 //使能串口1
+}
+
+/**************************************************************************
+Function: Serial port 1 sends data
+Input   : The data to send
+Output  : none
+函数功能：串口1发送数据
+入口参数：要发送的数据
+返回  值：无
+**************************************************************************/
+void uart1_send(u8 data)
+{
+    USART1->DR = data;
+    while((USART1->SR&0x40)==0);
+}
+
+
+/**************************************************************************
+Function: Serial port 3 initialization
+Input   : none
+Output  : none
+函数功能：串口3初始化
+入口参数：无
+返回  值：无
+**************************************************************************/
+void UART3_Init(u32 bound)
+{
+    GPIO_InitTypeDef GPIO_InitStructure;
+    USART_InitTypeDef USART_InitStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;
+
+    //对应引脚、对应串口时钟开启
+    ENABLE_UART3_TX_PIN_CLOCK;
+    ENABLE_UART3_RX_PIN_CLOCK;
+    ENABLE_UART3_CLOCK;
+
+    //AF初始化
+    GPIO_PinAFConfig(UART3_TX_PORT,UART3_TX_Soure,GPIO_AF_USART3);
+    GPIO_PinAFConfig(UART3_RX_PORT,UART3_RX_Soure,GPIO_AF_USART3);
+
+    //对应引脚端口初始化
+    GPIO_InitStructure.GPIO_Pin = UART3_TX_PIN;
+    GPIO_InitStructure.GPIO_Mode=GPIO_Mode_AF;
+    GPIO_InitStructure.GPIO_OType=GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_Speed=GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_PuPd=GPIO_PuPd_UP;
+    GPIO_Init(UART3_TX_PORT, &GPIO_InitStructure);
+
+    GPIO_InitStructure.GPIO_Pin = UART3_RX_PIN;
+    GPIO_InitStructure.GPIO_Mode=GPIO_Mode_AF;
+    GPIO_InitStructure.GPIO_OType=GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_Speed=GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_PuPd=GPIO_PuPd_UP;
+    GPIO_Init(UART3_RX_PORT, &GPIO_InitStructure);
+
+    //UsartNVIC configuration //UsartNVIC配置
+    NVIC_InitStructure.NVIC_IRQChannel = USART3_IRQn;
+    //Preempt priority //抢占优先级
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority= 0;
+    //Preempt priority //抢占优先级
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
+    //Enable the IRQ channel //IRQ通道使能
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+    //Initialize the VIC register with the specified parameters
+    //根据指定的参数初始化VIC寄存器
+    NVIC_Init(&NVIC_InitStructure);
+
+    //USART Initialization Settings 初始化设置
+    USART_InitStructure.USART_BaudRate = bound; //Port rate //串口波特率
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b; //The word length is 8 bit data format //字长为8位数据格式
+    USART_InitStructure.USART_StopBits = USART_StopBits_1; //A stop bit //一个停止
+    USART_InitStructure.USART_Parity = USART_Parity_No; //Prosaic parity bits //无奇偶校验位
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None; //No hardware data flow control //无硬件数据流控制
+    USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;	//Sending and receiving mode //收发模式
+    USART_Init(USART3, &USART_InitStructure);      //Initialize serial port 3 //初始化串口3
+
+    USART_ITConfig(USART3, USART_IT_RXNE, ENABLE); //Open the serial port to accept interrupts //开启串口接受中断
+    USART_Cmd(USART3, ENABLE);                     //Enable serial port 3 //使能串口3
+}
+
+/**************************************************************************
+Function: Serial port 1 sends data
+Input   : The data to send
+Output  : none
+函数功能：串口3发送数据
+入口参数：要发送的数据
+返回  值：无
+**************************************************************************/
+void uart3_send(u8 data)
+{
+    USART3->DR = data;
+    while((USART3->SR&0x40)==0);
+}
+
+/**************************************************************************
+Function: Serial port 4 initialization
+Input   : none
+Output  : none
+函数功能：串口4初始化
+入口参数：无
+返回  值：无
+**************************************************************************/
+void UART4_Init(u32 bound)
+{
+    GPIO_InitTypeDef GPIO_InitStructure;
+    USART_InitTypeDef USART_InitStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;
+
+    //对应引脚、对应串口时钟开启
+    ENABLE_UART4_TX_PIN_CLOCK;
+    ENABLE_UART4_RX_PIN_CLOCK;
+    ENABLE_UART4_CLOCK;
+
+    //AF初始化
+    GPIO_PinAFConfig(UART4_TX_PORT,UART4_TX_Soure,GPIO_AF_UART4);
+    GPIO_PinAFConfig(UART4_RX_PORT,UART4_RX_Soure,GPIO_AF_UART4);
+
+    //对应引脚端口初始化
+    GPIO_InitStructure.GPIO_Pin = UART4_TX_PIN;
+    GPIO_InitStructure.GPIO_Mode=GPIO_Mode_AF;
+    GPIO_InitStructure.GPIO_OType=GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_Speed=GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_PuPd=GPIO_PuPd_UP;
+    GPIO_Init(UART4_TX_PORT, &GPIO_InitStructure);
+
+    GPIO_InitStructure.GPIO_Pin = UART4_RX_PIN;
+    GPIO_InitStructure.GPIO_Mode=GPIO_Mode_AF;
+    GPIO_InitStructure.GPIO_OType=GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_Speed=GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_PuPd=GPIO_PuPd_UP;
+    GPIO_Init(UART4_RX_PORT, &GPIO_InitStructure);
+
+    //UsartNVIC configuration //UsartNVIC配置
+    NVIC_InitStructure.NVIC_IRQChannel = UART4_IRQn;
+    //Preempt priority //抢占优先级
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority= 3;
+    //Subpriority //子优先级
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
+    //Enable the IRQ channel //IRQ通道使能
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+    //Initialize the VIC register with the specified parameters
+    //根据指定的参数初始化VIC寄存器
+    NVIC_Init(&NVIC_InitStructure);
+
+    //USART Initialization Settings 初始化设置
+    USART_InitStructure.USART_BaudRate = bound; //Port rate //串口波特率
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b; //The word length is 8 bit data format //字长为8位数据格式
+    USART_InitStructure.USART_StopBits = USART_StopBits_1; //A stop bit //一个停止
+    USART_InitStructure.USART_Parity = USART_Parity_No; //Prosaic parity bits //无奇偶校验位
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None; //No hardware data flow control //无硬件数据流控制
+    USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;	//Sending and receiving mode //收发模式
+    USART_Init(UART4, &USART_InitStructure);      //Initialize serial port 4 //初始化串口4
+	
+	USART_ITConfig(UART4, USART_IT_RXNE, ENABLE); //Open the serial port to accept interrupts //开启串口接受中断
+	
+    USART_Cmd(UART4, ENABLE);                     //Enable serial port 4 //使能串口4
+}
+
+/**************************************************************************
+Function: Serial port 1 sends data
+Input   : The data to send
+Output  : none
+函数功能：串口4发送数据
+入口参数：要发送的数据
+返回  值：无
+**************************************************************************/
+void uart4_send(u8 data)
+{
+    UART4->DR = data;
+    while((UART4->SR&0x40)==0);
+}
