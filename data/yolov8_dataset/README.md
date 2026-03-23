@@ -65,7 +65,7 @@ names:
 .\tools\yolov8\train_gpu.ps1 -Model yolov8n.pt -Epochs 100 -Batch 16 -ImgSize 640 -Name a1_yolov8
 ```
 
-详细训练说明见 [docs/YOLOV8_TRAINING.md](../../docs/YOLOV8_TRAINING.md)。
+详细训练说明见 [docs/YOLOv8训练指南.md](../../docs/YOLOv8训练指南.md)。
 
 ## 注意事项
 

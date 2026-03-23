@@ -1,0 +1,5 @@
+# Aurora 伴侣工具 Python 依赖
+# 安装: pip install -r requirements.txt
+
+matplotlib>=3.7.0
+numpy>=1.24.0

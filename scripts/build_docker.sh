@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Script: build_docker.sh
-# Purpose: Build project inside Docker container
-# Requires: Docker and docker-compose
-# Updated: 2025-03-24
+# 脚本: build_docker.sh
+# 功能: 在 Docker 容器中执行项目构建
+# 依赖: Docker 和 docker-compose
+# 更新: 2025-03-24
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 DOCKER_DIR="${ROOT_DIR}/docker"
@@ -16,7 +16,7 @@ CLEAN_BUILD=0
 VERBOSE=0
 BUILD_CMD="build_src_all.sh"
 
-# Parse arguments
+# 解析参数
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip-sdk)
@@ -39,60 +39,60 @@ while [ $# -gt 0 ]; do
       ;;
     --help|-h)
       cat << 'EOF'
-Usage: build_docker.sh [OPTIONS]
+用法: build_docker.sh [选项]
 
-Options:
-  --ros-only          Build only ROS2 (skip SDK)
-  --skip-sdk          Same as --ros-only
-  --clean             Clean build directories
-  --verbose, -v       Enable verbose output
-  --help, -h          Show this help message
+选项:
+  --ros-only          仅构建 ROS2（跳过 SDK）
+  --skip-sdk          同 --ros-only
+  --clean             清理构建目录
+  --verbose, -v       启用详细输出
+  --help, -h          显示帮助信息
 
-Examples:
-  # Full build in Docker
+示例:
+  # 在 Docker 中全量构建
   ./build_docker.sh
 
-  # ROS2 only build in Docker
+  # 仅构建 ROS2
   ./build_docker.sh --ros-only
 
-  # Clean full build
+  # 清理后全量构建
   ./build_docker.sh --clean
 EOF
       exit 0
       ;;
     *)
-      echo "Unknown option: $1" >&2
+      echo "未知选项: $1" >&2
       exit 1
       ;;
   esac
 done
 
 echo "========================================="
-echo "[build_docker.sh] Docker Build Script"
+echo "[build_docker.sh] Docker 构建脚本"
 echo "========================================="
-echo "Project root: ${ROOT_DIR}"
-echo "Docker dir:   ${DOCKER_DIR}"
-echo "Container:    ${CONTAINER_NAME}"
-echo "Build cmd:    ${BUILD_CMD}"
-echo "Skip SDK:     ${SKIP_SDK}"
-echo "Clean:        ${CLEAN_BUILD}"
-echo "Verbose:      ${VERBOSE}"
+echo "项目根目录: ${ROOT_DIR}"
+echo "Docker 目录: ${DOCKER_DIR}"
+echo "容器名:     ${CONTAINER_NAME}"
+echo "构建命令:   ${BUILD_CMD}"
+echo "跳过SDK:     ${SKIP_SDK}"
+echo "清理构建:   ${CLEAN_BUILD}"
+echo "详细输出:   ${VERBOSE}"
 echo "========================================="
 
-# Check prerequisites
+# 检查前置条件
 if [ ! -f "${COMPOSE_FILE}" ]; then
-  echo "[build_docker.sh] ERROR: docker-compose.yml not found" >&2
-  echo "  Expected: ${COMPOSE_FILE}" >&2
+  echo "[build_docker.sh] 错误: docker-compose.yml 未找到" >&2
+  echo "  期望路径: ${COMPOSE_FILE}" >&2
   exit 1
 fi
 
 if ! command -v docker-compose &> /dev/null; then
-  echo "[build_docker.sh] ERROR: docker-compose not found in PATH" >&2
-  echo "  Please install Docker and docker-compose" >&2
+  echo "[build_docker.sh] 错误: docker-compose 未安装" >&2
+  echo "  请先安装 Docker 和 docker-compose" >&2
   exit 1
 fi
 
-# Build command with options
+# 构建命令参数
 BUILD_ARGS=""
 if [ "${SKIP_SDK}" -eq 1 ]; then
   BUILD_ARGS="${BUILD_ARGS} --skip-sdk"
@@ -104,21 +104,21 @@ if [ "${VERBOSE}" -eq 1 ]; then
   BUILD_ARGS="${BUILD_ARGS} --verbose"
 fi
 
-# Start Docker environment
+# 启动 Docker 环境
 echo ""
-echo "[build_docker.sh] Step 1: Starting Docker container..."
+echo "[build_docker.sh] Step 1: 启动 Docker 容器..."
 cd "${DOCKER_DIR}"
 docker-compose up -d "${CONTAINER_NAME}" || {
-  echo "[build_docker.sh] ERROR: Failed to start Docker container" >&2
+  echo "[build_docker.sh] 错误: Docker 容器启动失败" >&2
   exit 1
 }
 
-echo "[build_docker.sh] ✓ Container started"
+echo "[build_docker.sh] ✓ 容器已启动"
 
-# Run build script inside container
+# 在容器内执行构建脚本
 echo ""
-echo "[build_docker.sh] Step 2: Running build script in container..."
-echo "  Command: /app/scripts/${BUILD_CMD} ${BUILD_ARGS}"
+echo "[build_docker.sh] Step 2: 在容器内执行构建..."
+echo "  命令: /app/scripts/${BUILD_CMD} ${BUILD_ARGS}"
 echo ""
 
 docker-compose exec -T "${CONTAINER_NAME}" \
@@ -126,19 +126,19 @@ docker-compose exec -T "${CONTAINER_NAME}" \
 
 BUILD_RESULT=$?
 
-# Clean up
+# 清理
 echo ""
-echo "[build_docker.sh] Step 3: Cleaning up..."
+echo "[build_docker.sh] Step 3: 清理容器..."
 docker-compose down
 
 echo ""
 echo "========================================="
 if [ ${BUILD_RESULT} -eq 0 ]; then
-  echo "[build_docker.sh] ✓ Docker build SUCCESS"
+  echo "[build_docker.sh] ✓ Docker 构建成功"
   echo "========================================="
   exit 0
 else
-  echo "[build_docker.sh] ✗ Docker build FAILED"
+  echo "[build_docker.sh] ✗ Docker 构建失败"
   echo "========================================="
   exit ${BUILD_RESULT}
 fi

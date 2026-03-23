@@ -133,9 +133,9 @@ for pkg in "${P1_PKGS[@]}"; do
 done
 echo ""
 
-# 执行 colcon 构建
+# 执行 colcon 构建（--base-paths src 确保只扫描 src/ 子目录中的包）
 echo "[build_ros2_ws.sh] 开始 colcon 构建..."
-colcon build ${COLCON_ARGS}
+colcon build --base-paths src ${COLCON_ARGS}
 BUILD_RESULT=$?
 
 # 加载安装环境，统计结果
@@ -143,8 +143,8 @@ if [[ ${BUILD_RESULT} -eq 0 ]]; then
   set +u
   source install/setup.bash 2>/dev/null || true
   set -u
-  PKG_COUNT=$(colcon list --names-only 2>/dev/null | wc -l || echo "?")
-  PKG_LIST=$(colcon list --names-only 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+$//' || echo "")
+  PKG_COUNT=$(colcon list --base-paths src --names-only 2>/dev/null | wc -l || echo "?")
+  PKG_LIST=$(colcon list --base-paths src --names-only 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+$//' || echo "")
 
   mkdir -p "$(dirname "${REPORT_FILE}")"
   cat > "${REPORT_FILE}" <<REPORT

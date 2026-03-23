@@ -185,7 +185,7 @@ struct LidarSample {
 bool GrabScan(std::vector<LidarSample>& samples);
 ```
 
-详细接入说明见 [docs/RPLIDAR_SDK_GUIDE.md](../../docs/RPLIDAR_SDK_GUIDE.md)。
+详细接入说明见 [docs/雷达Sdk接入指南.md](../../docs/雷达Sdk接入指南.md)。
 
 ---
 
@@ -203,7 +203,7 @@ docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_
     make BR2_EXTERNAL=./smart_software ssne_ai_demo"
 
 # 使用项目全量构建脚本
-bash scripts/build_vision_stack.sh
+bash scripts/build_src_all.sh
 ```
 
 详细编译步骤见 [docs/BUILD.md](../../docs/BUILD.md)。

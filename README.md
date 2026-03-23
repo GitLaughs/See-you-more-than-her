@@ -11,7 +11,8 @@
 | RPLidar 激光雷达 | 360° 点云采集与避障决策 | ✅ 已完成 |
 | OSD 硬件叠加 | 多图层检测框渲染（DMA 硬件加速） | ✅ 已完成 |
 | ROS2 底盘控制 | UART 底盘驱动 + 导航 + SLAM | ✅ 已完成 |
-| 调试接口 | TCP JSON 数据流 → Aurora 桌面工具可视化 | 开发中 |
+| 调试接口 | TCP JSON 数据流 → Aurora 桌面工具可视化 | ✅ 已完成 |
+| Aurora 伴侣工具 | 三维点云 / 障碍区域 / 检测结果可视化 + CH347 固件烧录 | ✅ 已完成 |
 
 ## 仓库结构
 
@@ -36,6 +37,7 @@
 ├── third_party/
 │   └── ultralytics/             # YOLOv8 训练框架
 └── tools/
+    ├── aurora/                  # Aurora 伴侣工具（点云/障碍/检测/烧录）
     └── yolov8/                  # 标注、划分、训练脚本
 ```
 
@@ -72,7 +74,21 @@ data/A1_SDK_SC132GS/smartsens_sdk/output/images/zImage.smartsens-m1-evb
 output/evb/zImage.smartsens-m1-evb
 ```
 
-### 4. 训练 YOLOv8 模型（可选）
+### 4. 启动 Aurora 伴侣工具
+
+```powershell
+# 启动 Aurora + 伴侣工具（图像/OSD + 点云/障碍/检测面板）
+cd tools/aurora
+.\launch.ps1
+
+# 演示模式（无需连接硬件）
+.\launch.ps1 -Demo
+
+# 固件烧录（通过 CH347 SPI）
+.\launch.ps1 -Flash
+```
+
+### 5. 训练 YOLOv8 模型（可选）
 
 ```powershell
 # 在 Windows 本地执行
@@ -83,18 +99,19 @@ output/evb/zImage.smartsens-m1-evb
 
 | 文档 | 内容 |
 |------|------|
-| [编译手册](docs/BUILD.md) | SDK / ROS2 / 增量编译完整流程 |
-| [容器操作指南](docs/CONTAINER_OPERATION_GUIDE.md) | Docker 环境搭建与日常操作 |
-| [YOLOv8 训练指南](docs/YOLOV8_TRAINING.md) | 标注 → 划分 → 训练 → 导出 |
-| [RPLidar 接入指南](docs/RPLIDAR_SDK_GUIDE.md) | 激光雷达 SDK 集成说明 |
+| [编译手册](docs/编译手册.md) | SDK / ROS2 / 增量编译完整流程 |
+| [容器操作指南](docs/容器操作手册.md) | Docker 环境搭建与日常操作 |
+| [YOLOv8 训练指南](docs/YOLOv8训练指南.md) | 标注 → 划分 → 训练 → 导出 |
+| [RPLidar 接入指南](docs/雷达Sdk接入指南.md) | 激光雷达 SDK 集成说明 |
 | [STM32 AKM 集成指南](src/stm32_akm_driver/README.md) | STM32F407 小车控制板接入 |
 | [STM32 兼容性分析](src/stm32_akm_driver/COMPATIBILITY_ANALYSIS.md) | ROS2驱动兼容性评估 |
 | [SDK 说明](data/A1_SDK_SC132GS/README.md) | SmartSens SDK 目录与构建 |
 | [Demo 工程说明](src/a1_ssne_ai_demo/README.md) | 主应用架构与模块说明 |
 | [ROS2 工作区](src/ros2_ws/README.md) | ROS2 包列表与构建方法 |
 | [数据集说明](data/yolov8_dataset/README.md) | YOLOv8 数据集格式与工具 |
-| [开发计划](docs/ISSUE_PLAN.md) | 任务分工与里程碑 |
-| [硬件接口](hardware_connection.md) | A1 开发板接口定义 |
+| [开发计划](docs/项目规划.md) | 任务分工与里程碑 |
+| [硬件接口](docs/硬件连接说明.md) | A1 开发板接口定义 |
+| [Aurora 伴侣工具](tools/aurora/README.md) | 点云/障碍/检测可视化 + 固件烧录 |
 
 ## 技术架构
 

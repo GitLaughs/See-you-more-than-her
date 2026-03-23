@@ -161,7 +161,7 @@ rosdep update
 包含 SDK + Demo + ROS：
 
 ```bash
-./scripts/build_vision_stack.sh [--skip-sdk] [--skip-demo] [--skip-ros]
+./scripts/build_src_all.sh [--skip-sdk] [--skip-demo] [--skip-ros]
 ```
 
 ## 编译结果
@@ -259,7 +259,7 @@ colcon build --continue-on-error --symlink-install
 
 - [ROS 2 Jazzy 官方文档](https://docs.ros.org/en/jazzy/)
 - [colcon 构建工具文档](https://colcon.readthedocs.io/)
-- [项目硬件架构文档](../docs/DUAL_BOARD_ARCHITECTURE.md)
+- [项目硬件架构文档](../../docs/双板架构设计.md)
 - [STM32 AKM 小车集成](../docs/stm32_akm_driver/README.md)
 
 ## 许可证

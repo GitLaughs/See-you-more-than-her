@@ -1,0 +1,34 @@
+# Aurora 伴侣工具 - 连接配置
+# 用于连接 A1 开发板调试数据接口
+
+[connection]
+# A1 开发板 TCP 调试接口地址
+host = "192.168.1.100"
+port = 9090
+
+# 重连间隔（秒）
+reconnect_interval = 3.0
+
+# 接收缓冲区大小
+buffer_size = 65536
+
+[display]
+# 点云显示刷新频率（Hz）
+pointcloud_fps = 10
+
+# 雷达图距离范围（米）
+radar_range = 5.0
+
+# 障碍警告阈值（米）
+obstacle_warn_distance = 0.5
+
+# 窗口尺寸
+window_width = 1200
+window_height = 800
+
+[flash]
+# 固件默认路径（相对于仓库根目录）
+firmware_path = "output/evb/zImage.smartsens-m1-evb"
+
+# Aurora.exe 路径（相对于仓库根目录）
+aurora_exe = "Aurora-2.0.0-ciciec.13/Aurora.exe"
