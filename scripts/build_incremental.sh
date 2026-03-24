@@ -4,13 +4,12 @@
 # 参考: data/A1_SDK_SC132GS/smartsens_sdk/scripts/build_app.sh
 #
 # 用法:
-#   build_incremental.sh sdk [ssne_ai_demo|ssne_vision_demo|m1_sdk_lib|linux|full]
+#   build_incremental.sh sdk [ssne_face_drive_demo|m1_sdk_lib|linux|full]
 #   build_incremental.sh ros [--clean] [--verbose] [package ...]
 #   build_incremental.sh collect
 #
 # 示例:
-#   build_incremental.sh sdk ssne_ai_demo
-#   build_incremental.sh sdk ssne_vision_demo
+#   build_incremental.sh sdk ssne_face_drive_demo
 #   build_incremental.sh sdk m1_sdk_lib
 #   build_incremental.sh ros turn_on_wheeltec_robot wheeltec_multi
 #   build_incremental.sh ros --clean
@@ -39,18 +38,13 @@ shift
 
 case "${mode}" in
   sdk)
-    target="${1:-ssne_ai_demo}"
+    target="${1:-ssne_face_drive_demo}"
     cd "${SDK_DIR}"
     case "${target}" in
-      ssne_ai_demo|demo)
-        echo "[build_incremental.sh] 构建 ssne_ai_demo（人脸检测）"
-        rm -rf output/build/ssne_ai_demo/
-        make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg ssne_ai_demo
-        ;;
-      ssne_vision_demo|vision)
-        echo "[build_incremental.sh] 构建 ssne_vision_demo（YOLOv8+OSD+雷达）"
-        rm -rf output/build/ssne_vision_demo/
-        make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg ssne_vision_demo
+      ssne_face_drive_demo|demo)
+        echo "[build_incremental.sh] 构建 ssne_face_drive_demo（人脸检测 + 底盘控制）"
+        rm -rf output/build/ssne_face_drive_demo/
+        make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg ssne_face_drive_demo
         ;;
       m1_sdk_lib|lib)
         echo "[build_incremental.sh] 重新构建 SDK 基础库"

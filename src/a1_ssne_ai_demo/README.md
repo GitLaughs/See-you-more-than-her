@@ -1,232 +1,80 @@
-# A1 SSNE AI Demo 模块
+# A1 人脸检测 + 底盘驱动 Demo
 
-本模块是 A1 平台上面向嵌入式部署的核心视觉算法包，基于 SmartSens SC132GS 传感器和 SSNE NPU。  
-模块分为两个可独立编译的二进制目标：
+基于 SmartSens A1 SSNE NPU 的人脸检测与 WHEELTEC 底盘控制应用。
 
-| 目标 | 入口 | 功能 |
-|---|---|---|
-| `ssne_ai_demo` | `demo_face.cpp` | SCRFD 人脸检测 + RPLidar 扫描（原始 Demo） |
-| `ssne_vision_demo` | `demo_vision.cpp` | YOLOv8 目标检测 + 人脸检测 + 雷达障碍感知 + OSD 多层叠加 + TCP 调试接口 |
+> 检测逻辑参考 SDK 原始示例：`data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
+
+## 编译目标
+
+| 二进制 | 入口 | 功能 |
+|------|------|------|
+| `ssne_face_drive_demo` | `demo_face_drive.cpp` | SCRFD 人脸检测 + 底盘控制 |
 
 ## 目录结构
 
 ```text
 a1_ssne_ai_demo/
-├── demo_face.cpp               # ssne_ai_demo 入口（人脸 Demo）
-├── demo_vision.cpp             # ssne_vision_demo 入口（综合视觉 Demo）
-├── CMakeLists.txt
+├── demo_face_drive.cpp          # 入口
+├── CMakeLists.txt               # 构建配置（仅编译所需源文件）
 ├── include/
-│   ├── project_paths.hpp       # 全局配置（路径、阈值、端口）
-│   ├── project_flow.hpp        # 人脸 Demo 流程控制接口
-│   ├── vision_app.hpp          # 综合视觉应用接口（新）
-│   ├── yolov8_detector.hpp     # YOLOv8 检测器接口（新）
-│   ├── osd_visualizer.hpp      # 多层 OSD 可视化接口（新）
-│   ├── debug_data_interface.hpp# TCP 调试数据接口（新）
-│   ├── lidar_sdk_adapter.hpp   # RPLidar 适配层接口
-│   ├── osd-device.hpp          # 底层 OSD 设备接口
-│   ├── common.hpp
+│   ├── face_drive_app.hpp       # FaceDriveApp 主类
+│   ├── chassis_controller.hpp   # WHEELTEC C50X 协议控制器
+│   ├── project_paths.hpp        # 运行时配置（传感器/检测/底盘参数）
+│   ├── common.hpp               # SCRFDGRAY / IMAGEPROCESSOR / VISUALIZER 类型
+│   ├── osd-device.hpp           # OSD 设备封装
 │   └── utils.hpp
 ├── src/
-│   ├── project_flow.cpp        # 人脸 Demo 流程（ssne_ai_demo 用）
-│   ├── vision_app.cpp          # 综合视觉主循环（ssne_vision_demo 用）
-│   ├── yolov8_detector.cpp     # YOLOv8 推理实现（新）
-│   ├── osd_visualizer.cpp      # OSD 多层绘制实现（新）
-│   ├── debug_data_interface.cpp# TCP JSON 调试流实现（新）
-│   ├── lidar_sdk_adapter.cpp   # RPLidar 适配层实现
-│   ├── osd-device.cpp          # OSD 设备封装
-│   ├── scrfd_gray.cpp          # SCRFD 灰度人脸检测
-│   ├── pipeline_image.cpp      # 图像预处理管线
+│   ├── face_drive_app.cpp       # FaceDriveApp 主循环
+│   ├── chassis_controller.cpp   # GPIO UART0 底盘通信（0x7B 协议帧）
+│   ├── scrfd_gray.cpp           # SCRFD 灰度人脸检测器
+│   ├── pipeline_image.cpp       # SC132GS 图像采集管道
+│   ├── osd-device.cpp           # OSD DMA 渲染
 │   └── utils.cpp
-├── third_party/
-│   └── rplidar_sdk/            # Slamtec RPLidar C++ SDK
 ├── app_assets/
-│   ├── colorLUT.sscl           # OSD LUT 颜色表
-│   └── models/                 # NPU 模型（.m1model 格式）
-│       ├── face_640x480.m1model
-│       └── yolov8n_640x640.m1model
+│   ├── colorLUT.sscl            # OSD 颜色查找表
+│   └── models/
+│       └── face_640x480.m1model # SCRFD 人脸检测模型
 ├── cmake_config/
-│   └── Paths.cmake             # 交叉编译路径变量
+│   └── Paths.cmake              # SDK 库路径定义
 └── scripts/
-    └── run.sh                  # 板端启动脚本
+    └── run.sh                   # 板端启动脚本（insmod + 运行）
 ```
 
-## 模块说明
-
-### `project_paths.hpp` — 统一配置
-
-集中管理所有运行时参数，不需要修改其他源文件即可调整：
-
-| 字段 | 默认值 | 说明 |
-|---|---|---|
-| `image_shape` | `{720, 1280}` | 传感器原始分辨率（H×W） |
-| `crop_shape` | `{720, 540}` | 裁剪后输入尺寸 |
-| `det_shape` | `{640, 480}` | SCRFD 人脸检测输入尺寸 |
-| `confidence_threshold` | `0.4f` | SCRFD 置信度阈值 |
-| `face_model_path` | `/app_demo/.../face_640x480.m1model` | 人脸模型路径（板端绝对路径） |
-| `yolo_det_shape` | `{640, 640}` | YOLOv8 输入尺寸 |
-| `yolo_confidence_threshold` | `0.25f` | YOLOv8 置信度阈值 |
-| `yolo_nms_threshold` | `0.45f` | YOLOv8 NMS IOU 阈值 |
-| `yolo_num_classes` | `2` | 检测类别数（person、car） |
-| `yolo_model_path` | `/app_demo/.../yolov8n_640x640.m1model` | YOLOv8 模型路径（板端绝对路径） |
-| `yolo_class_names` | `{"person", "car"}` | 类别名称列表 |
-| `lidar_serial_port` | `/dev/ttyUSB0` | RPLidar 串口 |
-| `lidar_baudrate` | `115200` | 波特率 |
-| `debug_tcp_port` | `9090` | Aurora 调试工具 TCP 端口 |
-
----
-
-### `yolov8_detector.hpp/.cpp` — YOLOv8 目标检测
-
-基于 SSNE NPU 的 YOLOv8 无锚框检测器，支持多类别目标检测。
-
-**核心架构**：
-- 3 个检测头，步长 `{8, 16, 32}`
-- DFL（Distribution Focal Loss）边框解码，`reg_max=16`
-- Per-class sigmoid 置信度过滤
-- Per-class NMS（IoU 阈值独立过滤）
-
-**关键接口**：
-```cpp
-// 初始化检测器
-bool Initialize(const std::string& model_path,
-                const std::array<int,2>& img_shape,
-                const std::array<int,2>& det_shape,
-                int num_classes, float conf_thresh, float nms_thresh);
-
-// 执行推理，结果写入 result
-bool Predict(const ImageInput& img_in, DetectionResult& result);
-
-// 释放 NPU 资源
-void Release();
-```
-
-**数据类型**：
-```cpp
-struct Detection {
-    float box[4];   // [x1, y1, x2, y2]，原图坐标
-    float score;
-    int   class_id;
-};
-struct DetectionResult {
-    std::vector<Detection> detections;
-};
-```
-
----
-
-### `osd_visualizer.hpp/.cpp` — 多层 OSD 可视化
-
-使用硬件 DMA OSD 层绘制检测结果，支持多类别颜色区分：
-
-| OSD 层 | 用途 | 颜色 |
-|---|---|---|
-| Layer 0 | SCRFD 人脸框 | 绿色（LUT 索引 0） |
-| Layer 1 | YOLOv8 检测框（按类别区分） | person=黄色，gesture=蓝色，obstacle=红色 |
-| Layer 2 | 信息覆盖层（状态文字、障碍警告） | 白色/红色 |
-
-**关键接口**：
-```cpp
-bool Init(OsdDevice* osd, int img_width, int img_height);
-void DrawFaces(const FaceDetectionResult& faces);
-void DrawDetections(const DetectionResult& dets);
-void DrawInfoRegion(const std::string& info, bool obstacle_warning);
-void ClearAll();
-```
-
----
-
-### `vision_app.hpp/.cpp` + `demo_vision.cpp` — 综合视觉应用
-
-`VisionApp` 整合所有感知模块的主循环：
+## 处理流程
 
 ```
-[图像采集] → [SCRFD 人脸检测] → [YOLOv8 目标检测]
+SC132GS 720×1280 → 裁剪 720×540 (offset_y=370) → SCRFD 640×480
     ↓
-[RPLidar 扫描] → [障碍区域计算（6 扇区，阈值 0.5m）]
+  人脸检测结果
     ↓
-[OSD 多层绘制] + [TCP 调试数据发送]
+  有人脸 → SendVelocity(100, 0, 0)  → 前进 100 mm/s
+  无人脸 → SendStop()               → 停车
+    ↓
+  OSD 渲染检测框 (坐标还原到原图)
 ```
-
-前方 ±30° 扇区内发现距离 < 0.5m 的障碍物时，Layer 2 叠加红色警告覆盖。
-
----
-
-### `debug_data_interface.hpp/.cpp` — TCP 调试接口
-
-向 Aurora 调试工具（或任意 TCP 客户端）实时推送 JSON 格式的感知数据帧：
-
-```json
-{
-  "type": "frame",
-  "timestamp_ms": 1700000000000,
-  "pointcloud": [{"a": 45.0, "d": 1.23, "q": 15}],
-  "detections": [{"class": "person", "score": 0.87, "box": [100, 200, 300, 400]}],
-  "obstacle_zones": [{"angle_start": -30, "angle_end": 30, "min_dist": 0.42, "blocked": true}]
-}
-```
-
-端口：`9090`（可在 `project_paths.hpp` 中修改）  
-协议：换行符分隔的 JSON 流（newline-delimited JSON）
-
----
-
-### `lidar_sdk_adapter.hpp/.cpp` — RPLidar 适配层
-
-封装 Slamtec RPLidar C++ SDK，提供轻量 `LidarSample` 结构：
-
-```cpp
-struct LidarSample {
-    float angle_deg;
-    float distance_m;
-    uint8_t quality;
-};
-
-// 获取一圈扫描数据
-bool GrabScan(std::vector<LidarSample>& samples);
-```
-
-详细接入说明见 [docs/雷达Sdk接入指南.md](../../docs/雷达Sdk接入指南.md)。
-
----
 
 ## 编译
 
-在 Docker 容器（`A1_Builder`）内通过 Buildroot 构建：
-
 ```bash
-# 综合视觉 demo（推荐）
-docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk && \
-    make BR2_EXTERNAL=./smart_software ssne_vision_demo"
+# 全量编译
+docker exec A1_Builder bash -lc "bash /app/scripts/build_src_all.sh"
 
-# 原始人脸 demo
-docker exec A1_Builder bash -lc "cd /app/smartsens_sdk/A1_SDK_SC132GS/smartsens_sdk && \
-    make BR2_EXTERNAL=./smart_software ssne_ai_demo"
-
-# 使用项目全量构建脚本
-bash scripts/build_src_all.sh
+# 增量编译
+docker exec A1_Builder bash -lc "bash /app/scripts/build_incremental.sh sdk ssne_face_drive_demo"
 ```
 
-详细编译步骤见 [docs/BUILD.md](../../docs/BUILD.md)。
+## 暂未编译的模块
 
-## NPU 模型准备
+以下源文件保留在目录中，当前 CMakeLists.txt 不编译：
 
-将 SSNE 格式（`.m1model`）的模型文件放置到 `app_assets/models/` 目录：
-
-```
-app_assets/models/
-├── face_640x480.m1model       # SCRFD 人脸检测模型
-└── yolov8n_640x640.m1model    # YOLOv8 目标检测模型
-```
-
-YOLOv8 模型训练与导出流程见 [docs/YOLOV8_TRAINING.md](../../docs/YOLOV8_TRAINING.md)。
-
-## Aurora 调试工具
-
-
-构建成功后，关键结果是：
-
-- `ssne_ai_demo` 被编译并安装到目标输出目录
-- 日志里出现 `Built target ssne_ai_demo`
+| 文件 | 用途 | 恢复条件 |
+|------|------|---------|
+| `lidar_sdk_adapter.*` | RPLidar 适配层 | 安装雷达后启用 |
+| `project_flow.*` | SDK 原始 Demo 逻辑 | 仅供参考 |
+| `vision_app.*` | YOLOv8 + 人脸综合应用 | 启用 YOLOv8 时 |
+| `yolov8_detector.*` | YOLOv8 NPU 推理 | 启用 YOLOv8 时 |
+| `osd_visualizer.*` | 多层 OSD (含 YOLOv8) | 启用 YOLOv8 时 |
+| `debug_data_interface.*` | TCP JSON 调试流 | 启用 Aurora 调试时 |
 
 你也可以查看本次构建留存的日志：
 

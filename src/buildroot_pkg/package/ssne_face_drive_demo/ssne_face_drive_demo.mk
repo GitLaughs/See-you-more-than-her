@@ -11,7 +11,7 @@ SSNE_FACE_DRIVE_DEMO_VERSION     =
 SSNE_FACE_DRIVE_DEMO_SITE        = /app/src/a1_ssne_ai_demo
 SSNE_FACE_DRIVE_DEMO_SITE_METHOD = local
 
-# Pass SDK paths — reuse the same SDK root as ssne_vision_demo
+# Pass SDK paths
 SSNE_FACE_DRIVE_DEMO_CONF_OPTS += \
 	-DM1_SDK_INC_DIR=$(BASE_DIR)/opt/m1_sdk/usr/include \
 	-DM1_SDK_LIB_DIR=$(BASE_DIR)/opt/m1_sdk/usr/lib
