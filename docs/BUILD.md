@@ -35,6 +35,10 @@ docker compose -f docker/docker-compose.yml up -d
 ## 步骤 3：完整 EVB 固件构建（推荐）
 
 ```powershell
+# 完整构建（含底盘 ROS2 包，推荐用于发布/验证）
+docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh"
+
+# 跳过 ROS2 快速构建（仅调试 Demo 时用）
 docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --skip-ros"
 ```
 
@@ -159,3 +163,27 @@ bash scripts/build_ros2_ws.sh
 | `data/.../scripts/a1_sc132gs_build.sh` | — | SDK 原厂构建脚本 |
 | `data/.../scripts/build_release_sdk.sh` | — | SDK 基础库构建脚本（被 build_complete_evb.sh 调用两次） |
 | `data/.../scripts/ros_a1_compile_test.sh` | — | ROS 编译测试参考脚本 |
+
+## 最新编译验证记录
+
+> 最后验证时间：2026-03-24
+
+| 构建步骤 | 结果 | 备注 |
+|---|---|---|
+| SDK 基础库（pass 1）| ✅ 通过 | SmartSens SSNE/OSD/GPIO/UART 库 |
+| `ssne_face_drive_demo` | ✅ 通过 | ARM 32-bit ELF；4 处窄化警告（非错误） |
+| ROS2 工作区（5 包）| ✅ 通过 | 共耗时约 2 分 7 秒 |
+| zImage 重打包 | ✅ 通过 | 5.6 MB，含 initramfs |
+| **总耗时** | **约 12 分钟** | `output/evb/<时间戳>/` |
+
+**已验证的 ROS2 包（底盘控制链路完整）：**
+
+| 包名 | 说明 | 编译耗时 |
+|---|---|---|
+| `serial` | Linux 串口库 | < 10s |
+| `wheeltec_robot_msg` | 底盘自定义消息类型 | < 5s |
+| `wheeltec_robot_keyboard` | 键盘控制节点（调试用）| < 10s |
+| `turn_on_wheeltec_robot` | **核心底盘驱动**（`/cmd_vel` → UART → STM32）| 59.5s |
+| `wheeltec_multi` | 多底盘配置调度 | 42.7s |
+
+> 以上 5 个包构成完整的 ROS2 → UART → STM32 底盘控制链路。发布固件前请务必使用不带 `--skip-ros` 的完整构建命令进行验证。
