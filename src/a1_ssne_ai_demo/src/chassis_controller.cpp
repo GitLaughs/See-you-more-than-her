@@ -2,145 +2,134 @@
  * @file chassis_controller.cpp
  * @brief STM32 AKM 底盘 UART 控制器实现
  *
- * 通过 POSIX termios 操作 A1 开发板 GPIO UART0,
- * 向 STM32 发送 10 字节运动控制帧。
+ * 使用 A1 开发板原生 GPIO/UART API 与 STM32 通信。
+ * 协议: WHEELTEC C50X 11 字节帧 (0x7B 帧头, 0x7D 帧尾, BCC 校验)
+ *
+ * 硬件:
+ *   A1 GPIO_PIN_0 (UART TX0) ----> STM32 UART3 RX (PB11)
+ *   A1 GPIO_PIN_2 (UART RX0) <---- STM32 UART3 TX (PB10)
+ *   GND <----> GND
  */
 
 #include "../include/chassis_controller.hpp"
 
-#include <errno.h>
-#include <fcntl.h>
-#include <string.h>
-#include <termios.h>
-#include <unistd.h>
-
-#include <iostream>
+#include <cstdio>
+#include <cstring>
 
 namespace ssne_demo {
 
 ChassisController::~ChassisController() { Close(); }
 
-bool ChassisController::Open(const std::string& port, int baudrate) {
-  if (fd_ >= 0) {
+bool ChassisController::Open(uint32_t baudrate) {
+  if (uart_ != nullptr) {
     Close();
   }
 
-  fd_ = ::open(port.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
-  if (fd_ < 0) {
-    std::cerr << "[Chassis] 无法打开串口 " << port << ": " << strerror(errno)
-              << std::endl;
+  // 1. 初始化 GPIO (PIN0=TX0, PIN2=RX0 默认已配置为 UART 复用)
+  gpio_ = gpio_init();
+  if (gpio_ == nullptr) {
+    std::fprintf(stderr, "[底盘] GPIO 初始化失败\n");
     return false;
   }
 
-  // 配置串口参数: 115200 8N1, 无流控
-  struct termios tty;
-  memset(&tty, 0, sizeof(tty));
-
-  if (tcgetattr(fd_, &tty) != 0) {
-    std::cerr << "[Chassis] tcgetattr 失败: " << strerror(errno) << std::endl;
-    Close();
+  // 2. 初始化 UART
+  uart_ = uart_init();
+  if (uart_ == nullptr) {
+    std::fprintf(stderr, "[底盘] UART 初始化失败 (请确认已加载 uart_kmod.ko)\n");
+    gpio_close(gpio_);
+    gpio_ = nullptr;
     return false;
   }
 
-  // 选择波特率
-  speed_t baud_flag;
-  switch (baudrate) {
-    case 9600:   baud_flag = B9600;   break;
-    case 19200:  baud_flag = B19200;  break;
-    case 38400:  baud_flag = B38400;  break;
-    case 57600:  baud_flag = B57600;  break;
-    case 115200: baud_flag = B115200; break;
-    default:
-      std::cerr << "[Chassis] 不支持的波特率: " << baudrate << std::endl;
-      Close();
-      return false;
-  }
+  // 3. 配置波特率 (TX0 和 RX0 必须一致)
+  uart_set_baudrate(uart_, UART_TX0, baudrate);
+  uart_set_baudrate(uart_, UART_RX0, baudrate);
 
-  cfsetispeed(&tty, baud_flag);
-  cfsetospeed(&tty, baud_flag);
+  // 4. 无校验
+  uart_set_parity(uart_, UART_TX0, UART_PARITY_NONE);
+  uart_set_parity(uart_, UART_RX0, UART_PARITY_NONE);
 
-  // 8N1, 无流控
-  tty.c_cflag &= ~PARENB;   // 无校验
-  tty.c_cflag &= ~CSTOPB;   // 1停止位
-  tty.c_cflag &= ~CSIZE;
-  tty.c_cflag |= CS8;        // 8数据位
-  tty.c_cflag &= ~CRTSCTS;  // 无硬件流控
-  tty.c_cflag |= CREAD | CLOCAL;  // 启用接收, 忽略控制线
-
-  // 原始模式 (非规范)
-  tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-  tty.c_iflag &= ~(IXON | IXOFF | IXANY);  // 无软件流控
-  tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
-  tty.c_oflag &= ~OPOST;  // 原始输出
-
-  // 非阻塞读
-  tty.c_cc[VMIN] = 0;
-  tty.c_cc[VTIME] = 0;
-
-  if (tcsetattr(fd_, TCSANOW, &tty) != 0) {
-    std::cerr << "[Chassis] tcsetattr 失败: " << strerror(errno) << std::endl;
-    Close();
-    return false;
-  }
-
-  // 清空缓冲区
-  tcflush(fd_, TCIOFLUSH);
-
-  std::cout << "[Chassis] 串口已打开: " << port << " @ " << baudrate
-            << " baud" << std::endl;
+  std::printf("[底盘] UART 已初始化, 波特率: %u\n", baudrate);
   return true;
 }
 
 void ChassisController::Close() {
-  if (fd_ >= 0) {
-    // 关闭前发送停止指令
+  if (uart_ != nullptr) {
     SendStop();
-    ::close(fd_);
-    fd_ = -1;
-    std::cout << "[Chassis] 串口已关闭" << std::endl;
+    uart_close(uart_);
+    uart_ = nullptr;
+    std::printf("[底盘] UART 已关闭\n");
+  }
+  if (gpio_ != nullptr) {
+    gpio_close(gpio_);
+    gpio_ = nullptr;
   }
 }
 
 bool ChassisController::SendVelocity(int16_t vx, int16_t vy, int16_t vz,
-                                     uint8_t mode) {
-  return SendFrame(mode, vx, vy, vz);
+                                     uint8_t cmd) {
+  return SendFrame(cmd, vx, vy, vz);
 }
 
 bool ChassisController::SendStop() {
   return SendFrame(0x00, 0, 0, 0);
 }
 
-bool ChassisController::SendFrame(uint8_t mode, int16_t vx, int16_t vy,
+bool ChassisController::ReceiveStatus(int16_t* vx_out, int16_t* voltage_out) {
+  if (uart_ == nullptr) return false;
+
+  uint8_t buf[32];
+  uint32_t received = 0;
+  uart_receive_data(uart_, UART_RX0, buf, 24, &received);
+
+  if (received < 24) return false;
+
+  // 验证帧头帧尾
+  if (buf[0] != FRAME_HEADER || buf[23] != FRAME_TAIL) return false;
+
+  // 验证 BCC
+  if (buf[22] != CalcBCC(buf, 22)) return false;
+
+  if (vx_out) {
+    *vx_out = static_cast<int16_t>((buf[2] << 8) | buf[3]);
+  }
+  if (voltage_out) {
+    *voltage_out = static_cast<int16_t>((buf[20] << 8) | buf[21]);
+  }
+  return true;
+}
+
+bool ChassisController::SendFrame(uint8_t cmd, int16_t vx, int16_t vy,
                                   int16_t vz) {
-  if (fd_ < 0) {
-    return false;
-  }
+  if (uart_ == nullptr) return false;
 
-  uint8_t frame[10];
-  frame[0] = 0x5a;  // 帧头
-  frame[1] = mode;
-  frame[2] = static_cast<uint8_t>((static_cast<uint16_t>(vx)) >> 8);
-  frame[3] = static_cast<uint8_t>(vx & 0xFF);
-  frame[4] = static_cast<uint8_t>((static_cast<uint16_t>(vy)) >> 8);
-  frame[5] = static_cast<uint8_t>(vy & 0xFF);
-  frame[6] = static_cast<uint8_t>((static_cast<uint16_t>(vz)) >> 8);
-  frame[7] = static_cast<uint8_t>(vz & 0xFF);
+  uint8_t frame[FRAME_SIZE];
+  frame[0] = FRAME_HEADER;           // 0x7B
+  frame[1] = cmd;                    // 命令类型
+  frame[2] = 0x00;                   // 保留字节
+  frame[3] = static_cast<uint8_t>((static_cast<uint16_t>(vx)) >> 8);
+  frame[4] = static_cast<uint8_t>(vx & 0xFF);
+  frame[5] = static_cast<uint8_t>((static_cast<uint16_t>(vy)) >> 8);
+  frame[6] = static_cast<uint8_t>(vy & 0xFF);
+  frame[7] = static_cast<uint8_t>((static_cast<uint16_t>(vz)) >> 8);
+  frame[8] = static_cast<uint8_t>(vz & 0xFF);
+  frame[9] = CalcBCC(frame, 9);      // XOR(byte[0]..byte[8])
+  frame[10] = FRAME_TAIL;            // 0x7D
 
-  // BCC 校验: XOR(byte[1] .. byte[7])
-  uint8_t checksum = 0;
-  for (int i = 1; i <= 7; ++i) {
-    checksum ^= frame[i];
-  }
-  frame[8] = checksum;
-  frame[9] = 0x5e;  // 帧尾
-
-  ssize_t written = ::write(fd_, frame, sizeof(frame));
-  if (written != sizeof(frame)) {
-    std::cerr << "[Chassis] 写入失败: wrote " << written << "/10 bytes"
-              << std::endl;
+  int ret = uart_send_data(uart_, UART_TX0, frame, FRAME_SIZE);
+  if (ret != UART_SUCCESS) {
+    std::fprintf(stderr, "[底盘] UART 发送失败\n");
     return false;
   }
   return true;
+}
+
+uint8_t ChassisController::CalcBCC(const uint8_t* data, int len) {
+  uint8_t bcc = 0;
+  for (int i = 0; i < len; ++i) {
+    bcc ^= data[i];
+  }
+  return bcc;
 }
 
 }  // namespace ssne_demo

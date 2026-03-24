@@ -7,8 +7,8 @@ services:
     stdin_open: true    # -i
     tty: true           # -t
     volumes:
-      # 挂载 SDK 数据
-      - ../data:/app/smartsens_sdk
+      # 挂载数据目录（包含 SDK）
+      - ../data:/app/data
       # 挂载 src 目录
       - ../src:/app/src
       # 挂载构建脚本目录

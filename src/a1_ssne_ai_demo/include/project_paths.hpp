@@ -29,9 +29,8 @@ struct ProjectPaths {
   std::string lidar_serial_port{"/dev/ttyUSB0"};
   int lidar_baudrate{115200};
 
-  // --- STM32 AKM 底盘 (GPIO UART0: PIN_0=TX, PIN_2=RX) ---
-  std::string chassis_serial_port{"/dev/ttyS0"};
-  int chassis_baudrate{115200};
+  // --- STM32 AKM 底盘 (A1 GPIO UART0: PIN_0=TX, PIN_2=RX) ---
+  uint32_t chassis_baudrate{115200};
 
   // --- Debug interface ---
   int debug_tcp_port{9090};

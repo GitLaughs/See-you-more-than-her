@@ -54,13 +54,12 @@ void FaceDriveApp::Initialize() {
     std::cout << "[INFO] RPLidar 已启动" << std::endl;
   }
 
-  // 6. 底盘 UART 控制器 (GPIO UART → STM32)
-  if (!chassis_.Open(paths_.chassis_serial_port, paths_.chassis_baudrate)) {
-    std::cerr << "[WARN] 底盘串口打开失败 (" << paths_.chassis_serial_port
-              << "), 将仅运行视觉检测, 不发送运动指令" << std::endl;
+  // 6. 底盘 UART 控制器 (A1 GPIO UART0 → STM32 UART3)
+  if (!chassis_.Open(paths_.chassis_baudrate)) {
+    std::cerr << "[WARN] 底盘 UART 初始化失败, 将仅运行视觉检测" << std::endl;
   } else {
-    std::cout << "[INFO] 底盘控制已连接: " << paths_.chassis_serial_port
-              << std::endl;
+    std::cout << "[INFO] 底盘控制已连接: GPIO UART0 @ "
+              << paths_.chassis_baudrate << " baud" << std::endl;
     // 上电后先发送停止指令确保安全
     chassis_.SendStop();
   }

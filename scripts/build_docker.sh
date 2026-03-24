@@ -10,7 +10,7 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 DOCKER_DIR="${ROOT_DIR}/docker"
 COMPOSE_FILE="${DOCKER_DIR}/docker-compose.yml"
 
-CONTAINER_NAME="a1-builder"
+CONTAINER_NAME="dev"
 SKIP_SDK=0
 CLEAN_BUILD=0
 VERBOSE=0
