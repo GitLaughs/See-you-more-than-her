@@ -1,0 +1,14 @@
+config BR2_PACKAGE_SSNE_FACE_DRIVE_DEMO
+	bool "ssne_face_drive_demo (人脸检测+底盘控制兼容性测试)"
+	select BR2_PACKAGE_SSNE
+	help
+	  SmartSens face detection + chassis control compatibility test.
+	  Detects faces via SCRFD and sends forward commands to STM32 AKM
+	  via GPIO UART. Includes RPLidar obstacle safety check.
+
+config BR2_M1_FACE_DRIVE_SDK_ROOT_PATH
+	string "SDK lib root path (for face drive demo)"
+	default "opt/m1_sdk/usr"
+	help
+	  Path relative to BASE_DIR (output/) where SSNE SDK headers (/include)
+	  and libs (/lib) are located.

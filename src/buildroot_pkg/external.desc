@@ -1,2 +1,2 @@
-NAME: SSNE_VISION_PKG
-DESC: SSNE Vision Demo custom Buildroot packages
+name: SSNE_VISION_PKG
+desc: SSNE Vision Demo custom Buildroot packages

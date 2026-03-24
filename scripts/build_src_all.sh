@@ -102,7 +102,7 @@ fi
 
 # ─── Step 1：构建 SDK 基础库 ──────────────────────────────────────────────────
 if [[ ${SKIP_SDK} -eq 0 ]]; then
-  step "Step 1/5: SDK 基础库编译 (SmartSens M1 SDK)"
+  step "Step 1/6: SDK 基础库编译 (SmartSens M1 SDK)"
   cd "${SDK_DIR}"
 
   if [[ ! -f output/.config ]]; then
@@ -119,12 +119,12 @@ if [[ ${SKIP_SDK} -eq 0 ]]; then
       || fail "SDK 基础库构建失败，请查看 ${LOG_DIR}/sdk_lib.log"
   log "✓ SDK 基础库构建完成"
 else
-  log "Step 1/5: SDK 基础库构建已跳过 (--skip-sdk)"
+  log "Step 1/6: SDK 基础库构建已跳过 (--skip-sdk)"
 fi
 
 # ─── Step 2：构建 ssne_ai_demo（人脸检测 Demo）────────────────────────────────
 if [[ ${SKIP_DEMO} -eq 0 ]]; then
-  step "Step 2/5: ssne_ai_demo 编译 (SCRFD 人脸检测)"
+  step "Step 2/6: ssne_ai_demo 编译 (SCRFD 人脸检测)"
   cd "${SDK_DIR}"
   log "清除旧构建..."
   rm -rf output/build/ssne_ai_demo/
@@ -134,12 +134,12 @@ if [[ ${SKIP_DEMO} -eq 0 ]]; then
       || fail "ssne_ai_demo 构建失败，请查看 ${LOG_DIR}/ssne_ai_demo.log"
   log "✓ ssne_ai_demo 构建完成"
 else
-  log "Step 2/5: ssne_ai_demo 构建已跳过 (--skip-demo)"
+  log "Step 2/6: ssne_ai_demo 构建已跳过 (--skip-demo)"
 fi
 
 # ─── Step 3：构建 ssne_vision_demo（综合视觉 Demo）────────────────────────────
 if [[ ${SKIP_DEMO} -eq 0 ]]; then
-  step "Step 3/5: ssne_vision_demo 编译 (YOLOv8+OSD+雷达+调试接口)"
+  step "Step 3/6: ssne_vision_demo 编译 (YOLOv8+OSD+雷达+调试接口)"
   cd "${SDK_DIR}"
   log "清除旧构建..."
   rm -rf output/build/ssne_vision_demo/
@@ -149,12 +149,27 @@ if [[ ${SKIP_DEMO} -eq 0 ]]; then
       || fail "ssne_vision_demo 构建失败，请查看 ${LOG_DIR}/ssne_vision_demo.log"
   log "✓ ssne_vision_demo 构建完成"
 else
-  log "Step 3/5: ssne_vision_demo 构建已跳过 (--skip-demo)"
+  log "Step 3/6: ssne_vision_demo 构建已跳过 (--skip-demo)"
+fi
+
+# ─── Step 3.5：构建 ssne_face_drive_demo（人脸驱动兼容性测试）─────────────────
+if [[ ${SKIP_DEMO} -eq 0 ]]; then
+  step "Step 3.5/6: ssne_face_drive_demo 编译 (人脸检测+底盘控制兼容性测试)"
+  cd "${SDK_DIR}"
+  log "清除旧构建..."
+  rm -rf output/build/ssne_face_drive_demo/
+  log "构建 ssne_face_drive_demo..."
+  make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg ssne_face_drive_demo \
+      2>&1 | tee "${LOG_DIR}/ssne_face_drive_demo.log" \
+      || fail "ssne_face_drive_demo 构建失败，请查看 ${LOG_DIR}/ssne_face_drive_demo.log"
+  log "✓ ssne_face_drive_demo 构建完成"
+else
+  log "Step 3.5/6: ssne_face_drive_demo 构建已跳过 (--skip-demo)"
 fi
 
 # ─── Step 4：构建 ROS2 工作区 ─────────────────────────────────────────────────
 if [[ ${SKIP_ROS} -eq 0 ]]; then
-  step "Step 4/5: ROS2 工作区编译 (colcon build)"
+  step "Step 4/6: ROS2 工作区编译 (colcon build)"
   if [[ -f /opt/ros/jazzy/setup.bash ]]; then
     ROS_ARGS=""
     [[ ${CLEAN_BUILD} -eq 1 ]] && ROS_ARGS="${ROS_ARGS} --clean"
@@ -168,12 +183,12 @@ if [[ ${SKIP_ROS} -eq 0 ]]; then
     log "⚠ 未找到 /opt/ros/jazzy/setup.bash，跳过 ROS2 构建"
   fi
 else
-  log "Step 4/5: ROS2 工作区构建已跳过 (--skip-ros)"
+  log "Step 4/6: ROS2 工作区构建已跳过 (--skip-ros)"
 fi
 
 # ─── Step 5：收集 EVB 产物 ────────────────────────────────────────────────────
 if [[ ${SKIP_COLLECT} -eq 0 ]]; then
-  step "Step 5/5: 收集 EVB 产物"
+  step "Step 5/6: 收集 EVB 产物"
   if [[ -x "${SCRIPT_DIR}/collect_evb_artifacts.sh" ]]; then
     bash "${SCRIPT_DIR}/collect_evb_artifacts.sh" \
         2>&1 | tee "${LOG_DIR}/collect.log" \
@@ -183,7 +198,7 @@ if [[ ${SKIP_COLLECT} -eq 0 ]]; then
     log "⚠ 产物收集脚本不存在或不可执行，已跳过"
   fi
 else
-  log "Step 5/5: 产物收集已跳过 (--skip-collect)"
+  log "Step 5/6: 产物收集已跳过 (--skip-collect)"
 fi
 
 # ─── 构建摘要 ─────────────────────────────────────────────────────────────────
@@ -192,6 +207,7 @@ step "构建完成摘要"
 EVB_IMAGE="${SDK_DIR}/output/images/zImage.smartsens-m1-evb"
 DEMO_BIN="${SDK_DIR}/output/target/app_demo/ssne_ai_demo"
 VISION_BIN="${SDK_DIR}/output/target/app_demo/ssne_vision_demo"
+FACE_DRIVE_BIN="${SDK_DIR}/output/target/app_demo/ssne_face_drive_demo"
 
 check_file() {
   if [[ -f "$1" ]]; then
@@ -204,6 +220,7 @@ check_file() {
 check_file "${EVB_IMAGE}"
 check_file "${DEMO_BIN}"
 check_file "${VISION_BIN}"
+check_file "${FACE_DRIVE_BIN}"
 
 log ""
 log "日志保存于: ${LOG_DIR}/"

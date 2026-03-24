@@ -19,6 +19,14 @@ else
   echo "[collect_evb_artifacts.sh] ⚠ EVB 固件未找到: ${SDK_EVB_IMAGE}" >&2
 fi
 
+# 收集 demo 可执行文件
+for demo_bin in ssne_ai_demo ssne_vision_demo ssne_face_drive_demo; do
+  bin_path="${SDK_DIR}/output/target/app_demo/${demo_bin}"
+  if [ -f "${bin_path}" ]; then
+    cp -v "${bin_path}" "${ARTIFACT_DIR}/"
+  fi
+done
+
 if [ -d "${SDK_DIR}/output/images" ]; then
   find "${SDK_DIR}/output/images" -type f \( -name "*.evb" -o -name "*evb" -o -name "*EVB*" \) -exec cp -v {} "${ARTIFACT_DIR}/" \; || true
 fi
