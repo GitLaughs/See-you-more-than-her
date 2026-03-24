@@ -5,23 +5,21 @@
 
 #include "chassis_controller.hpp"
 #include "common.hpp"
-#include "lidar_sdk_adapter.hpp"
 #include "project_paths.hpp"
 #include "utils.hpp"
 
 namespace ssne_demo {
 
-/// 人脸驱动兼容性测试应用
+/// 人脸驱动应用
 ///
-/// 功能: 检测到人脸时，小车直行；未检测到人脸或前方有障碍物时，停车。
+/// 功能: 检测到人脸 → 小车直行；未检测到 → 停车。
 ///
 /// 处理流程 (每帧):
-///   1. 捕获传感器图像
-///   2. SCRFD 人脸检测
-///   3. RPLidar 雷达扫描 (安全检查)
-///   4. 决策: face_detected AND no_obstacle → 前进; 否则 → 停止
-///   5. 通过 GPIO UART 向 STM32 发送运动指令
-///   6. OSD 渲染检测框和状态信息
+///   1. 捕获传感器图像 (SC132GS 720×1280)
+///   2. SCRFD 人脸检测 (640×480)
+///   3. 决策: face_detected → 前进; 否则 → 停止
+///   4. 通过 GPIO UART0 向 STM32 发送运动指令
+///   5. OSD 渲染检测框
 class FaceDriveApp {
  public:
   explicit FaceDriveApp(ProjectPaths paths = ProjectPaths{});
@@ -39,7 +37,6 @@ class FaceDriveApp {
   IMAGEPROCESSOR processor_;
   SCRFDGRAY detector_;
   VISUALIZER visualizer_;
-  RplidarSdkAdapter lidar_;
   ChassisController chassis_;
   FaceDetectionResult result_;
 

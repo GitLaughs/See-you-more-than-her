@@ -22,7 +22,33 @@
 
 ## 通信协议
 
-### 接收格式（ROS→STM32）
+### A1 直连协议（当前使用）
+
+通过 A1 GPIO UART0 → STM32 UART3，使用 WHEELTEC 原生帧格式：
+
+**发送帧** (A1 → STM32, 11 字节)：
+
+```
+[0x7B][Cmd][0x00][Vx_H][Vx_L][Vy_H][Vy_L][Vz_H][Vz_L][BCC][0x7D]
+```
+
+- **Cmd**: `0x00` = 正常运动, `0x01` = 自动充电
+- **Vx/Vy/Vz**: int16 速度 (mm/s)，STM32 端自动转换为 m/s
+- **BCC**: XOR(byte[0]..byte[8])
+
+**接收帧** (STM32 → A1, 24 字节)：
+
+```
+[0x7B][StopFlag][Vx][Vy][Vz][AccX][AccY][AccZ][GyroX][GyroY][GyroZ][BatVol][BCC][0x7D]
+```
+
+实现代码：`src/a1_ssne_ai_demo/include/chassis_controller.hpp`
+
+### ROS 驱动协议（base_control_ros2）
+
+ROS 驱动使用不同的帧头/帧尾：
+
+**接收格式**（ROS→STM32）：
 
 ```
 [0x5a] [Mode] [Vx_H] [Vx_L] [Vy_H] [Vy_L] [Vz_H] [Vz_L] [Check] [0x5e]
@@ -47,6 +73,8 @@
 ```
 
 长度：24字节
+
+> **注意**: ROS 驱动 (0x5a/0x5e) 和 A1 直连 (0x7B/0x7D) 使用不同帧格式，但速度字段编码方式相同。当前硬件测试阶段使用 A1 直连协议。
 
 **内容**:
 - 位置 2-7: 3轴速度反馈（16位×1000）
