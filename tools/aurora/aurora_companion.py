@@ -6,7 +6,8 @@ Aurora 伴侣工具 - 主入口
   1. 三维点云实时显示（RPLidar 360° 扫描）
   2. 障碍/避障区域可视化（6 扇区雷达图）
   3. 目标检测结果展示（YOLOv8/SCRFD 置信度+趋势）
-  4. 固件烧录（CH347 SPI Flash）
+  4. 底盘状态面板（UART 连接、速度、电压、人脸驱动状态）
+  5. 固件烧录（CH347 SPI Flash）
 
 运行方式：
   python aurora_companion.py                 # 默认: 全部功能
@@ -39,7 +40,39 @@ from modules.tcp_client import TcpClient
 from modules.pointcloud_view import PointcloudViewer
 from modules.obstacle_view import ObstacleViewer
 from modules.detection_view import DetectionViewer
+from modules.chassis_view import ChassisViewer
 from modules.flash_tool import FlashTool
+
+
+# ---------------------------------------------------------------------------
+# 深色主题 (Catppuccin Mocha 风格)
+# ---------------------------------------------------------------------------
+_DARK_THEME = {
+    "figure.facecolor": "#1E1E2E",
+    "axes.facecolor": "#181825",
+    "axes.edgecolor": "#45475A",
+    "axes.labelcolor": "#CDD6F4",
+    "text.color": "#CDD6F4",
+    "xtick.color": "#A6ADC8",
+    "ytick.color": "#A6ADC8",
+    "grid.color": "#313244",
+    "grid.alpha": 0.5,
+    "legend.facecolor": "#1E1E2E",
+    "legend.edgecolor": "#45475A",
+}
+
+
+def _apply_dark_theme():
+    for k, v in _DARK_THEME.items():
+        matplotlib.rcParams[k] = v
+    # 中文字体回退
+    for font in ("Microsoft YaHei", "SimHei", "WenQuanYi Micro Hei"):
+        try:
+            matplotlib.rcParams["font.sans-serif"] = [font] + matplotlib.rcParams["font.sans-serif"]
+            break
+        except Exception:
+            continue
+    matplotlib.rcParams["axes.unicode_minus"] = False
 
 # ---------------------------------------------------------------------------
 # 配置加载
@@ -151,11 +184,14 @@ class DemoDataGenerator:
                 })
             self._client._emit("obstacle_zones", {"type": "obstacle_zones", "zones": zones})
 
-            # 模拟检测结果
+            # 模拟检测结果（含人脸）
             n_det = random.randint(0, 4)
+            face_count = 0
             data = []
             for _ in range(n_det):
                 cls = random.choice(classes)
+                if cls == "face":
+                    face_count += 1
                 score = round(random.uniform(0.3, 0.99), 2)
                 x1, y1 = random.randint(10, 300), random.randint(10, 200)
                 data.append({
@@ -163,6 +199,19 @@ class DemoDataGenerator:
                     "box": [x1, y1, x1 + random.randint(40, 200), y1 + random.randint(60, 250)]
                 })
             self._client._emit("detections", {"type": "detections", "data": data})
+
+            # 模拟底盘状态
+            vx = int(200 * math.sin(t * 0.5))
+            obstacle = any(z["blocked"] for z in zones)
+            state = "避障停车" if obstacle else ("直行" if face_count > 0 else "停止")
+            self._client._emit("chassis_status", {
+                "type": "chassis_status",
+                "data": {"vx": vx, "vy": 0, "vz": 0, "voltage": 11800}
+            })
+            self._client._emit("face_drive", {
+                "type": "face_drive",
+                "data": {"face_count": face_count, "obstacle": obstacle, "state": state}
+            })
 
             time.sleep(0.15)
 
@@ -172,8 +221,10 @@ class DemoDataGenerator:
 # ---------------------------------------------------------------------------
 class CompanionPanel:
     """
-    综合可视化面板：将点云、障碍、检测三个视图合并到单窗口。
-    布局: [ 雷达俯视图 | 3D 点云 | 障碍区域 | 检测结果 ]
+    综合可视化面板：将点云、障碍、检测、底盘四个视图合并到单窗口。
+    布局 (2 行 × 4 列):
+      上: [ 雷达俯视图 | 3D 点云 | 障碍区域 | 底盘状态 ]
+      下: [ 检测置信度 | 检测趋势 | 类别分布 | (底盘跨行) ]
     """
 
     def __init__(self, tcp: TcpClient, settings: dict):
@@ -188,6 +239,7 @@ class CompanionPanel:
             warn_dist=settings["obstacle_warn"],
         )
         self.det_viewer = DetectionViewer(max_history=60)
+        self.chassis_viewer = ChassisViewer()
 
         # 注册回调
         tcp.on("pointcloud", self.pc_viewer.update_points)
@@ -195,9 +247,13 @@ class CompanionPanel:
         tcp.on("obstacle_zones", self.obs_viewer.update_obstacles)
         tcp.on("detections", self.obs_viewer.update_detections)
         tcp.on("detections", self.det_viewer.update_detections)
+        tcp.on("detections", self.chassis_viewer.update_detections)
+        tcp.on("chassis_status", self.chassis_viewer.update_chassis)
+        tcp.on("face_drive", self.chassis_viewer.update_face_drive)
         tcp.on("frame", self.pc_viewer.update_frame)
         tcp.on("frame", self.obs_viewer.update_frame)
         tcp.on("frame", self.det_viewer.update_frame)
+        tcp.on("frame", self.chassis_viewer.update_frame)
 
         self._fig = None
         self._status_text = None
@@ -217,46 +273,55 @@ class CompanionPanel:
         self.pc_viewer._draw(frame_num)
         self.obs_viewer._draw(frame_num)
         self.det_viewer._draw(frame_num)
+        self.chassis_viewer._draw(frame_num)
 
         # 更新状态栏
         status = "● 已连接" if self._connected else "○ 等待连接..."
-        color = "green" if self._connected else "gray"
+        color = "#A6E3A1" if self._connected else "#585B70"
         if self._status_text:
             self._status_text.set_text(
-                f"  {status}  |  A1: {self.settings['host']}:{self.settings['port']}  |"
-                f"  雷达范围: {self.settings['radar_range']}m"
+                f"  {status}  │  A1: {self.settings['host']}:{self.settings['port']}  │"
+                f"  雷达: {self.settings['radar_range']}m  │  刷新: {self.settings['fps']} Hz"
             )
             self._status_text.set_color(color)
         return []
 
     def show(self):
-        """启动综合面板。"""
-        self._fig = plt.figure("Aurora 伴侣工具", figsize=(18, 9))
-        self._fig.patch.set_facecolor("#F5F5F5")
+        """启动综合面板（深色主题）。"""
+        _apply_dark_theme()
+
+        self._fig = plt.figure("Aurora 伴侣工具", figsize=(20, 10))
+        self._fig.patch.set_facecolor("#1E1E2E")
 
         # 标题
         self._fig.suptitle(
             "Aurora 伴侣工具  —  A1 开发板实时数据可视化",
-            fontsize=14, fontweight="bold", y=0.98
+            fontsize=15, fontweight="bold", y=0.98, color="#CDD6F4"
         )
 
-        # 布局: 2 行, 上面 3 列 (雷达 + 3D + 障碍), 下面 3 列 (置信度 + 趋势 + 分布)
-        gs = self._fig.add_gridspec(2, 3, hspace=0.35, wspace=0.3,
-                                     top=0.92, bottom=0.08, left=0.05, right=0.97)
+        # 布局: 2 行 4 列, 底盘面板跨两行占据右侧
+        gs = self._fig.add_gridspec(
+            2, 4, hspace=0.35, wspace=0.30,
+            top=0.92, bottom=0.06, left=0.04, right=0.97,
+            width_ratios=[1, 1, 1, 0.85],
+        )
 
-        # 上排
+        # 上排: 雷达 / 3D / 障碍
         self.pc_viewer._ax_2d = self._fig.add_subplot(gs[0, 0], projection="polar")
         self.pc_viewer._ax_3d = self._fig.add_subplot(gs[0, 1], projection="3d")
         self.obs_viewer._ax = self._fig.add_subplot(gs[0, 2], projection="polar")
 
-        # 下排
+        # 下排: 检测三图
         self.det_viewer._ax_bar = self._fig.add_subplot(gs[1, 0])
         self.det_viewer._ax_trend = self._fig.add_subplot(gs[1, 1])
         self.det_viewer._ax_table = self._fig.add_subplot(gs[1, 2])
 
+        # 右侧: 底盘面板 (跨两行)
+        self.chassis_viewer._ax = self._fig.add_subplot(gs[:, 3])
+
         # 状态栏
         self._status_text = self._fig.text(
-            0.02, 0.01, "○ 等待连接...", fontsize=9, color="gray",
+            0.02, 0.015, "○ 等待连接...", fontsize=9, color="#585B70",
             family="monospace"
         )
 
@@ -351,13 +416,14 @@ def main():
 
     # 可视化模式
     print("=" * 60)
-    print("  Aurora 伴侣工具 - 实时数据可视化")
+    print("  Aurora 伴侣工具 - 实时数据可视化 (v2.1)")
     print("=" * 60)
-    print(f"  A1 地址: {settings['host']}:{settings['port']}")
+    print(f"  A1 地址 : {settings['host']}:{settings['port']}")
     print(f"  雷达范围: {settings['radar_range']}m")
-    print(f"  刷新率: {settings['fps']} FPS")
+    print(f"  刷新率  : {settings['fps']} FPS")
+    print(f"  面板    : 点云 + 障碍 + 检测 + 底盘状态")
     if args.demo:
-        print("  模式: 演示（模拟数据）")
+        print("  模式    : 演示（模拟数据）")
     print()
 
     tcp = TcpClient(

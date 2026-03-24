@@ -2,37 +2,28 @@
 set -euo pipefail
 
 # 脚本: collect_evb_artifacts.sh
-# 功能: 收集 SDK 和 ROS2 构建产物到 output/evb/ 目录
+# 功能: 收集构建产物到 output/evb/ 目录
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SDK_DIR="${ROOT_DIR}/data/A1_SDK_SC132GS/smartsens_sdk"
-ROS_DIR="${ROOT_DIR}/src/ros2_ws"
 ARTIFACT_DIR="${ROOT_DIR}/output/evb"
 SDK_EVB_IMAGE="${SDK_DIR}/output/images/zImage.smartsens-m1-evb"
+DEMO_BIN="${SDK_DIR}/output/target/app_demo/ssne_face_drive_demo"
 
 mkdir -p "${ARTIFACT_DIR}"
 
-echo "[collect_evb_artifacts.sh] 收集 SDK EVB 固件..."
+echo "[收集] EVB 固件..."
 if [ -f "${SDK_EVB_IMAGE}" ]; then
   cp -v "${SDK_EVB_IMAGE}" "${ARTIFACT_DIR}/"
 else
-  echo "[collect_evb_artifacts.sh] ⚠ EVB 固件未找到: ${SDK_EVB_IMAGE}" >&2
+  echo "[收集] ⚠ EVB 固件未找到: ${SDK_EVB_IMAGE}" >&2
 fi
 
-# 收集 demo 可执行文件
-for demo_bin in ssne_ai_demo ssne_vision_demo ssne_face_drive_demo; do
-  bin_path="${SDK_DIR}/output/target/app_demo/${demo_bin}"
-  if [ -f "${bin_path}" ]; then
-    cp -v "${bin_path}" "${ARTIFACT_DIR}/"
-  fi
-done
-
-if [ -d "${SDK_DIR}/output/images" ]; then
-  find "${SDK_DIR}/output/images" -type f \( -name "*.evb" -o -name "*evb" -o -name "*EVB*" \) -exec cp -v {} "${ARTIFACT_DIR}/" \; || true
+echo "[收集] Demo 可执行文件..."
+if [ -f "${DEMO_BIN}" ]; then
+  cp -v "${DEMO_BIN}" "${ARTIFACT_DIR}/"
+else
+  echo "[收集] ⚠ Demo 未找到: ${DEMO_BIN}" >&2
 fi
 
-if [ -d "${ROS_DIR}" ]; then
-  find "${ROS_DIR}" -type f -name "*.evb" -exec cp -v {} "${ARTIFACT_DIR}/" \; || true
-fi
-
-echo "[collect_evb_artifacts.sh] ✓ 产物收集完成"
+echo "[收集] ✓ 产物收集完成"
