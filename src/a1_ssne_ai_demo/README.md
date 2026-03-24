@@ -56,10 +56,10 @@ SC132GS 720×1280 → 裁剪 720×540 (offset_y=370) → SCRFD 640×480
 ## 编译
 
 ```bash
-# 全量编译
-docker exec A1_Builder bash -lc "bash /app/scripts/build_src_all.sh"
+# 完整 EVB 构建（推荐，产物保存至时间戳目录）
+docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --skip-ros"
 
-# 增量编译
+# 增量编译（开发迭代）
 docker exec A1_Builder bash -lc "bash /app/scripts/build_incremental.sh sdk ssne_face_drive_demo"
 ```
 

@@ -161,7 +161,7 @@ rosdep update
 包含 SDK + Demo + ROS：
 
 ```bash
-./scripts/build_src_all.sh [--skip-sdk] [--skip-demo] [--skip-ros]
+docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh"
 ```
 
 ## 编译结果

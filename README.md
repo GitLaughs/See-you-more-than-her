@@ -118,34 +118,42 @@ docker build -f docker/Dockerfile -t a1-sdk-builder:latest .
 docker compose -f docker/docker-compose.yml up -d
 ```
 
-### 2. 编译
+### 2. 生成完整 EVB 镜像
 
 ```powershell
-# 全量编译（首次，含 SDK + Demo + ROS2）
-docker exec A1_Builder bash -lc "bash /app/scripts/build_src_all.sh"
+# 快速编译方式（推荐）— 跳过 ROS2，仅编译 SDK + Demo（约 20 分钟）
+docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --skip-ros"
 
-# 增量编译：仅 Demo
+# 或：完整编译（含 SDK + Demo + ROS2，约 40 分钟）
+docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh"
+
+# 或：增量编译（仅更新 Demo，快速迭代）
 docker exec A1_Builder bash -lc "bash /app/scripts/build_incremental.sh sdk ssne_face_drive_demo"
-
-# 增量编译：仅 ROS2 工作区
-docker exec A1_Builder bash -lc "bash /app/scripts/build_ros2_ws.sh"
 ```
 
-### 3. 生成 EVB 固件
+### 3. 烧录到主板
 
-```text
-output/evb/zImage.smartsens-m1-evb  ← 编译产物
+```powershell
+# 使用 Aurora 伴侣工具烧录
+cd tools/aurora
+.\launch.ps1 --flash ..\output\evb\zImage.smartsens-m1-evb
 ```
 
-### 4. 板端运行
+### 4. 板端验证
 
 ```bash
-# SSH 进入 A1 开发板后
-cd /app_demo
-./scripts/run.sh
-# 输出: [INFO] FaceDriveApp 初始化完成
-# 输出: [INFO] 检测到人脸 → 直行 100 mm/s
+# SSH 进入 A1 开发板
+ssh root@<A1_IP>
+
+# 运行人脸检测 + 底盘控制 Demo
+/app_demo/scripts/run.sh
+
+# 预期输出：
+# [INFO] FaceDriveApp 初始化完成
+# [INFO] 检测到人脸 → 直行 100 mm/s
 ```
+
+**详见** [EVB 烧录部署指南](docs/EVB烧录部署指南.md)
 
 ### 5. Aurora 伴侣工具
 
@@ -178,6 +186,7 @@ cd tools/aurora
 |------|------|
 | [快速上手指南](docs/快速上手指南.md) | 新人必读：环境搭建 + 快速启动 |
 | [编译手册](docs/BUILD.md) | SDK / Demo / ROS2 编译流程 |
+| [EVB 烧录部署指南](docs/EVB烧录部署指南.md) | **一键生成和烧录完整 EVB 镜像** |
 | [常见问题](docs/常见问题.md) | 编译和运行问题排查 |
 
 ### 架构与硬件
