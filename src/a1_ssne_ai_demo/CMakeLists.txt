@@ -58,8 +58,22 @@ install(TARGETS ssne_ai_demo DESTINATION bin)
 # ==================== Target 2: 视觉综合 demo (YOLOv8+人脸+雷达+OSD) ====================
 add_executable(ssne_vision_demo ${PROJECT_SOURCE_DIR}/demo_vision.cpp)
 file(GLOB VISION_SRC_FILES "${CMAKE_SOURCE_DIR}/${SRC_DIR}/*.cpp")
-# 排除旧 project_flow 避免符号冲突
+# 排除旧 project_flow 和人脸驱动应用避免符号冲突
 list(FILTER VISION_SRC_FILES EXCLUDE REGEX "project_flow\\.cpp$")
+list(FILTER VISION_SRC_FILES EXCLUDE REGEX "face_drive_app\\.cpp$")
 target_sources(ssne_vision_demo PRIVATE ${VISION_SRC_FILES} ${RPLIDAR_SDK_SRC})
 target_link_libraries(ssne_vision_demo ${COMMON_LIBS})
 install(TARGETS ssne_vision_demo DESTINATION bin)
+
+# ==================== Target 3: 人脸驱动兼容性测试 (人脸检测+底盘控制) ====================
+add_executable(ssne_face_drive_demo ${PROJECT_SOURCE_DIR}/demo_face_drive.cpp)
+file(GLOB FACE_DRIVE_SRC_FILES "${CMAKE_SOURCE_DIR}/${SRC_DIR}/*.cpp")
+# 排除 vision_app / osd_visualizer / debug_data_interface / project_flow 避免符号冲突
+list(FILTER FACE_DRIVE_SRC_FILES EXCLUDE REGEX "vision_app\\.cpp$")
+list(FILTER FACE_DRIVE_SRC_FILES EXCLUDE REGEX "osd_visualizer\\.cpp$")
+list(FILTER FACE_DRIVE_SRC_FILES EXCLUDE REGEX "debug_data_interface\\.cpp$")
+list(FILTER FACE_DRIVE_SRC_FILES EXCLUDE REGEX "project_flow\\.cpp$")
+list(FILTER FACE_DRIVE_SRC_FILES EXCLUDE REGEX "yolov8_detector\\.cpp$")
+target_sources(ssne_face_drive_demo PRIVATE ${FACE_DRIVE_SRC_FILES} ${RPLIDAR_SDK_SRC})
+target_link_libraries(ssne_face_drive_demo ${COMMON_LIBS})
+install(TARGETS ssne_face_drive_demo DESTINATION bin)
