@@ -32,25 +32,29 @@ docker compose -f docker/docker-compose.yml up -d
 
 容器名：`A1_Builder`
 
-## 步骤 3：全量一键构建（推荐）
+## 步骤 3：完整 EVB 固件构建（推荐）
 
 ```powershell
-docker exec A1_Builder bash -lc "bash /app/scripts/build_src_all.sh"
+docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --skip-ros"
 ```
 
 脚本流程：
 
 ```
-[1] 构建 SDK 基础库（build_release_sdk.sh）
+[1] SDK 基础库（build_release_sdk.sh 第一次）
     ↓
-[2] 构建 ssne_face_drive_demo（人脸检测 + 底盘控制）
+[2] ssne_face_drive_demo（人脸检测 + 底盘控制）
     ↓
-[3] 构建 ROS2 工作区（colcon build）
+[3] ROS2 工作区（可选，--skip-ros 跳过）
     ↓
-[4] 收集 EVB 产物到 output/evb/
+[4] 重新打包 zImage（build_release_sdk.sh 第二次，将最新应用写入 initramfs）
+    ↓
+[5] 产物保存到 output/evb/<YYYYMMDD_HHMMSS>/
 ```
 
-## 步骤 4：增量构建
+> 每次构建产物均保存在独立的时间戳目录，`output/evb/latest` 软链接指向最近一次构建。
+
+## 步骤 4：增量构建（开发迭代用）
 
 ```powershell
 # 重编 Demo（改了 C++ 代码时用）
@@ -64,16 +68,18 @@ docker exec A1_Builder bash -lc "bash /app/scripts/build_incremental.sh ros"
 
 # 重编指定 ROS2 包
 docker exec A1_Builder bash -lc "bash /app/scripts/build_incremental.sh ros base_control_ros2"
-
-# 收集 EVB 产物
-docker exec A1_Builder bash -lc "bash /app/scripts/build_incremental.sh collect"
 ```
+
+> 增量构建不会重打包 zImage。如需部署到板端，请使用 `build_complete_evb.sh`。
 
 ## 步骤 5：查看产物
 
 ```
 output/evb/
-    └── zImage.smartsens-m1-evb    ← 板端固件（写入主板用）
+    ├── latest/                         ← 软链接，指向最近一次构建
+    └── 20260324_143022/                ← 时间戳目录（每次独立）
+            ├── zImage.smartsens-m1-evb ← 板端固件（写入主板用）
+            └── ssne_face_drive_demo    ← Demo 二进制
 ```
 
 > **注意**：`-evb` 是文件名后缀，不是 `.evb` 扩展名。
@@ -146,10 +152,10 @@ bash scripts/build_ros2_ws.sh
 
 | 脚本 | 参考来源 | 说明 |
 |---|---|---|
-| `scripts/build_src_all.sh` | `a1_sc132gs_build.sh` + `ros_a1_compile_test.sh` | 全量构建脚本（SDK + Demo + ROS2，推荐） |
+| `scripts/build_complete_evb.sh` | `a1_sc132gs_build.sh` | **完整 EVB 构建**（推荐），产物含时间戳目录 |
+| `scripts/build_incremental.sh` | `build_app.sh` | 增量构建（开发迭代用） |
 | `scripts/build_ros2_ws.sh` | `ros_a1_compile_test.sh` | ROS2 专项构建（含 P1 屏蔽提示） |
-| `scripts/build_incremental.sh` | `build_app.sh` | 增量构建脚本 |
-| `scripts/collect_evb_artifacts.sh` | — | 收集 EVB 产物 |
+| `scripts/build_docker.sh` | — | Docker 容器内触发 build_complete_evb.sh |
 | `data/.../scripts/a1_sc132gs_build.sh` | — | SDK 原厂构建脚本 |
-| `data/.../scripts/build_release_sdk.sh` | — | SDK 基础库构建脚本 |
+| `data/.../scripts/build_release_sdk.sh` | — | SDK 基础库构建脚本（被 build_complete_evb.sh 调用两次） |
 | `data/.../scripts/ros_a1_compile_test.sh` | — | ROS 编译测试参考脚本 |

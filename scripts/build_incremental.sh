@@ -1,19 +1,20 @@
 #!/bin/bash
-# build_incremental.sh — 增量构建脚本
+# build_incremental.sh — 增量构建脚本（开发迭代用）
 #
 # 参考: data/A1_SDK_SC132GS/smartsens_sdk/scripts/build_app.sh
+#
+# 说明: 本脚本只做单步增量编译，供开发迭代使用。
+#       生产发布请使用 build_complete_evb.sh（每次均生成带时间戳的完整 EVB 固件）。
 #
 # 用法:
 #   build_incremental.sh sdk [ssne_face_drive_demo|m1_sdk_lib|linux|full]
 #   build_incremental.sh ros [--clean] [--verbose] [package ...]
-#   build_incremental.sh collect
 #
 # 示例:
 #   build_incremental.sh sdk ssne_face_drive_demo
 #   build_incremental.sh sdk m1_sdk_lib
 #   build_incremental.sh ros turn_on_wheeltec_robot wheeltec_multi
 #   build_incremental.sh ros --clean
-#   build_incremental.sh collect
 
 set -e
 
@@ -67,9 +68,6 @@ case "${mode}" in
   ros)
     # 传递所有剩余参数给 build_ros2_ws.sh（支持 --clean/--verbose/包名）
     bash "${SCRIPT_DIR}/build_ros2_ws.sh" "$@"
-    ;;
-  collect)
-    bash "${SCRIPT_DIR}/collect_evb_artifacts.sh"
     ;;
   *)
     usage

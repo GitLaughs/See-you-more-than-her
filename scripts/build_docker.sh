@@ -11,17 +11,16 @@ DOCKER_DIR="${ROOT_DIR}/docker"
 COMPOSE_FILE="${DOCKER_DIR}/docker-compose.yml"
 
 CONTAINER_NAME="dev"
-SKIP_SDK=0
 CLEAN_BUILD=0
 VERBOSE=0
-BUILD_CMD="build_src_all.sh"
+BUILD_ARGS=""
+BUILD_CMD="build_complete_evb.sh"
 
 # 解析参数
 while [ $# -gt 0 ]; do
   case "$1" in
-    --skip-sdk)
-      SKIP_SDK=1
-      BUILD_CMD="build_ros2_ws.sh"
+    --skip-ros)
+      BUILD_ARGS+=' --skip-ros'
       shift
       ;;
     --clean)
@@ -32,30 +31,28 @@ while [ $# -gt 0 ]; do
       VERBOSE=1
       shift
       ;;
-    --ros-only)
-      SKIP_SDK=1
-      BUILD_CMD="build_ros2_ws.sh"
-      shift
-      ;;
     --help|-h)
       cat << 'EOF'
 用法: build_docker.sh [选项]
 
 选项:
-  --ros-only          仅构建 ROS2（跳过 SDK）
-  --skip-sdk          同 --ros-only
+  --skip-ros          跳过 ROS2 工作区编译
   --clean             清理构建目录
   --verbose, -v       启用详细输出
   --help, -h          显示帮助信息
 
+说明:
+  本脚本始终执行 build_complete_evb.sh，生成完整 EVB 固件。
+  产物保存在 output/evb/<时间戳>/ 目录下。
+
 示例:
-  # 在 Docker 中全量构建
+  # 完整构建（含 ROS2）
   ./build_docker.sh
 
-  # 仅构建 ROS2
-  ./build_docker.sh --ros-only
+  # 跳过 ROS2 的快速构建
+  ./build_docker.sh --skip-ros
 
-  # 清理后全量构建
+  # 清理后完整构建
   ./build_docker.sh --clean
 EOF
       exit 0
@@ -74,7 +71,6 @@ echo "项目根目录: ${ROOT_DIR}"
 echo "Docker 目录: ${DOCKER_DIR}"
 echo "容器名:     ${CONTAINER_NAME}"
 echo "构建命令:   ${BUILD_CMD}"
-echo "跳过SDK:     ${SKIP_SDK}"
 echo "清理构建:   ${CLEAN_BUILD}"
 echo "详细输出:   ${VERBOSE}"
 echo "========================================="
@@ -93,10 +89,6 @@ if ! command -v docker-compose &> /dev/null; then
 fi
 
 # 构建命令参数
-BUILD_ARGS=""
-if [ "${SKIP_SDK}" -eq 1 ]; then
-  BUILD_ARGS="${BUILD_ARGS} --skip-sdk"
-fi
 if [ "${CLEAN_BUILD}" -eq 1 ]; then
   BUILD_ARGS="${BUILD_ARGS} --clean"
 fi
