@@ -6,7 +6,7 @@
      .\launch.ps1 -NoAurora          # 仅启动伴侣工具
      .\launch.ps1 -Demo              # 演示模式（模拟数据）
      .\launch.ps1 -Flash             # 仅固件烧录
-     .\launch.ps1 -Host "10.0.0.50"  # 指定 A1 IP 地址
+     .\launch.ps1 -TargetHost "10.0.0.50"  # 指定 A1 IP 地址
      .\launch.ps1 -Quick             # 快速模式：跳过依赖检查
 #>
 
@@ -15,7 +15,7 @@ param(
     [switch]$Demo,
     [switch]$Flash,
     [switch]$Quick,
-    [string]$Host = "",
+    [string]$TargetHost = "",
     [int]$Port = 0,
     [string]$Firmware = ""
 )
@@ -102,9 +102,9 @@ if ($Flash) {
         $companionArgs += $Firmware
     }
 }
-if ($Host) {
+if ($TargetHost) {
     $companionArgs += "--host"
-    $companionArgs += $Host
+    $companionArgs += $TargetHost
 }
 if ($Port -gt 0) {
     $companionArgs += "--port"
