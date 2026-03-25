@@ -153,7 +153,7 @@ ssh root@<A1_IP>
 # [INFO] 检测到人脸 → 直行 100 mm/s
 ```
 
-**详见** [EVB 烧录部署指南](docs/EVB烧录部署指南.md)
+**详见** [03 编译与烧录指南](docs/03_编译与烧录.md)
 
 ### 5. Aurora 伴侣工具
 
@@ -183,37 +183,38 @@ cd tools/aurora
 ### 入门
 
 | 文档 | 内容 |
-|------|------|
-| [快速上手指南](docs/快速上手指南.md) | 新人必读：环境搭建 + 快速启动 |
-| [编译手册](docs/BUILD.md) | SDK / Demo / ROS2 编译流程 |
-| [EVB 烧录部署指南](docs/EVB烧录部署指南.md) | **一键生成和烧录完整 EVB 镜像** |
-| [常见问题](docs/常见问题.md) | 编译和运行问题排查 |
+| --- | --- |
+| [01 快速上手](docs/01_快速上手.md) | 新人必读：环境搭建 + 快速启动 |
+| [02 环境搭建](docs/02_环境搭建.md) | Docker + SDK + ROS2 环境完整配置 |
+| [03 编译与烧录](docs/03_编译与烧录.md) | SDK / Demo / ROS2 编译流程 + SDK 更新步骤 + EVB 烧录 |
+| [04 容器操作](docs/04_容器操作.md) | Docker 日常操作命令 |
+| [11 常见问题](docs/11_常见问题.md) | 编译和运行问题排查 |
 
 ### 架构与硬件
 
 | 文档 | 内容 |
-|------|------|
-| [双板架构设计](docs/双板架构设计.md) | A1 + STM32 通信与系统设计 |
-| [硬件连接说明](docs/硬件连接说明.md) | A1 开发板接口定义 |
-| [GPIO 引脚说明](docs/gpio.md) | A1 GPIO 引脚定义与 UART 映射 |
-| [UART 驱动说明](docs/uart驱动.md) | A1 UART API 使用说明 |
+| --- | --- |
+| [05 硬件参考](docs/05_硬件参考.md) | A1 接口定义、A1↔STM32 接线、GPIO API、UART API |
+| [06 程序概览](docs/06_程序概览.md) | 系统架构、代码流程与新人导读 |
+| [07 架构设计](docs/07_架构设计.md) | A1 + STM32 通信与系统设计 |
 
 ### 开发参考
 
 | 文档 | 内容 |
-|------|------|
-| [环境搭建指南](docs/环境搭建指南.md) | Docker + ROS2 环境详解 |
-| [容器操作手册](docs/容器操作手册.md) | Docker 日常操作 |
+| --- | --- |
+| [08 ROS 底盘集成](docs/08_ROS底盘集成.md) | x3_src ROS 包集成与 0.8Tops 优化 |
+| [09 AI 模型训练](docs/09_AI模型训练.md) | YOLOv8 训练 → 导出 → 部署 |
+| [10 雷达集成](docs/10_雷达集成.md) | RPLidar SDK 接入（暂未安装） |
 | [STM32 控制板](src/stm32_akm_driver/README.md) | WHEELTEC C50X 固件与协议 |
 | [ROS2 工作区](src/ros2_ws/README.md) | ROS2 包与构建 |
 | [Aurora 伴侣工具](tools/aurora/README.md) | 可视化 + 固件烧录 |
 
-### 暂缓模块
+### 项目管理
 
 | 文档 | 内容 |
-|------|------|
-| [RPLidar 接入指南](docs/雷达SDK接入指南.md) | 激光雷达 SDK 集成（暂未安装） |
-| [YOLOv8 训练指南](docs/YOLOv8训练指南.md) | 训练 → 导出 → 部署 |
+| --- | --- |
+| [12 项目规划](docs/12_项目规划.md) | 功能规划与分工 |
+| [13 贡献指南](docs/13_贡献指南.md) | GitHub Issues 建议与贡献说明 |
 | [数据集说明](data/yolov8_dataset/README.md) | YOLOv8 数据集格式 |
 
 ## License
