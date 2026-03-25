@@ -9,6 +9,23 @@ third_party/ultralytics/
 .venv39/
 x3_src_250401/
 Aurora-2.0.0-ciciec.13/
-src\ros2_ws\src\wheeltec_robot_urdf
+src/ros2_ws/src/wheeltec_robot_urdf/
 data/data/
+tools/aurora/modules/__pycache__/
 # Aurora 伴侣工具保留在版本控制中: tools/aurora/
+
+# Local editor / IDE
+.vscode/
+.vscode/settings.json
+
+# Vendor / hardware dumps and binaries
+WHEELTEC_C50X_2025.12.26/
+
+# Temporary / build artifacts
+*.o
+*.obj
+*.so
+*.dll
+*.exe
+*.hex
+*.log
