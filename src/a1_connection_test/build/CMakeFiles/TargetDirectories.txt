@@ -1,0 +1,7 @@
+/app/src/a1_connection_test/build/CMakeFiles/ssne_connection_test.dir
+/app/src/a1_connection_test/build/CMakeFiles/edit_cache.dir
+/app/src/a1_connection_test/build/CMakeFiles/rebuild_cache.dir
+/app/src/a1_connection_test/build/CMakeFiles/list_install_components.dir
+/app/src/a1_connection_test/build/CMakeFiles/install.dir
+/app/src/a1_connection_test/build/CMakeFiles/install/local.dir
+/app/src/a1_connection_test/build/CMakeFiles/install/strip.dir

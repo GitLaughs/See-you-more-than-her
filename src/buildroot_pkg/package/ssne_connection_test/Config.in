@@ -1,0 +1,14 @@
+config BR2_PACKAGE_SSNE_CONNECTION_TEST
+	bool "ssne_connection_test (A1↔STM32 连接测试)"
+	select BR2_PACKAGE_SSNE
+	help
+	  Minimal A1 <-> STM32 connection test.
+	  Sends hello + forward command via GPIO UART to verify
+	  hardware connectivity and chassis drive chain.
+
+config BR2_M1_CONN_TEST_SDK_ROOT_PATH
+	string "SDK lib root path (for connection test)"
+	default "opt/m1_sdk/usr"
+	help
+	  Path relative to BASE_DIR (output/) where SSNE SDK headers (/include)
+	  and libs (/lib) are located.
