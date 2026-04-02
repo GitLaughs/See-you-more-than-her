@@ -129,7 +129,7 @@ int ssne_release();
  * @param path SSModel文件路径
  * @param load_flag 模型加载标志：SSNE_STATIC_ALLOC (0) 表示静态分配，SSNE_DYNAMIC_ALLOC (1) 表示动态分配
  * @return 成功返回模型ID (uint16_t)，该ID应在后续操作中使用。
- * @note 返回的model_id应保存并在推理和其他模型操作中使用
+ * @note 返回的model_id应保存并在推理和其他模型操作中使用,且model_id从0开始。
  */
 uint16_t ssne_loadmodel(char *path, uint8_t load_flag);
 
