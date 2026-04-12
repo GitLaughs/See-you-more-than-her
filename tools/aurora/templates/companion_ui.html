@@ -5,50 +5,65 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Aurora Companion</title>
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap');
+
 :root {
-  --bg:       #0d1117;
-  --surface:  #161b22;
-  --surface2: #21262d;
-  --border:   #30363d;
-  --muted:    #8b949e;
-  --text:     #e6edf3;
-  --blue:     #58a6ff;
-  --green:    #3fb950;
-  --purple:   #a371f7;
-  --red:      #f85149;
-  --amber:    #d29922;
-  --orange:   #fb8f44;
+  --bg:       #06121a;
+  --bg-soft:  #0b1b26;
+  --surface:  #102330;
+  --surface2: #153242;
+  --border:   #2b4d61;
+  --muted:    #95b3c4;
+  --text:     #eaf7ff;
+  --blue:     #2fb6ff;
+  --green:    #2bd380;
+  --purple:   #9d8bff;
+  --red:      #ff5f5f;
+  --amber:    #ffb347;
+  --orange:   #ff8a3d;
+  --teal:     #00d1c7;
   --radius:   10px;
 }
 *{margin:0;padding:0;box-sizing:border-box;}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;flex-direction:column;}
+body{
+  background:
+    radial-gradient(1000px 420px at 88% -10%, rgba(47,182,255,.26), transparent 55%),
+    radial-gradient(760px 340px at 8% -14%, rgba(255,138,61,.20), transparent 58%),
+    linear-gradient(165deg, #041017 0%, #071a25 52%, #081e2a 100%);
+  color:var(--text);
+  font-family:'Noto Sans SC', 'Segoe UI', sans-serif;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+}
 
 /* ── Topbar ───────────────────────────────────────── */
 .topbar{
-  background:linear-gradient(90deg,#161b22,#1c2128);
+  background:linear-gradient(90deg,rgba(16,35,48,.92),rgba(19,48,64,.92));
+  backdrop-filter:blur(14px);
   border-bottom:1px solid var(--border);
   padding:0 20px;
   display:flex;align-items:center;gap:0;
-  box-shadow:0 2px 16px rgba(0,0,0,.5);
+  box-shadow:0 8px 26px rgba(0,0,0,.35);
   position:sticky;top:0;z-index:200;
-  height:48px;
+  height:54px;
 }
 .logo{display:flex;align-items:center;gap:9px;padding-right:20px;border-right:1px solid var(--border);}
-.logo-icon{width:28px;height:28px;border-radius:6px;background:linear-gradient(135deg,var(--blue),var(--purple));display:flex;align-items:center;justify-content:center;font-size:14px;}
-.logo-text{font-size:1.05em;font-weight:700;background:linear-gradient(90deg,var(--blue),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.logo-icon{width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,var(--blue),var(--orange));display:flex;align-items:center;justify-content:center;font-size:14px;}
+.logo-text{font-size:1.08em;font-family:'Space Grotesk','Noto Sans SC',sans-serif;font-weight:700;background:linear-gradient(90deg,var(--blue),var(--teal));-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:.02em;}
 /* Tabs */
 .tabs{display:flex;align-items:center;gap:0;flex:1;padding-left:4px;}
 .tab-btn{
-  height:48px;padding:0 18px;border:none;background:transparent;
-  color:var(--muted);font-size:.88em;font-weight:500;cursor:pointer;
+  height:54px;padding:0 18px;border:none;background:transparent;
+  color:var(--muted);font-size:.88em;font-weight:600;cursor:pointer;
   border-bottom:2px solid transparent;transition:all .15s;
   display:flex;align-items:center;gap:6px;
 }
 .tab-btn:hover{color:var(--text);}
-.tab-btn.active{color:var(--blue);border-bottom-color:var(--blue);}
+.tab-btn.active{color:var(--blue);border-bottom-color:var(--blue);text-shadow:0 0 10px rgba(47,182,255,.35);}
 /* Right area */
 .topbar-right{display:flex;align-items:center;gap:10px;margin-left:auto;}
-.status-pill{display:flex;align-items:center;gap:6px;padding:4px 12px;border-radius:16px;border:1px solid var(--border);background:var(--bg);font-size:.8em;}
+.status-pill{display:flex;align-items:center;gap:6px;padding:4px 12px;border-radius:16px;border:1px solid var(--border);background:var(--bg-soft);font-size:.8em;}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:blink 2s ease-in-out infinite;}
 .dot.off{background:var(--red);animation:none;}
 @keyframes blink{0%,100%{opacity:1;}50%{opacity:.35;}}
@@ -62,7 +77,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .page.active{display:flex;flex-direction:column;}
 
 /* ── Cards ────────────────────────────────────────── */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+.card{background:linear-gradient(160deg, rgba(16,35,48,.94), rgba(13,30,40,.95));border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.22);animation:cardRise .34s ease both;}
 .card-head{
   padding:8px 14px;border-bottom:1px solid var(--border);
   display:flex;align-items:center;justify-content:space-between;
@@ -70,6 +85,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   text-transform:uppercase;letter-spacing:.06em;
 }
 .card-body{padding:14px;}
+@keyframes cardRise{from{opacity:.0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
 
 /* ── Camera page layout ───────────────────────────── */
 #page-camera .workspace{
@@ -81,7 +97,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .preview-fps{position:absolute;top:8px;right:8px;background:rgba(13,17,23,.75);backdrop-filter:blur(4px);border:1px solid var(--border);border-radius:5px;padding:2px 8px;font-size:.7em;font-family:monospace;color:var(--muted);}
 .sidebar{display:flex;flex-direction:column;gap:10px;}
 .counter-box{text-align:center;padding:16px 0 8px;}
-.counter-num{font-size:3em;font-weight:800;line-height:1;background:linear-gradient(135deg,var(--blue),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.counter-num{font-size:3em;font-weight:800;line-height:1;background:linear-gradient(135deg,var(--blue),var(--teal));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
 .counter-lbl{font-size:.7em;color:var(--muted);margin-top:3px;}
 
 /* Gallery */
@@ -105,6 +121,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .chs-wiring{ grid-column:2; grid-row:1; }
 .chs-motion{ grid-column:2; grid-row:2; }
 .chs-debug { grid-column:2 / span 2; grid-row:3; }
+.chs-log   { grid-column:1 / span 3; grid-row:4; }
 .chs-rawsend{ grid-column:3; grid-row:1 / span 2; }
 
 /* ── Buttons ──────────────────────────────────────── */
@@ -234,6 +251,30 @@ select option{background:var(--surface);}
 .proto-frame{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px;}
 .proto-byte{display:inline-block;text-align:center;min-width:28px;padding:3px 5px;border-radius:4px;font-size:.68em;font-family:monospace;line-height:1.3;}
 .proto-byte .addr{color:var(--muted);font-size:.85em;display:block;}
+
+/* ── STM32 Connectivity page ───────────────────────── */
+#page-stm32 .workspace{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;padding:12px;flex:1;align-items:start;}
+.stm32-hero{padding:18px 16px;background:linear-gradient(145deg,rgba(47,182,255,.12),rgba(255,138,61,.10));border-bottom:1px solid var(--border);}
+.stm32-hero h2{font-family:'Space Grotesk','Noto Sans SC',sans-serif;font-size:1.35em;letter-spacing:.02em;margin-bottom:6px;}
+.stm32-hero p{font-size:.86em;color:var(--muted);line-height:1.7;}
+.stm32-steps{display:grid;grid-template-columns:1fr;gap:8px;}
+.stm32-step{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 10px;font-size:.8em;line-height:1.6;}
+.stm32-step b{color:var(--text);}
+
+@media (max-width: 1180px){
+  #page-camera .workspace{grid-template-columns:1fr;}
+  #page-stm32 .workspace{grid-template-columns:1fr;}
+  #page-chassis .workspace{grid-template-columns:1fr;grid-template-rows:auto;}
+  .chs-conn,.chs-tele,.chs-wiring,.chs-motion,.chs-debug,.chs-rawsend,.chs-log{grid-column:1;grid-row:auto;}
+}
+
+@media (max-width: 820px){
+  .topbar{height:auto;flex-wrap:wrap;padding:8px 10px;gap:8px;}
+  .logo{border-right:none;padding-right:8px;}
+  .tabs{order:3;flex:1 0 100%;padding-left:0;overflow-x:auto;}
+  .tab-btn{height:42px;white-space:nowrap;padding:0 14px;}
+  .topbar-right{margin-left:0;width:100%;justify-content:flex-end;}
+}
 </style>
 </head>
 <body>
@@ -247,6 +288,9 @@ select option{background:var(--surface);}
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('camera')" id="tab-camera">
       📷 摄像头采集
+    </button>
+    <button class="tab-btn" onclick="switchTab('stm32')" id="tab-stm32">
+      🔗 A1-STM32 联通测试
     </button>
     <button class="tab-btn" onclick="switchTab('chassis')" id="tab-chassis">
       🤖 底盘通信调试
@@ -342,6 +386,50 @@ select option{background:var(--surface);}
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- ═══ STM32 Connectivity Page ═════════════════════════════════════════════ -->
+<div class="page" id="page-stm32">
+  <div class="workspace">
+    <div class="card">
+      <div class="stm32-hero">
+        <h2>A1 ↔ STM32 联通性测试中心</h2>
+        <p>用于快速验证 A1 到 STM32 的指令下发链路，以及 STM32 回传遥测链路是否正常。建议先在“底盘通信调试”页完成串口连接，再回到本页执行联通测试。</p>
+      </div>
+      <div class="card-body">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+          <button class="btn btn-ghost" onclick="switchTab('chassis')">🔧 前往串口连接</button>
+          <button class="btn btn-blue" id="pingBtnPage" onclick="runPingTest('page')">🔍 发起联通测试</button>
+        </div>
+        <pre id="pingResultPage" style="background:var(--surface2);border-radius:8px;padding:10px;font-size:.75em;color:var(--text);font-family:monospace;white-space:pre-wrap;min-height:120px;margin:0;">待执行测试…</pre>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="card">
+        <div class="card-head">
+          <span>当前链路状态</span>
+          <span id="pingBadgePage" style="font-size:.78em;padding:2px 8px;border-radius:10px;background:var(--surface2);color:var(--muted);">未测试</span>
+        </div>
+        <div class="card-body">
+          <div class="stm32-steps">
+            <div class="stm32-step"><b>1.</b> A1 与 STM32 使用 3.3V TTL 串口互联，并确保共地。</div>
+            <div class="stm32-step"><b>2.</b> 先在“底盘通信调试”页连接串口（默认 115200）。</div>
+            <div class="stm32-step"><b>3.</b> 回到本页点击“发起联通测试”，发送零速度 11 字节指令帧。</div>
+            <div class="stm32-step"><b>4.</b> 若收到 24 字节遥测，即判定双向链路正常。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">测试说明</div>
+        <div class="card-body" style="font-size:.8em;color:var(--muted);line-height:1.8;">
+          联通测试发送帧格式：<span style="font-family:monospace;color:var(--text);">7B 00 00 00 00 00 00 00 00 BCC 7D</span><br>
+          若仅显示“单向连通”，通常是 STM32→A1 回传线（PB10 → A1 RX）未接通。
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -641,9 +729,15 @@ let statusPollTimer = null;
 function switchTab(tab) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('page-' + tab).classList.add('active');
-  document.getElementById('tab-' + tab).classList.add('active');
-  if (tab === 'chassis') refreshPorts();
+  const pageEl = document.getElementById('page-' + tab);
+  const tabEl = document.getElementById('tab-' + tab);
+  if (!pageEl || !tabEl) {
+    toast('页面未找到: ' + tab, 'err');
+    return;
+  }
+  pageEl.classList.add('active');
+  tabEl.classList.add('active');
+  if (tab === 'chassis' || tab === 'stm32') refreshPorts();
 }
 
 // ── Camera ─────────────────────────────────────────────────────────────────
@@ -790,10 +884,15 @@ function emergencyStop() {
 }
 
 // ── A1 ↔ STM32 联通测试 ────────────────────────────────────────────────────
-function runPingTest() {
-  const btn = document.getElementById('pingBtn');
-  const badge = document.getElementById('pingBadge');
-  const result = document.getElementById('pingResult');
+function runPingTest(scope = 'chassis') {
+  const suffix = scope === 'page' ? 'Page' : '';
+  const btn = document.getElementById('pingBtn' + suffix);
+  const badge = document.getElementById('pingBadge' + suffix);
+  const result = document.getElementById('pingResult' + suffix);
+  if (!btn || !badge || !result) {
+    toast('联通测试组件未加载', 'err');
+    return;
+  }
   btn.disabled = true;
   badge.textContent = '测试中…';
   badge.style.background = 'var(--amber)'; badge.style.color = '#000';
@@ -818,9 +917,9 @@ function runPingTest() {
         `发送帧: ${d.frame_tx}\n\n` +
         `遥测数据:\n` +
         `  速度  Vx=${t.vx} Vy=${t.vy} Vz=${t.vz} mm/s\n` +
-        `  加速度 Ax=${t.ax?.toFixed(3)} Ay=${t.ay?.toFixed(3)} Az=${t.az?.toFixed(3)} m/s²\n` +
-        `  陀螺仪 Gx=${t.gx?.toFixed(3)} Gy=${t.gy?.toFixed(3)} Gz=${t.gz?.toFixed(3)} rad/s\n` +
-        `  电池   ${t.volt?.toFixed(2)} V`;
+        `  加速度 Ax=${t.accel_x?.toFixed(3)} Ay=${t.accel_y?.toFixed(3)} Az=${t.accel_z?.toFixed(3)} m/s²\n` +
+        `  陀螺仪 Gx=${t.gyro_x?.toFixed(3)} Gy=${t.gyro_y?.toFixed(3)} Gz=${t.gyro_z?.toFixed(3)} rad/s\n` +
+        `  电池   ${t.voltage?.toFixed(2)} V`;
     } else {
       badge.textContent = '单向连通';
       badge.style.background = 'var(--amber)'; badge.style.color = '#000';
