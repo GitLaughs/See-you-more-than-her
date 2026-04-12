@@ -7,7 +7,8 @@ Aurora Companion — A1 开发板摄像头可视化采集伴侣
   - 摄像头断联自动检测 + 一键刷新恢复
   - 实时 FPS 及连接状态显示
   - 最近拍摄缩略图画廊 (最多 8 张)
-  - 拍摄 640×360 原生灰度图 (摄像头原生输出, 训练集格式)
+  - 传感器采集 1280×720 灰度图，训练输出 640×360 (中心裁剪)
+  - A1↔STM32 底盘通信调试 + 联通性测试
   - 键盘快捷键：1/2/R
 
 用法:
@@ -16,6 +17,7 @@ Aurora Companion — A1 开发板摄像头可视化采集伴侣
 
 import argparse
 import base64
+import contextlib
 import os
 import sys
 import threading
@@ -23,20 +25,21 @@ import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import cv2
 import numpy as np
 from flask import Flask, Response, jsonify, render_template, request
 
 # ─── 摄像头参数 ───────────────────────────────────────────────────────────────
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 360
+# SC132GS 传感器采集为 1280×720 灰度帧
+CAMERA_WIDTH = 1280
+CAMERA_HEIGHT = 720
 CAMERA_FPS = 30
 
 CAPTURE_FORMATS = {
-    "640x360":  (640,  360),   # 原始灰度图（摄像头原生输出， YOLOv8 训练集）
-    "1280x720": (1280, 720),   # 放大版（2x 上采样，仅供参考）
+    "1280x720": (1280, 720),   # 原始灰度图（传感器采集分辨率）
+    "640x360":  (640,  360),   # YOLOv8 训练集尺寸（16:9 中心裁剪）
 }
 
 app = Flask(__name__, template_folder="templates")
@@ -61,17 +64,183 @@ current_fps = 0.0
 camera_connected = False
 _fail_streak = 0
 _last_reconnect = 0.0
+MAX_DEVICE_SCAN = 5
+PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
 
 
 # ─── 摄像头操作 ───────────────────────────────────────────────────────────────
 
-def _try_open(device_id: int) -> Optional[cv2.VideoCapture]:
-    apis = [cv2.CAP_DSHOW] if sys.platform == "win32" else [cv2.CAP_V4L2]
-    for api in apis + [cv2.CAP_ANY]:
-        cap = cv2.VideoCapture(device_id, api)
-        if cap.isOpened():
-            break
+@contextlib.contextmanager
+def _suppress_c_stderr():
+    """临时屏蔽 C/DLL 层 stderr（摄像头驱动初始化噪声），仅 Windows 生效。"""
+    if sys.platform != "win32":
+        yield
+        return
+    try:
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        saved = os.dup(2)
+        os.dup2(devnull_fd, 2)
+        try:
+            yield
+        finally:
+            os.dup2(saved, 2)
+            os.close(saved)
+            os.close(devnull_fd)
+    except Exception:
+        yield
+
+
+def _open_raw_camera(device_id: int) -> cv2.VideoCapture:
+    with _suppress_c_stderr():
+        cap = cv2.VideoCapture(device_id, cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_V4L2)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(device_id)
+    return cap
+
+
+def load_preferred_device() -> Optional[int]:
+    try:
+        if not PREFERRED_DEVICE_FILE.exists():
+            return None
+        text = PREFERRED_DEVICE_FILE.read_text(encoding="utf-8").strip()
+        if text == "":
+            return None
+        return int(text)
+    except Exception:
+        return None
+
+
+def save_preferred_device(device_id: int) -> None:
+    try:
+        PREFERRED_DEVICE_FILE.write_text(str(device_id), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def probe_camera_device(device_id: int) -> dict:
+    cap = _open_raw_camera(device_id)
+    if not cap.isOpened():
+        return {
+            "id": device_id,
+            "opened": False,
+            "score": -1,
+            "actual_width": 0,
+            "actual_height": 0,
+            "is_grayscale": False,
+            "has_content": False,
+            "supports_gray_fourcc": False,
+        }
+
+    with _suppress_c_stderr():
+        gray_fourccs = [
+            cv2.VideoWriter_fourcc(*"Y800"),
+            cv2.VideoWriter_fourcc(*"GREY"),
+            cv2.VideoWriter_fourcc(*"Y8  "),
+        ]
+        supports_gray_fourcc = False
+        for fourcc in gray_fourccs:
+            cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+            actual = int(cap.get(cv2.CAP_PROP_FOURCC))
+            if actual == fourcc:
+                supports_gray_fourcc = True
+                break
+
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+        ret, frame = cap.read()
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()
+
+    if not ret or frame is None:
+        return {
+            "id": device_id,
+            "opened": False,
+            "score": 0,
+            "actual_width": actual_w,
+            "actual_height": actual_h,
+            "is_grayscale": False,
+            "has_content": False,
+            "supports_gray_fourcc": supports_gray_fourcc,
+        }
+
+    frame_h, frame_w = frame.shape[:2]
+    if len(frame.shape) == 2:
+        is_grayscale = True
+    elif frame.shape[2] >= 3:
+        b, g, r = frame[:, :, 0], frame[:, :, 1], frame[:, :, 2]
+        is_grayscale = np.array_equal(b, g) and np.array_equal(g, r)
     else:
+        is_grayscale = False
+
+    check = frame if len(frame.shape) == 2 else frame[:, :, 0]
+    has_content = float(np.std(check.astype(np.float32))) > 3.0
+
+    score = 0
+    if supports_gray_fourcc:
+        score += 8
+    if frame_w == CAMERA_WIDTH and frame_h == CAMERA_HEIGHT:
+        score += 6
+    elif frame_w == 640 and frame_h == 360:
+        score += 2
+    if frame_w == 360 and frame_h == 1280:
+        score += 5
+    if frame_w == 720 and frame_h == 1280:
+        score += 4
+    if is_grayscale:
+        score += 8
+    else:
+        score -= 4
+    if has_content:
+        score += 2
+    else:
+        score -= 6
+    if frame_w == CAMERA_WIDTH and frame_h == CAMERA_HEIGHT and (not is_grayscale) and (not supports_gray_fourcc):
+        score -= 3
+
+    return {
+        "id": device_id,
+        "opened": True,
+        "score": score,
+        "actual_width": frame_w,
+        "actual_height": frame_h,
+        "is_grayscale": is_grayscale,
+        "has_content": has_content,
+        "supports_gray_fourcc": supports_gray_fourcc,
+    }
+
+
+def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
+    devices = []
+    for i in range(max_scan):
+        info = probe_camera_device(i)
+        if info["opened"]:
+            devices.append(info)
+    return devices
+
+
+def choose_camera_device(requested_device: int) -> Tuple[int, list]:
+    """返回 (device_id, candidates)。requested_device=-1 时自动优先 A1。"""
+    if requested_device >= 0:
+        return requested_device, list_camera_devices()
+
+    preferred = load_preferred_device()
+    if preferred is not None:
+        preferred_info = probe_camera_device(preferred)
+        if preferred_info["opened"] and (preferred_info.get("has_content") or preferred_info.get("supports_gray_fourcc")):
+            return preferred, [preferred_info]
+
+    candidates = list_camera_devices()
+    if not candidates:
+        return 0, []
+
+    candidates_sorted = sorted(candidates, key=lambda x: (x["score"], x["id"]), reverse=True)
+    return candidates_sorted[0]["id"], candidates_sorted
+
+
+def _try_open(device_id: int) -> Optional[cv2.VideoCapture]:
+    cap = _open_raw_camera(device_id)
+    if not cap.isOpened():
         return None
 
     for s in ("Y800", "GREY", "Y8  "):
@@ -100,16 +269,28 @@ def _read_gray(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
     return cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
 
 
+def crop_center(img: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
+    """从图像中心裁剪到目标尺寸"""
+    h, w = img.shape[:2]
+    if target_w >= w and target_h >= h:
+        return img
+    x_start = max(0, (w - target_w) // 2)
+    y_start = max(0, (h - target_h) // 2)
+    return img[y_start:y_start + target_h, x_start:x_start + target_w]
+
+
 def _save_capture(frame: np.ndarray, fmt: str) -> dict:
     global capture_count
     tw, th = CAPTURE_FORMATS[fmt]
-    h, w = frame.shape[:2]
+
     if fmt == "640x360":
-        # 摄像头原生 640×360，直接使用（crop_center 在尺寸相同时原样返回）
-        out = frame.copy()
+        # 传感器 1280×720 → 中心裁剪 640×360
+        out = crop_center(frame, tw, th)
     else:
         out = frame.copy()
-    if out.shape != (th, tw):
+
+    # 确保尺寸正确
+    if out.shape[1] != tw or out.shape[0] != th:
         out = cv2.resize(out, (tw, th))
 
     capture_count += 1
@@ -278,7 +459,7 @@ def main():
     global camera, output_dir, device_id_global
 
     parser = argparse.ArgumentParser(description="Aurora Companion — A1 摄像头可视化采集伴侣")
-    parser.add_argument("--device", type=int, default=0,    help="摄像头设备 ID (默认: 0)")
+    parser.add_argument("--device", type=int, default=-1,   help="摄像头设备 ID (默认: -1 自动优先 A1)")
     parser.add_argument("--output", type=str,
                         default="../../data/yolov8_dataset/raw/images",
                         help="拍照保存目录")
@@ -291,11 +472,26 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     print(f"[INFO] 输出目录: {output_dir}")
 
-    device_id_global = args.device
-    print(f"[INFO] 正在连接 A1 摄像头 (设备 {args.device})...")
-    camera = _try_open(args.device)
+    selected_device, candidates = choose_camera_device(args.device)
+    device_id_global = selected_device
+
+    if args.device < 0:
+        if candidates:
+            print("[INFO] 自动探测摄像头结果（按优先级）:")
+            for c in candidates:
+                kind = "Gray" if c.get("is_grayscale") else "Color"
+                y8 = "Y8" if c.get("supports_gray_fourcc") else "NoY8"
+                print(f"  - device {c['id']}: {c['actual_width']}x{c['actual_height']} {kind} {y8} score={c['score']}")
+            print(f"[INFO] 自动选择设备: {selected_device}")
+        else:
+            print("[WARN] 未探测到可用摄像头，回退到设备 0")
+
+    print(f"[INFO] 正在连接 A1 摄像头 (设备 {selected_device})...")
+    camera = _try_open(selected_device)
     if camera is None:
         print("[WARN] 摄像头未连接，工具仍可启动，请连接后点击「刷新摄像头」")
+    else:
+        save_preferred_device(selected_device)
 
     print(f"[INFO] Aurora Companion 已启动: http://localhost:{args.port}")
     print(f"[INFO] 快捷键: 1=1280×720  2=640×360  R=刷新摄像头")

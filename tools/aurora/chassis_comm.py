@@ -69,6 +69,7 @@ _running = False
 _telemetry: dict = {}
 _tx_log: deque = deque(maxlen=30)
 _rx_log: deque = deque(maxlen=30)
+_rx_seq = 0
 
 chassis_bp = Blueprint("chassis", __name__, url_prefix="/api/chassis")
 
@@ -142,7 +143,7 @@ def parse_rx(data: bytes) -> Optional[dict]:
 # ─── 接收线程 ─────────────────────────────────────────────────────────────────
 
 def _rx_worker():
-    global _running, _telemetry
+    global _running, _telemetry, _rx_seq
     buf = bytearray()
     while _running:
         with _ser_lock:
@@ -170,6 +171,7 @@ def _rx_worker():
                     del buf[:RX_LEN]
                     parsed = parse_rx(frame_bytes)
                     if parsed:
+                        _rx_seq += 1
                         _telemetry = parsed
                         _rx_log.appendleft({
                             "hex": frame_bytes.hex(" ").upper(),
@@ -202,7 +204,7 @@ def list_ports():
 
 @chassis_bp.route("/connect", methods=["POST"])
 def connect():
-    global _ser, _rx_thread, _running
+    global _ser, _rx_thread, _running, _telemetry, _rx_seq
     if not _SERIAL_AVAILABLE:
         return jsonify({"success": False, "error": "pyserial 未安装，请运行: pip install pyserial"})
 
@@ -221,6 +223,8 @@ def connect():
             return jsonify({"success": False, "error": str(e)})
 
     _running = True
+    _telemetry = {}
+    _rx_seq = 0
     _rx_thread = threading.Thread(target=_rx_worker, daemon=True, name="chassis-rx")
     _rx_thread.start()
     print(f"[CHASSIS] 已连接 {port} @ {baud}")
@@ -229,12 +233,14 @@ def connect():
 
 @chassis_bp.route("/disconnect", methods=["POST"])
 def disconnect():
-    global _ser, _running
+    global _ser, _running, _telemetry, _rx_seq
     _running = False
     with _ser_lock:
         if _ser and _ser.is_open:
             _ser.close()
         _ser = None
+    _telemetry = {}
+    _rx_seq = 0
     print("[CHASSIS] 已断开")
     return jsonify({"success": True})
 
@@ -343,7 +349,9 @@ def ping():
     返回: {"success": bool, "connected": bool, "frame_tx": str, "telemetry": ...}
     """
     import time as _time
+    global _rx_seq
     frame = build_cmd(0, 0, 0)
+    rx_seq_before = _rx_seq
     with _ser_lock:
         if _ser is None or not _ser.is_open:
             return jsonify({"success": False, "error": "串口未连接"})
@@ -358,12 +366,14 @@ def ping():
         "ts": _time.strftime("%H:%M:%S"),
     })
 
-    # 等待遥测数据（RX 线程持续接收，最多等 600ms）
+    # 等待遥测数据（只认本次发包之后收到的新帧，避免历史数据误判）
     deadline = _time.monotonic() + 0.6
     while _time.monotonic() < deadline:
-        with _ser_lock:
+        if _rx_seq > rx_seq_before:
             tele = dict(_telemetry) if _telemetry else None
-        if tele is not None:
+            if tele is None:
+                _time.sleep(0.02)
+                continue
             return jsonify({
                 "success": True,
                 "connected": True,
