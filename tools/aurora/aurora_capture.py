@@ -17,7 +17,7 @@ Aurora Capture Tool — A1 开发板摄像头拍照工具
   此时工具会自动旋转 + 缩放到 640×360。
 
 用法:
-  python aurora_capture.py [--device 0] [--output ../data/yolov8_dataset/raw/images]
+    python aurora_capture.py [--device -1] [--output ../data/yolov8_dataset/raw/images]
 """
 
 import argparse
@@ -55,6 +55,92 @@ output_dir = None
 capture_count = 0
 _consecutive_failures = 0  # 连续读帧失败计数，用于触发自动重连
 _last_reconnect_time = 0.0
+MAX_DEVICE_SCAN = 8
+
+
+def _open_raw_camera(device_id: int) -> cv2.VideoCapture:
+    cap = cv2.VideoCapture(device_id, cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_V4L2)
+    if not cap.isOpened():
+        cap = cv2.VideoCapture(device_id)
+    return cap
+
+
+def probe_camera_device(device_id: int) -> dict:
+    """探测摄像头并给出是否更像 A1 的评分。"""
+    cap = _open_raw_camera(device_id)
+    if not cap.isOpened():
+        return {
+            "id": device_id,
+            "opened": False,
+            "score": -1,
+            "actual_width": 0,
+            "actual_height": 0,
+            "is_grayscale": False,
+            "label": f"设备 {device_id} (不可用)",
+        }
+
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+    ret, frame = cap.read()
+    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+
+    if not ret or frame is None:
+        return {
+            "id": device_id,
+            "opened": False,
+            "score": 0,
+            "actual_width": actual_w,
+            "actual_height": actual_h,
+            "is_grayscale": False,
+            "label": f"设备 {device_id} ({actual_w}x{actual_h}, 无帧)",
+        }
+
+    is_gray = len(frame.shape) == 2
+    frame_h, frame_w = frame.shape[:2]
+
+    score = 0
+    if frame_w == CAMERA_WIDTH and frame_h == CAMERA_HEIGHT:
+        score += 4
+    if is_gray:
+        score += 3
+    if device_id > 0:
+        score += 1
+
+    return {
+        "id": device_id,
+        "opened": True,
+        "score": score,
+        "actual_width": frame_w,
+        "actual_height": frame_h,
+        "is_grayscale": is_gray,
+        "label": f"设备 {device_id} ({frame_w}x{frame_h}, {'灰度' if is_gray else '彩色'})",
+    }
+
+
+def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
+    devices = []
+    for i in range(max_scan):
+        info = probe_camera_device(i)
+        if info["opened"]:
+            devices.append(info)
+    return devices
+
+
+def choose_camera_device(requested_device: int) -> tuple:
+    """返回 (device_id, candidates)。requested_device=-1 时自动优先 A1。"""
+    candidates = list_camera_devices()
+
+    if requested_device >= 0:
+        return requested_device, candidates
+
+    if not candidates:
+        return 0, []
+
+    candidates_sorted = sorted(candidates, key=lambda x: (x["score"], x["id"]), reverse=True)
+    best = candidates_sorted[0]["id"]
+    return best, candidates_sorted
 
 
 def open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
@@ -63,10 +149,7 @@ def open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
     关键: 必须显式设置 FOURCC 为 GREY/Y800 以正确解析灰度格式,
     否则 OpenCV 会按默认的 YUV/RGB 解析。摄像头目标分辨率为 640×360。
     """
-    cap = cv2.VideoCapture(device_id, cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_V4L2)
-    if not cap.isOpened():
-        # 回退: 不指定 API
-        cap = cv2.VideoCapture(device_id)
+    cap = _open_raw_camera(device_id)
 
     if not cap.isOpened():
         raise RuntimeError(f"无法打开摄像头设备 {device_id}")
@@ -423,6 +506,14 @@ HTML_TEMPLATE = """
                         <span class="btn-icon">🔄</span>
                         <span>刷新摄像头<small>断联后点此恢复</small></span>
                     </button>
+                    <div class="divider"></div>
+                    <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+                        <select id="cameraSelect" style="flex:1;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:8px"></select>
+                        <button class="btn btn-secondary" style="width:auto;margin:0" onclick="switchCamera()">
+                            <span class="btn-icon">🎥</span>
+                            <span>切换</span>
+                        </button>
+                    </div>
                 </div>
             </div>
             <div class="card">
@@ -499,6 +590,48 @@ HTML_TEMPLATE = """
             });
         }
 
+        function loadCameraDevices() {
+            fetch('/camera_devices')
+            .then(r => r.json())
+            .then(data => {
+                const sel = document.getElementById('cameraSelect');
+                const current = data.current_device;
+                sel.innerHTML = '';
+                (data.devices || []).forEach(d => {
+                    const op = document.createElement('option');
+                    op.value = d.id;
+                    op.textContent = d.label;
+                    if (d.id === current) op.selected = true;
+                    sel.appendChild(op);
+                });
+            })
+            .catch(() => {});
+        }
+
+        function switchCamera() {
+            const sel = document.getElementById('cameraSelect');
+            const device = Number(sel.value);
+            if (Number.isNaN(device)) {
+                showToast('✗ 请选择有效摄像头', true);
+                return;
+            }
+            fetch('/switch_camera', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({device})
+            })
+            .then(r => r.json())
+            .then(data => {
+                showToast(data.success ? ('✓ 已切换到设备 ' + device) : ('✗ ' + data.error), !data.success);
+                if (data.success) {
+                    const img = document.getElementById('stream');
+                    img.src = '/video_feed?' + Date.now();
+                    loadCameraDevices();
+                }
+            })
+            .catch(err => showToast('✗ 切换失败: ' + err, true));
+        }
+
         function showToast(msg, isError = false) {
             const t = document.getElementById('toast');
             t.textContent = msg;
@@ -519,6 +652,8 @@ HTML_TEMPLATE = """
                 setOnline(d.connected);
             }).catch(() => {});
         }, 3000);
+
+        loadCameraDevices();
     </script>
 </body>
 </html>
@@ -638,15 +773,53 @@ def status():
         "capture_count": capture_count,
         "output_dir": output_dir,
         "camera_resolution": f"{CAMERA_WIDTH}x{CAMERA_HEIGHT}",
+        "device_id": device_id_global,
     })
+
+
+@app.route('/camera_devices')
+def camera_devices():
+    devices = list_camera_devices()
+    return jsonify({
+        "devices": [{"id": d["id"], "label": d["label"]} for d in devices],
+        "current_device": device_id_global,
+    })
+
+
+@app.route('/switch_camera', methods=['POST'])
+def switch_camera():
+    global camera, device_id_global, _consecutive_failures
+    data = request.get_json(silent=True) or {}
+    if "device" not in data:
+        return jsonify({"success": False, "error": "缺少 device 参数"}), 400
+
+    try:
+        new_device = int(data["device"])
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "device 必须是整数"}), 400
+
+    try:
+        with camera_lock:
+            if camera:
+                camera.release()
+            camera = open_camera(new_device)
+            ok = camera is not None and camera.isOpened()
+        if not ok:
+            raise RuntimeError("目标摄像头无法打开")
+        device_id_global = new_device
+        _consecutive_failures = 0
+        print(f"[INFO] 已切换到摄像头设备 {new_device}")
+        return jsonify({"success": True, "device": new_device})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 def main():
     global camera, output_dir
 
     parser = argparse.ArgumentParser(description="Aurora Capture - A1 摄像头拍照工具")
-    parser.add_argument("--device", type=int, default=0,
-                        help="摄像头设备 ID (默认: 0)")
+    parser.add_argument("--device", type=int, default=-1,
+                        help="摄像头设备 ID (默认: -1, 自动优先 A1)")
     parser.add_argument("--output", type=str,
                         default="../../data/yolov8_dataset/raw/images",
                         help="拍照保存目录")
@@ -664,9 +837,15 @@ def main():
 
     # 打开摄像头
     global device_id_global
-    device_id_global = args.device
-    print(f"[INFO] 正在连接 A1 摄像头 (设备 {args.device})...")
-    camera = open_camera(args.device)
+    selected_device, candidates = choose_camera_device(args.device)
+    device_id_global = selected_device
+    if args.device < 0:
+        print("[INFO] 自动选择摄像头候选:")
+        for item in candidates:
+            print(f"[INFO]   - {item['label']} (score={item['score']})")
+
+    print(f"[INFO] 正在连接 A1 摄像头 (设备 {selected_device})...")
+    camera = open_camera(selected_device)
 
     print(f"[INFO] Web 界面已启动: http://localhost:{args.port}")
     print(f"[INFO] 快捷键: 1=1280x720  2=640x360  R=刷新摄像头")
