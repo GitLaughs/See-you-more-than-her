@@ -12,7 +12,7 @@ Aurora Companion — A1 开发板摄像头可视化采集伴侣
   - 键盘快捷键：1/2/R
 
 用法:
-  python aurora_companion.py [--device 0] [--output ../../data/yolov8_dataset/raw/images] [--port 5001]
+    python aurora_companion.py [--device 0] [--output ../../data/yolov8_dataset/raw/images] [--port 5801]
 """
 
 import argparse
@@ -514,7 +514,7 @@ def main():
     parser.add_argument("--output", type=str,
                         default="../../data/yolov8_dataset/raw/images",
                         help="拍照保存目录")
-    parser.add_argument("--port",   type=int, default=5001, help="Web 服务端口 (默认: 5001)")
+    parser.add_argument("--port",   type=int, default=5801, help="Web 服务端口 (默认: 5801)")
     parser.add_argument("--host",   type=str, default="0.0.0.0", help="监听地址")
     args = parser.parse_args()
 

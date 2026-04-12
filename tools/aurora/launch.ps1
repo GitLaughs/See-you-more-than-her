@@ -1,7 +1,7 @@
 param(
     [int]$Device = -1,
     [string]$Output = "",
-    [int]$Port = 5001,
+    [int]$Port = 5801,
     [switch]$ShowDriverLogs,
     [switch]$NoBrowser
 )
@@ -57,8 +57,37 @@ if (-not $ShowDriverLogs) {
 Write-Host ""
 
 if (-not $NoBrowser) {
+    $launchUrl = "http://localhost:$Port"
     try {
-        Start-Process "http://localhost:$Port" | Out-Null
+        # 后台等待端口就绪后再打开浏览器，避免启动瞬间出现“拒绝连接”
+        Start-Job -ScriptBlock {
+            param([string]$Url, [int]$ReadyPort)
+
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            while ([DateTime]::UtcNow -lt $deadline) {
+                try {
+                    $client = New-Object System.Net.Sockets.TcpClient
+                    $async = $client.BeginConnect("127.0.0.1", $ReadyPort, $null, $null)
+                    if ($async.AsyncWaitHandle.WaitOne(250)) {
+                        $client.EndConnect($async)
+                        $client.Close()
+                        Start-Process $Url | Out-Null
+                        return
+                    }
+                    $client.Close()
+                }
+                catch {
+                }
+                [System.Threading.Thread]::Sleep(250)
+            }
+
+            # 超时兜底：仍尝试打开一次
+            try {
+                Start-Process $Url | Out-Null
+            }
+            catch {
+            }
+        } -ArgumentList $launchUrl, $Port | Out-Null
     }
     catch {
         Write-Host "[WARN] Unable to open browser automatically. Please open http://localhost:$Port manually." -ForegroundColor DarkYellow
