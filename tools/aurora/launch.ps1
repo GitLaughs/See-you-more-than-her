@@ -13,9 +13,9 @@ if (-not (Test-Path "aurora_capture.py")) {
     Write-Error "aurora_capture.py not found in $ScriptDir"
 }
 
-$args = @("aurora_capture.py", "--device", $Device, "--port", $Port)
+$captureArgs = @("aurora_capture.py", "--device", $Device, "--port", $Port)
 if ($Output -ne "") {
-    $args += @("--output", $Output)
+    $captureArgs += @("--output", $Output)
 }
 
 Write-Host "=== Aurora Capture Tool ===" -ForegroundColor Cyan
@@ -24,4 +24,4 @@ Write-Host "Web UI: http://localhost:$Port" -ForegroundColor Yellow
 Write-Host "Camera device: $Device (-1 means auto-select A1)" -ForegroundColor Yellow
 Write-Host ""
 
-python @args
+python @captureArgs
