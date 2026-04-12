@@ -1,0 +1,55 @@
+# Aurora Video Stream Pipeline - YUV Format
+# YUV视频流管道 - YUV格式转RGB后显示
+
+name = "Video Stream Pipeline - YUV"
+version = "1.0.0"
+description = "YUV视频流管道 - YUV格式转RGB后显示"
+
+[metadata]
+author = "Aurora Project"
+category = "video"
+
+[source_matching]
+video_stream_plugin = "aurora.videostream.source.yuv"
+
+[[nodes]]
+id = "yuv_source"
+node = "aurora.videostream.source.yuv"
+plugin = "VideoStreamPlugin"
+
+[[nodes]]
+id = "yuv_to_rgb"
+node = "aurora.colorconvert.yuv_to_rgb"
+plugin = "ColorConvertPlugin"
+
+[[nodes]]
+id = "render_endpoint"
+node = "RenderNode"
+plugin = "RenderManager"
+
+[nodes.parameters]
+autoDeletePipelineOnClose = true
+
+[[nodes]]
+id = "capture_process"
+node = "aurora.capture.node"
+plugin = "CapturePlugin"
+
+[[connections]]
+from_node = "yuv_source"
+from_pin = "0"
+to_node = "yuv_to_rgb"
+to_pin = "0"
+
+[[connections]]
+from_node = "yuv_to_rgb"
+from_pin = "0"
+to_node = "render_endpoint"
+to_pin = "0"
+
+# 所有节点到截图节点
+[[connections]]
+from_node = "*"
+from_pin = "0"
+to_node = "capture_process"
+to_pin = "0"

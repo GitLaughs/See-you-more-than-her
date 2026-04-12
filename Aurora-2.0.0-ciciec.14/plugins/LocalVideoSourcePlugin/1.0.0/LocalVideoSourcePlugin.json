@@ -1,0 +1,16 @@
+{
+    "IID": "com.aurora.IPluginEntry",
+    "id": "local_video_source",
+    "name": "LocalVideoSourcePlugin",
+    "description": "LocalVideoSource Plugin for Aurora framework - Local video file playback with FFmpeg decoder",
+    "version": "1.0.0",
+    "dependencies": [],
+    "serviceDependencies": [
+        "LogService"
+    ],
+    "providedServices": [],
+    "extra": {
+        "author": "Aurora Team",
+        "category": "video"
+    }
+}

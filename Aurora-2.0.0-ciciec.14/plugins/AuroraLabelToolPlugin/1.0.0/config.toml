@@ -1,0 +1,40 @@
+[plugin]
+name = "AuroraLabelTool"
+id = "aurora_label_tool"
+version = "1.0.0"
+description = "Image annotation tool supporting YOLO/COCO/VOC/LabelMe/DOTA formats"
+entry_dll = "AuroraLabelToolPlugin.dll"
+entry_dll_relative_path = "."
+
+[plugin.info]
+category = "tool"
+author = "Aurora Team"
+organization = "Basic Software Group"
+license = "MIT"
+
+[dependencies]
+aurora_version = "1.0"
+
+service_dependencies = [
+    "IGuiService/^1.0.0",
+    "ILogService/^1.0.0"
+]
+
+shared_libs = []
+plugin_dependencies = []
+
+[resources]
+translations = []
+
+[loading]
+load_on_startup = false
+
+[environment]
+os = "windows"
+min_os_version = "10.0"
+min_qt_version = "6.9.0"
+cpu_arch = "x64"
+
+[logging]
+enabled = true
+level = "INFO"

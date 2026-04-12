@@ -1,0 +1,43 @@
+# Aurora Local Image Pipeline - RAW Format
+# 本地RAW图像管道 - Bayer RAW格式转RGB后显示
+
+name = "Local Image Pipeline - RAW"
+version = "1.0.0"
+description = "本地RAW图像管道 - Bayer RAW格式转RGB后显示"
+
+[metadata]
+author = "Aurora Project"
+category = "image"
+
+[source_matching]
+local_image_source = "RawImageSourceNode"
+
+[[nodes]]
+id = "raw_local_source"
+node = "RawImageSourceNode"
+plugin = "LocalImageSource"
+
+[[nodes]]
+id = "raw_to_rgb"
+node = "aurora.colorconvert.raw_to_rgb"
+plugin = "ColorConvertPlugin"
+
+[[nodes]]
+id = "render_endpoint"
+node = "RenderNode"
+plugin = "RenderManager"
+
+[nodes.parameters]
+autoDeletePipelineOnClose = true
+
+[[connections]]
+from_node = "raw_local_source"
+from_pin = "0"
+to_node = "raw_to_rgb"
+to_pin = "0"
+
+[[connections]]
+from_node = "raw_to_rgb"
+from_pin = "0"
+to_node = "render_endpoint"
+to_pin = "0"

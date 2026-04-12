@@ -1,0 +1,17 @@
+# Aurora Application Configuration
+# 应用程序级别的全局配置文件
+
+[application]
+# 应用程序基础配置
+name = "Aurora Image Processing Framework"
+version = "1.0.0"
+organization = "Aurora Framework Team"
+
+[plugins]
+# 插件配置
+directory = "./plugins"                 # 主插件目录（PluginManager使用）
+auto_load_plugins = true                # 是否自动加载插件
+
+[pipelines]
+# Pipeline管理配置
+config_directory = "./config/pipelines"  # Pipeline配置文件目录（PipelineManager使用）

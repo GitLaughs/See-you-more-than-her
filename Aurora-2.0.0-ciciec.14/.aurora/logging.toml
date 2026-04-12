@@ -1,0 +1,23 @@
+# Aurora日志系统配置
+
+[logger]
+# 日志级别: 0=TRACE, 1=DEBUG, 2=INFO, 3=WARN, 4=ERROR, 5=CRITICAL, 6=OFF
+level = 0
+# 日志目录名称（相对于程序目录）
+directory = "log"
+# 单个日志文件最大大小（字节）
+max_file_size = 50000000  # 50MB
+# 保留的日志文件数量
+max_files = 10
+
+[plugins]
+# 允许记录日志的插件列表
+allowed = ["DemoPlugin", "ImageProcessor"]
+# 禁止记录日志的插件列表
+denied = ["NoisePlugin"]
+
+# 插件特定日志级别配置
+[levels]
+DemoPlugin = "debug"
+ImageProcessor = "info"
+TestPlugin = "error"

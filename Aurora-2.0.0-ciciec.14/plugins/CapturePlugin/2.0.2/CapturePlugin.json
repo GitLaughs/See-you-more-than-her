@@ -1,0 +1,23 @@
+{
+    "IID": "com.aurora.IPluginEntry",
+    "id": "capture_plugin",
+    "name": "CapturePlugin",
+    "version": {
+        "major": 2,
+        "minor": 0,
+        "patch": 2
+    },
+    "description": "图像捕获插件 - 支持图像和视频流捕获保存",
+    "author": "Aurora Team",
+    "license": "MIT",
+    "user": {
+        "level": "basic",
+        "client_type": "image_processing",
+        "group": "image_capture"
+    },
+    "dependencies": {
+        "core_framework": "Aurora-2.0",
+        "plugins": [],
+        "services": ["GuiService", "LogService"]
+    }
+}

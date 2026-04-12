@@ -1,0 +1,23 @@
+{
+    "IID": "com.aurora.IPluginEntry",
+    "id": "color_convert_plugin",
+    "name": "ColorConvertPlugin",
+    "version": {
+        "major": 2,
+        "minor": 0,
+        "patch": 1
+    },
+    "description": "高性能 Bayer 到 RGB 格式转换插件，支持多种位深度和输出格式",
+    "author": "Aurora Team",
+    "license": "MIT",
+    "user": {
+        "level": "basic",
+        "client_type": "production",
+        "group": "image_processing"
+    },
+    "dependencies": {
+        "core_framework": "Aurora-1.0",
+        "plugins": [],
+        "services": ["GuiService", "LogService"]
+    }
+}

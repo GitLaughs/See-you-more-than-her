@@ -1,0 +1,11 @@
+{
+    "IID": "com.aurora.IPluginEntry",
+    "id": "aurora_label_tool",
+    "name": "AuroraLabelTool",
+    "version": "1.0.0",
+    "serviceDependencies": ["GuiService", "LogService"],
+    "extra": {
+        "category": "tool",
+        "description": "Image annotation tool supporting YOLO/COCO/VOC/LabelMe/DOTA formats"
+    }
+}

@@ -1,0 +1,42 @@
+[plugin]
+name = "LocalImageSource"
+id = "local_image_source"
+version = "2.0.4"
+description = "LocalImageSource Plugin for Aurora framework - Local image file reading with multiple format support"
+entry_dll = "LocalImageSourcePlugin.dll"
+entry_dll_relative_path = "."
+
+[plugin.info]
+category = "image"
+author = "Aurora Team"
+organization = "Basic Software Group"
+license = "MIT"
+
+[dependencies]
+aurora_version = "1.0"
+
+# 服务依赖
+service_dependencies = [
+    "IGuiService/^1.0.0",
+    "ILogService/^1.0.0"
+]
+
+shared_libs = []
+plugin_dependencies = []
+
+[resources]
+# 翻译文件已编译到Qt资源系统中 (:/translations/LocalImageSource_*.qm)
+# 不需要外部翻译文件
+translations = []
+
+[loading]
+load_on_startup = false
+
+[environment]
+min_windows_version = "10.0"
+min_qt_version = "6.9.0"
+cpu_arch = "x64"
+
+[logging]
+enabled = true
+level = "INFO"
