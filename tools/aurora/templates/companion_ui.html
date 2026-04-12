@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aurora Companion</title>
+<style>
+:root {
+  --bg:       #0d1117;
+  --surface:  #161b22;
+  --surface2: #21262d;
+  --border:   #30363d;
+  --muted:    #8b949e;
+  --text:     #e6edf3;
+  --blue:     #58a6ff;
+  --green:    #3fb950;
+  --purple:   #a371f7;
+  --red:      #f85149;
+  --amber:    #d29922;
+  --orange:   #fb8f44;
+  --radius:   10px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;flex-direction:column;}
+
+/* ── Topbar ───────────────────────────────────────── */
+.topbar{
+  background:linear-gradient(90deg,#161b22,#1c2128);
+  border-bottom:1px solid var(--border);
+  padding:0 20px;
+  display:flex;align-items:center;gap:0;
+  box-shadow:0 2px 16px rgba(0,0,0,.5);
+  position:sticky;top:0;z-index:200;
+  height:48px;
+}
+.logo{display:flex;align-items:center;gap:9px;padding-right:20px;border-right:1px solid var(--border);}
+.logo-icon{width:28px;height:28px;border-radius:6px;background:linear-gradient(135deg,var(--blue),var(--purple));display:flex;align-items:center;justify-content:center;font-size:14px;}
+.logo-text{font-size:1.05em;font-weight:700;background:linear-gradient(90deg,var(--blue),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+/* Tabs */
+.tabs{display:flex;align-items:center;gap:0;flex:1;padding-left:4px;}
+.tab-btn{
+  height:48px;padding:0 18px;border:none;background:transparent;
+  color:var(--muted);font-size:.88em;font-weight:500;cursor:pointer;
+  border-bottom:2px solid transparent;transition:all .15s;
+  display:flex;align-items:center;gap:6px;
+}
+.tab-btn:hover{color:var(--text);}
+.tab-btn.active{color:var(--blue);border-bottom-color:var(--blue);}
+/* Right area */
+.topbar-right{display:flex;align-items:center;gap:10px;margin-left:auto;}
+.status-pill{display:flex;align-items:center;gap:6px;padding:4px 12px;border-radius:16px;border:1px solid var(--border);background:var(--bg);font-size:.8em;}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:blink 2s ease-in-out infinite;}
+.dot.off{background:var(--red);animation:none;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.35;}}
+.chassis-pill{border-color:var(--border);} 
+.chassis-dot{background:var(--amber);}
+.chassis-dot.on{background:var(--green);animation:blink 2s ease-in-out infinite;}
+.chassis-dot.off{background:var(--red);animation:none;}
+
+/* ── Tab pages ────────────────────────────────────── */
+.page{display:none;flex:1;}
+.page.active{display:flex;flex-direction:column;}
+
+/* ── Cards ────────────────────────────────────────── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+.card-head{
+  padding:8px 14px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:.75em;font-weight:600;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.06em;
+}
+.card-body{padding:14px;}
+
+/* ── Camera page layout ───────────────────────────── */
+#page-camera .workspace{
+  display:grid;grid-template-columns:1fr 300px;gap:12px;padding:12px;flex:1;
+}
+.preview-wrap{position:relative;background:#000;line-height:0;}
+.preview-wrap img{width:100%;display:block;}
+.preview-chip{position:absolute;top:8px;left:8px;background:rgba(13,17,23,.75);backdrop-filter:blur(4px);border:1px solid var(--border);border-radius:5px;padding:2px 8px;font-size:.7em;font-family:monospace;color:var(--green);}
+.preview-fps{position:absolute;top:8px;right:8px;background:rgba(13,17,23,.75);backdrop-filter:blur(4px);border:1px solid var(--border);border-radius:5px;padding:2px 8px;font-size:.7em;font-family:monospace;color:var(--muted);}
+.sidebar{display:flex;flex-direction:column;gap:10px;}
+.counter-box{text-align:center;padding:16px 0 8px;}
+.counter-num{font-size:3em;font-weight:800;line-height:1;background:linear-gradient(135deg,var(--blue),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.counter-lbl{font-size:.7em;color:var(--muted);margin-top:3px;}
+
+/* Gallery */
+.gallery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;}
+.gallery-item{position:relative;border-radius:4px;overflow:hidden;background:#000;border:1px solid var(--border);transition:border-color .15s;cursor:pointer;}
+.gallery-item:hover{border-color:var(--blue);}
+.gallery-item img{width:100%;display:block;}
+.gallery-item .g-lbl{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.6);font-size:.55em;color:var(--muted);padding:2px 4px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.gallery-empty{grid-column:1/-1;text-align:center;color:var(--muted);font-size:.8em;padding:14px 0;}
+
+/* ── Chassis page layout ──────────────────────────── */
+#page-chassis .workspace{
+  display:grid;
+  grid-template-columns:300px 1fr 1fr;
+  grid-template-rows:auto auto 1fr;
+  gap:12px;padding:12px;align-items:start;
+}
+/* column spans */
+.chs-conn  { grid-column:1; grid-row:1; }
+.chs-tele  { grid-column:1; grid-row:2 / span 2; }
+.chs-wiring{ grid-column:2; grid-row:1; }
+.chs-motion{ grid-column:2; grid-row:2; }
+.chs-debug { grid-column:2 / span 2; grid-row:3; }
+.chs-rawsend{ grid-column:3; grid-row:1 / span 2; }
+
+/* ── Buttons ──────────────────────────────────────── */
+.btn{
+  padding:9px 14px;border:1px solid transparent;border-radius:7px;
+  font-size:.88em;font-weight:600;cursor:pointer;
+  display:inline-flex;align-items:center;gap:7px;
+  transition:transform .1s,box-shadow .1s,background .12s;
+  white-space:nowrap;
+}
+.btn:active{transform:scale(.97);}
+.btn-full{width:100%;justify-content:flex-start;}
+.btn label{display:flex;flex-direction:column;align-items:flex-start;flex:1;}
+.btn small{font-weight:400;font-size:.76em;color:rgba(255,255,255,.5);margin-top:1px;}
+.btn-icon{font-size:1.2em;flex-shrink:0;}
+
+.btn-blue{background:linear-gradient(135deg,#1f6feb,#388bfd);color:#fff;border-color:#1f6feb;}
+.btn-blue:hover{background:linear-gradient(135deg,#388bfd,var(--blue));box-shadow:0 3px 12px rgba(56,139,253,.4);}
+.btn-green{background:linear-gradient(135deg,#238636,#2ea043);color:#fff;border-color:#238636;}
+.btn-green:hover{background:linear-gradient(135deg,#2ea043,var(--green));box-shadow:0 3px 12px rgba(46,160,67,.4);}
+.btn-red{background:linear-gradient(135deg,#b91c1c,#dc2626);color:#fff;border-color:#b91c1c;}
+.btn-red:hover{background:linear-gradient(135deg,#dc2626,#ef4444);box-shadow:0 3px 12px rgba(220,38,38,.4);}
+.btn-ghost{background:transparent;color:var(--muted);border-color:var(--border);}
+.btn-ghost:hover{background:var(--surface2);color:var(--text);border-color:var(--blue);}
+.btn-ghost:disabled{opacity:.45;cursor:not-allowed;}
+.btn-amber{background:linear-gradient(135deg,#92400e,#d97706);color:#fff;border-color:#92400e;}
+.btn-amber:hover{box-shadow:0 3px 12px rgba(217,119,6,.4);}
+
+.divider{height:1px;background:var(--border);margin:10px 0;}
+
+/* ── Form inputs ──────────────────────────────────── */
+.form-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;}
+.form-row label{font-size:.78em;color:var(--muted);flex-shrink:0;width:60px;}
+select, input[type=text], input[type=number]{
+  background:var(--bg);border:1px solid var(--border);border-radius:6px;
+  color:var(--text);padding:5px 9px;font-size:.83em;flex:1;
+}
+select:focus, input:focus{outline:none;border-color:var(--blue);}
+select option{background:var(--surface);}
+
+/* ── Wiring table ─────────────────────────────────── */
+.wire-table{width:100%;border-collapse:collapse;font-size:.8em;}
+.wire-table th{text-align:left;color:var(--muted);padding:4px 6px;border-bottom:1px solid var(--border);font-weight:600;font-size:.75em;text-transform:uppercase;}
+.wire-table td{padding:5px 6px;border-bottom:1px solid var(--surface2);}
+.wire-table tr:last-child td{border-bottom:none;}
+.wire-pin{display:inline-block;padding:1px 7px;border-radius:4px;font-family:monospace;font-size:.85em;}
+.pin-a1  {background:rgba(88,166,255,.15);color:var(--blue);}
+.pin-stm {background:rgba(63,185,80,.15);color:var(--green);}
+.pin-gnd {background:rgba(248,81,73,.15);color:var(--red);}
+.pin-pc  {background:rgba(163,113,247,.15);color:var(--purple);}
+.mode-badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:.72em;font-weight:600;}
+.badge-ros{background:rgba(88,166,255,.2);color:var(--blue);}
+.badge-pc {background:rgba(163,113,247,.2);color:var(--purple);}
+
+/* ── Telemetry ────────────────────────────────────── */
+.tele-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.tele-item{background:var(--surface2);border-radius:6px;padding:8px 10px;}
+.tele-label{font-size:.68em;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:.04em;}
+.tele-value{font-size:1em;font-weight:700;font-family:monospace;color:var(--text);}
+.tele-value.green{color:var(--green);}
+.tele-value.amber{color:var(--amber);}
+.tele-value.red{color:var(--red);}
+.tele-imu-row{background:var(--surface2);border-radius:6px;padding:8px 10px;margin-bottom:6px;}
+.tele-imu-label{font-size:.68em;color:var(--muted);margin-bottom:4px;text-transform:uppercase;}
+.tele-imu-values{display:flex;gap:10px;font-size:.82em;font-family:monospace;}
+.tele-imu-values span:first-child{color:var(--red);}
+.tele-imu-values span:nth-child(2){color:var(--green);}
+.tele-imu-values span:last-child{color:var(--blue);}
+
+/* ── Motion control ───────────────────────────────── */
+.joystick-wrap{display:flex;justify-content:center;margin:10px 0;}
+.dpad{display:grid;grid-template-columns:repeat(3,52px);grid-template-rows:repeat(3,52px);gap:4px;row-gap:4px;}
+.dpad-btn{
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  color:var(--text);font-size:1.3em;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .1s;user-select:none;
+}
+.dpad-btn:active, .dpad-btn.pressed{background:var(--blue);border-color:var(--blue);color:#fff;transform:scale(.94);}
+.dpad-btn.stop-center{background:rgba(248,81,73,.15);border-color:var(--red);color:var(--red);font-size:.85em;font-weight:700;}
+.dpad-btn.stop-center:active{background:var(--red);color:#fff;}
+.dpad-empty{visibility:hidden;}
+.speed-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.speed-row label{font-size:.78em;color:var(--muted);width:70px;flex-shrink:0;}
+.speed-row input[type=range]{flex:1;accent-color:var(--blue);}
+.speed-row .speed-val{font-size:.8em;font-family:monospace;color:var(--text);width:60px;text-align:right;}
+
+/* ── Debug logs ───────────────────────────────────── */
+.log-area{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:.72em;font-family:monospace;max-height:180px;overflow-y:auto;line-height:1.6;}
+.log-area .log-tx{color:var(--blue);}
+.log-area .log-rx{color:var(--green);}
+.log-area .log-err{color:var(--red);}
+.log-area .log-ts{color:var(--muted);margin-right:6px;}
+.hex-viewer{
+  background:var(--bg);border:1px solid var(--border);border-radius:6px;
+  padding:8px 10px;font-size:.72em;font-family:monospace;line-height:1.8;
+  max-height:120px;overflow-y:auto;
+}
+.hex-byte{display:inline-block;padding:1px 4px;border-radius:3px;margin:1px;}
+.hex-header{background:rgba(248,81,73,.2);color:var(--red);}
+.hex-cmd   {background:rgba(217,153,34,.2);color:var(--amber);}
+.hex-vel   {background:rgba(88,166,255,.2);color:var(--blue);}
+.hex-bcc   {background:rgba(163,113,247,.2);color:var(--purple);}
+.hex-tail  {background:rgba(248,81,73,.2);color:var(--red);}
+.hex-data  {background:rgba(63,185,80,.2);color:var(--green);}
+.raw-send-area{font-family:monospace;font-size:.82em;resize:none;}
+
+/* ── Shortcut hints ───────────────────────────────── */
+.kbd{background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:.7em;font-family:monospace;color:var(--muted);}
+.hint-row{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-top:8px;}
+.hint-row span{font-size:.7em;color:var(--muted);}
+
+/* ── Info table ───────────────────────────────────── */
+.info-tbl{width:100%;font-size:.79em;border-collapse:collapse;}
+.info-tbl td{padding:3px 0;vertical-align:top;}
+.info-tbl td:first-child{color:var(--muted);width:80px;}
+.info-tbl td:last-child{word-break:break-all;}
+
+/* ── Toast ────────────────────────────────────────── */
+.toast{position:fixed;bottom:20px;right:20px;padding:9px 16px;border-radius:7px;font-size:.85em;font-weight:600;opacity:0;transform:translateY(6px);transition:all .2s;z-index:999;box-shadow:0 4px 20px rgba(0,0,0,.5);max-width:340px;pointer-events:none;}
+.toast.show{opacity:1;transform:translateY(0);}
+.toast-ok{background:#238636;color:#fff;}
+.toast-err{background:#da3633;color:#fff;}
+.toast-info{background:#1f6feb;color:#fff;}
+
+/* ── Protocol reference badge ──────────────────────── */
+.proto-frame{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px;}
+.proto-byte{display:inline-block;text-align:center;min-width:28px;padding:3px 5px;border-radius:4px;font-size:.68em;font-family:monospace;line-height:1.3;}
+.proto-byte .addr{color:var(--muted);font-size:.85em;display:block;}
+</style>
+</head>
+<body>
+
+<!-- ═══ Topbar ══════════════════════════════════════════════════════════════ -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">⚡</div>
+    <span class="logo-text">Aurora Companion</span>
+  </div>
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('camera')" id="tab-camera">
+      📷 摄像头采集
+    </button>
+    <button class="tab-btn" onclick="switchTab('chassis')" id="tab-chassis">
+      🤖 底盘通信调试
+    </button>
+  </div>
+  <div class="topbar-right">
+    <div class="status-pill">
+      <div class="dot" id="camDot"></div>
+      <span id="camStatus">摄像头...</span>
+    </div>
+    <div class="status-pill chassis-pill">
+      <div class="chassis-dot off" id="chsDot"></div>
+      <span id="chsStatus">底盘未连接</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Camera Page ══════════════════════════════════════════════════════════ -->
+<div class="page active" id="page-camera">
+  <div class="workspace">
+
+    <!-- Preview -->
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div class="card">
+        <div class="card-head">
+          <span>实时预览</span>
+          <span style="color:var(--green);font-size:.9em">1280 × 720</span>
+        </div>
+        <div class="preview-wrap">
+          <img id="stream" src="/video_feed" alt="camera"
+               onload="setCamOnline(true)" onerror="setCamOnline(false)">
+          <div class="preview-chip">SC132GS · Gray</div>
+          <div class="preview-fps" id="fpsChip">— fps</div>
+        </div>
+      </div>
+
+      <!-- Gallery -->
+      <div class="card">
+        <div class="card-head">
+          <span>最近拍摄</span>
+          <span id="galleryCount" style="color:var(--muted)">0 / 8</span>
+        </div>
+        <div class="card-body">
+          <div class="gallery-grid" id="gallery">
+            <div class="gallery-empty">暂无拍摄记录</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="card">
+        <div class="card-head">拍照控制</div>
+        <div class="card-body">
+          <div class="counter-box">
+            <div class="counter-num" id="counter">0</div>
+            <div class="counter-lbl">已拍摄张数</div>
+          </div>
+          <button class="btn btn-blue btn-full" onclick="capture('1280x720')" style="margin-bottom:5px;">
+            <span class="btn-icon">📷</span>
+            <label>拍照 1280×720<small>原始全分辨率灰度图</small></label>
+          </button>
+          <button class="btn btn-green btn-full" onclick="capture('640x360')">
+            <span class="btn-icon">🏹</span>
+            <label>拍照 640×360<small>YOLOv8 训练集 · 16:9 中心裁剪</small></label>
+          </button>
+          <div class="divider"></div>
+          <button class="btn btn-ghost btn-full" id="camRefreshBtn" onclick="refreshCam()">
+            <span class="btn-icon" id="camRefIcon">🔄</span>
+            <label>刷新摄像头<small>断联后点此恢复</small></label>
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">设备信息</div>
+        <div class="card-body">
+          <table class="info-tbl">
+            <tr><td>传感器</td><td>SC132GS (USB-C)</td></tr>
+            <tr><td>原始分辨率</td><td>1280 × 720 灰度</td></tr>
+            <tr><td>训练裁剪</td><td>640 × 360 (16:9)</td></tr>
+            <tr><td>输出格式</td><td>PNG 8-bit 灰度</td></tr>
+            <tr><td>输出目录</td><td>{{ output_dir }}</td></tr>
+          </table>
+          <div class="hint-row">
+            <kbd class="kbd">1</kbd><span>→ 1280×720</span>
+            &nbsp;<kbd class="kbd">2</kbd><span>→ 640×360</span>
+            &nbsp;<kbd class="kbd">R</kbd><span>→ 刷新</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══ Chassis Page ═════════════════════════════════════════════════════════ -->
+<div class="page" id="page-chassis">
+  <div class="workspace">
+
+    <!-- ── 串口连接 ── -->
+    <div class="card chs-conn">
+      <div class="card-head">串口连接</div>
+      <div class="card-body">
+        <div class="form-row">
+          <label>端口</label>
+          <select id="portSelect"></select>
+          <button class="btn btn-ghost" style="padding:5px 10px;" onclick="refreshPorts()" title="刷新端口">⟳</button>
+        </div>
+        <div class="form-row">
+          <label>波特率</label>
+          <select id="baudSelect">
+            <option value="115200" selected>115200</option>
+            <option value="9600">9600</option>
+            <option value="57600">57600</option>
+            <option value="230400">230400</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <button class="btn btn-green" id="connectBtn" onclick="connectChassis()" style="flex:1;">
+            🔌 连接
+          </button>
+          <button class="btn btn-red" id="disconnectBtn" onclick="disconnectChassis()" style="flex:1;" disabled>
+            ✕ 断开
+          </button>
+        </div>
+        <div id="chsConnMsg" style="font-size:.75em;color:var(--muted);margin-top:8px;"></div>
+        <div class="divider"></div>
+        <div style="font-size:.75em;color:var(--muted);">
+          <div style="margin-bottom:4px;font-weight:600;color:var(--text);">协议参数</div>
+          <div>帧头: <span style="color:var(--red);font-family:monospace;">0x7B</span> &nbsp; 帧尾: <span style="color:var(--red);font-family:monospace;">0x7D</span></div>
+          <div style="margin-top:3px;">指令帧: <span style="font-family:monospace;color:var(--blue);">11</span> 字节 → STM32</div>
+          <div>遥测帧: <span style="font-family:monospace;color:var(--green);">24</span> 字节 ← STM32</div>
+          <div style="margin-top:3px;">校验: <span style="font-family:monospace;color:var(--purple);">XOR(bytes[0..N-2])</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 实时遥测 ── -->
+    <div class="card chs-tele">
+      <div class="card-head">
+        <span>实时遥测</span>
+        <span id="teleTs" style="color:var(--muted);font-size:.85em;">—</span>
+      </div>
+      <div class="card-body">
+        <div class="tele-grid" style="margin-bottom:8px;">
+          <div class="tele-item">
+            <div class="tele-label">Vx 线速度</div>
+            <div class="tele-value" id="tVx">— mm/s</div>
+          </div>
+          <div class="tele-item">
+            <div class="tele-label">Vy 线速度</div>
+            <div class="tele-value" id="tVy">— mm/s</div>
+          </div>
+          <div class="tele-item">
+            <div class="tele-label">Vz 角速度</div>
+            <div class="tele-value" id="tVz">— mrad/s</div>
+          </div>
+          <div class="tele-item">
+            <div class="tele-label">电池电压</div>
+            <div class="tele-value" id="tVolt" style="color:var(--amber);">— V</div>
+          </div>
+        </div>
+        <div class="tele-imu-row">
+          <div class="tele-imu-label">加速度计 (m/s²)</div>
+          <div class="tele-imu-values">
+            <span id="tAx">X: —</span>
+            <span id="tAy">Y: —</span>
+            <span id="tAz">Z: —</span>
+          </div>
+        </div>
+        <div class="tele-imu-row" style="margin-bottom:0;">
+          <div class="tele-imu-label">陀螺仪 (rad/s)</div>
+          <div class="tele-imu-values">
+            <span id="tGx">X: —</span>
+            <span id="tGy">Y: —</span>
+            <span id="tGz">Z: —</span>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:.78em;">
+          <span style="color:var(--muted);">电机状态:</span>
+          <span id="tFlagStop" style="font-weight:700;color:var(--green);">正常 ●</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 接线参考 ── -->
+    <div class="card chs-wiring">
+      <div class="card-head" style="justify-content:space-between;">
+        <span>接线参考</span>
+        <div style="display:flex;gap:6px;">
+          <span class="mode-badge badge-ros">A1 接法</span>
+          <span class="mode-badge badge-pc">PC 调试接法</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div style="font-size:.75em;color:var(--muted);margin-bottom:8px;">STM32 WHEELTEC C50X 使用 UART3 (PB10/PB11) 接收控制指令</div>
+        <table class="wire-table">
+          <thead>
+            <tr><th>场景</th><th>发送端 (TX)</th><th>→</th><th>接收端 (RX)</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="mode-badge badge-ros">A1→STM</span></td>
+              <td><span class="wire-pin pin-a1">GPIO_PIN_0 (UART0 TX)</span></td>
+              <td>→</td>
+              <td><span class="wire-pin pin-stm">PB11 (UART3 RX)</span></td>
+              <td style="color:var(--muted);font-size:.85em;">A1 控制 STM32</td>
+            </tr>
+            <tr>
+              <td><span class="mode-badge badge-ros">STM→A1</span></td>
+              <td><span class="wire-pin pin-stm">PB10 (UART3 TX)</span></td>
+              <td>→</td>
+              <td><span class="wire-pin pin-a1">GPIO_PIN_2 (UART0 RX)</span></td>
+              <td style="color:var(--muted);font-size:.85em;">遥测回传</td>
+            </tr>
+            <tr>
+              <td><span class="mode-badge badge-ros">共地</span></td>
+              <td colspan="2"><span class="wire-pin pin-gnd">A1 GND</span></td>
+              <td><span class="wire-pin pin-gnd">STM32 GND</span></td>
+              <td style="color:var(--muted);font-size:.85em;">必须共地</td>
+            </tr>
+            <tr>
+              <td><span class="mode-badge badge-pc">PC TX</span></td>
+              <td><span class="wire-pin pin-pc">USB串口 TX</span></td>
+              <td>→</td>
+              <td><span class="wire-pin pin-stm">PB11 (UART3 RX)</span></td>
+              <td style="color:var(--muted);font-size:.85em;">PC 调试用</td>
+            </tr>
+            <tr>
+              <td><span class="mode-badge badge-pc">PC RX</span></td>
+              <td><span class="wire-pin pin-stm">PB10 (UART3 TX)</span></td>
+              <td>→</td>
+              <td><span class="wire-pin pin-pc">USB串口 RX</span></td>
+              <td style="color:var(--muted);font-size:.85em;">PC 接收遥测</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="font-size:.72em;color:var(--muted);margin-top:8px;">
+          ⚠️ A1 GPIO UART 为 3.3V TTL 电平；STM32 UART3 同为 3.3V，可直连，<strong style="color:var(--amber);">勿接 5V</strong>
+        </div>
+        <div class="divider"></div>
+        <div style="font-size:.75em;color:var(--muted);margin-bottom:4px;font-weight:600;">指令帧结构 (11字节: A1→STM32)</div>
+        <div class="proto-frame">
+          <div class="proto-byte hex-header">7B<span class="addr">[0]帧头</span></div>
+          <div class="proto-byte hex-cmd">Cmd<span class="addr">[1]命令</span></div>
+          <div class="proto-byte" style="background:rgba(139,148,158,.1);color:var(--muted)">00<span class="addr">[2]保留</span></div>
+          <div class="proto-byte hex-vel">Vx_H<span class="addr">[3]</span></div>
+          <div class="proto-byte hex-vel">Vx_L<span class="addr">[4]</span></div>
+          <div class="proto-byte hex-vel" style="opacity:.75">Vy_H<span class="addr">[5]</span></div>
+          <div class="proto-byte hex-vel" style="opacity:.75">Vy_L<span class="addr">[6]</span></div>
+          <div class="proto-byte hex-vel" style="opacity:.5">Vz_H<span class="addr">[7]</span></div>
+          <div class="proto-byte hex-vel" style="opacity:.5">Vz_L<span class="addr">[8]</span></div>
+          <div class="proto-byte hex-bcc">BCC<span class="addr">[9]</span></div>
+          <div class="proto-byte hex-tail">7D<span class="addr">[10]帧尾</span></div>
+        </div>
+        <div style="font-size:.72em;color:var(--muted);margin-top:5px;">Cmd: 0x00=运动 · 0x01/0x02=回充 · 0x03=对接 &nbsp;|&nbsp; 速度单位: mm/s (int16 大端)</div>
+      </div>
+    </div>
+
+    <!-- ── 运动控制 ── -->
+    <div class="card chs-motion">
+      <div class="card-head">
+        <span>运动控制</span>
+        <span style="font-size:.85em;color:var(--muted);">
+          <kbd class="kbd">W</kbd><kbd class="kbd">A</kbd><kbd class="kbd">S</kbd><kbd class="kbd">D</kbd>
+          <kbd class="kbd">空格=急停</kbd>
+        </span>
+      </div>
+      <div class="card-body">
+        <div class="speed-row">
+          <label>线速度</label>
+          <input type="range" id="linSpeed" min="50" max="500" value="200" oninput="document.getElementById('linSpeedVal').textContent=this.value">
+          <span class="speed-val"><span id="linSpeedVal">200</span> mm/s</span>
+        </div>
+        <div class="speed-row">
+          <label>角速度</label>
+          <input type="range" id="angSpeed" min="100" max="1500" value="500" oninput="document.getElementById('angSpeedVal').textContent=this.value">
+          <span class="speed-val"><span id="angSpeedVal">500</span> mrad/s</span>
+        </div>
+        <div class="joystick-wrap">
+          <div class="dpad">
+            <div class="dpad-empty"></div>
+            <div class="dpad-btn" id="btn-fwd"  onmousedown="startMove(0)" onmouseup="stopMove()" ontouchstart="startMove(0)" ontouchend="stopMove()">↑</div>
+            <div class="dpad-empty"></div>
+            <div class="dpad-btn" id="btn-left" onmousedown="startMove(3)" onmouseup="stopMove()" ontouchstart="startMove(3)" ontouchend="stopMove()">←</div>
+            <div class="dpad-btn stop-center" onclick="emergencyStop()">STOP</div>
+            <div class="dpad-btn" id="btn-right" onmousedown="startMove(2)" onmouseup="stopMove()" ontouchstart="startMove(2)" ontouchend="stopMove()">→</div>
+            <div class="dpad-empty"></div>
+            <div class="dpad-btn" id="btn-back"  onmousedown="startMove(1)" onmouseup="stopMove()" ontouchstart="startMove(1)" ontouchend="stopMove()">↓</div>
+            <div class="dpad-empty"></div>
+          </div>
+        </div>
+        <div style="font-size:.72em;color:var(--muted);text-align:center;margin-top:4px;">
+          按住方向键持续运动 · 松开自动停车
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 原始帧发送 ── -->
+    <div class="card chs-rawsend">
+      <div class="card-head">原始帧发送</div>
+      <div class="card-body">
+        <div style="font-size:.75em;color:var(--muted);margin-bottom:6px;">输入十六进制字节 (空格分隔)，直接发送到串口</div>
+        <textarea id="rawHexInput" class="raw-send-area" style="width:100%;height:72px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;resize:none;"
+          placeholder="7B 00 00 00 C8 00 00 00 00 XX 7D"></textarea>
+        <div style="display:flex;gap:7px;margin-top:7px;">
+          <button class="btn btn-amber" style="flex:1;" onclick="sendRawFrame()">▶ 发送</button>
+          <button class="btn btn-ghost" onclick="buildQuickFrame()">⚡ 填充示例</button>
+        </div>
+        <div id="rawResult" style="font-size:.72em;color:var(--muted);margin-top:6px;font-family:monospace;"></div>
+        <div class="divider"></div>
+        <div style="font-size:.75em;color:var(--muted);margin-bottom:4px;font-weight:600;">快速指令</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+          <button class="btn btn-ghost" style="font-size:.78em;padding:6px 8px;" onclick="quickMove(200,0,0)">⬆ 前进 200</button>
+          <button class="btn btn-ghost" style="font-size:.78em;padding:6px 8px;" onclick="quickMove(-200,0,0)">⬇ 后退 200</button>
+          <button class="btn btn-ghost" style="font-size:.78em;padding:6px 8px;" onclick="quickMove(0,0,500)">↺ 左转 500</button>
+          <button class="btn btn-ghost" style="font-size:.78em;padding:6px 8px;" onclick="quickMove(0,0,-500)">↻ 右转 500</button>
+          <button class="btn btn-red" style="font-size:.78em;padding:6px 8px;grid-column:1/-1;" onclick="emergencyStop()">⬛ 急停</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 通信日志 ── -->
+    <div class="card chs-debug">
+      <div class="card-head">
+        <span>通信日志</span>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75em;" onclick="clearLogs()">清空</button>
+          <label style="font-size:.75em;color:var(--muted);display:flex;align-items:center;gap:4px;">
+            <input type="checkbox" id="autoScroll" checked> 自动滚动
+          </label>
+          <label style="font-size:.75em;color:var(--muted);display:flex;align-items:center;gap:4px;">
+            <input type="checkbox" id="showRxLog" checked> 显示接收
+          </label>
+        </div>
+      </div>
+      <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <div style="font-size:.72em;color:var(--muted);margin-bottom:4px;">📤 发送帧 (TX)</div>
+          <div class="log-area" id="txLogArea"></div>
+        </div>
+        <div>
+          <div style="font-size:.72em;color:var(--muted);margin-bottom:4px;">📥 接收帧 (RX)</div>
+          <div class="log-area" id="rxLogArea"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ═══ JavaScript ═══════════════════════════════════════════════════════════ -->
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let captureCount = 0;
+let toastTimer   = null;
+let moveTimer    = null;
+let currentDir   = null;
+let chsConnected = false;
+let statusPollTimer = null;
+
+// ── Tab switching ───────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + tab).classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'chassis') refreshPorts();
+}
+
+// ── Camera ─────────────────────────────────────────────────────────────────
+function setCamOnline(ok) {
+  document.getElementById('camDot').className = 'dot' + (ok ? '' : ' off');
+  document.getElementById('camStatus').textContent = ok ? '预览中' : '未连接';
+}
+
+function capture(fmt) {
+  fetch('/capture', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({format:fmt})})
+  .then(r => r.json())
+  .then(d => {
+    if (d.success) {
+      captureCount++;
+      document.getElementById('counter').textContent = captureCount;
+      toast('✓ 已保存: ' + d.filename, 'ok');
+      fetchGallery();
+    } else { toast('✗ ' + d.error, 'err'); }
+  }).catch(e => toast('✗ ' + e, 'err'));
+}
+
+function refreshCam() {
+  const btn = document.getElementById('camRefreshBtn');
+  btn.disabled = true;
+  document.getElementById('camRefIcon').style.animation = 'blink .5s linear infinite';
+  fetch('/refresh_camera', {method:'POST'}).then(r=>r.json()).then(d=>{
+    if (d.success) {
+      const img = document.getElementById('stream');
+      img.src = '/video_feed?' + Date.now();
+      setCamOnline(true);
+      toast('✓ 摄像头已刷新', 'ok');
+    } else { toast('✗ ' + d.error, 'err'); }
+  }).catch(e=>toast('✗ '+e,'err'))
+  .finally(()=>{
+    btn.disabled = false;
+    document.getElementById('camRefIcon').style.animation = '';
+  });
+}
+
+function fetchGallery() {
+  fetch('/recent_captures').then(r=>r.json()).then(items=>{
+    document.getElementById('galleryCount').textContent = items.length + ' / 8';
+    const g = document.getElementById('gallery');
+    if (!items.length) { g.innerHTML = '<div class="gallery-empty">暂无拍摄记录</div>'; return; }
+    g.innerHTML = items.map(it=>`
+      <div class="gallery-item" title="${it.filename}">
+        <img src="data:image/jpeg;base64,${it.thumb}">
+        <div class="g-lbl">${it.time} · ${it.size}</div>
+      </div>`).join('');
+  }).catch(()=>{});
+}
+
+// ── Chassis serial ───────────────────────────────────────────────────────────
+function refreshPorts() {
+  fetch('/api/chassis/ports').then(r=>r.json()).then(ports=>{
+    const sel = document.getElementById('portSelect');
+    const cur = sel.value;
+    sel.innerHTML = ports.length
+      ? ports.map(p=>`<option value="${p.port}" ${p.port===cur?'selected':''}>${p.port} — ${p.desc}</option>`).join('')
+      : '<option value="">— 无可用端口 —</option>';
+  }).catch(()=>{});
+}
+
+function connectChassis() {
+  const port = document.getElementById('portSelect').value;
+  const baud = document.getElementById('baudSelect').value;
+  if (!port) { toast('请选择串口', 'err'); return; }
+  fetch('/api/chassis/connect', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({port, baud:parseInt(baud)})})
+  .then(r=>r.json()).then(d=>{
+    if (d.success) {
+      chsConnected = true;
+      setChsStatus(true, d.port);
+      document.getElementById('connectBtn').disabled = true;
+      document.getElementById('disconnectBtn').disabled = false;
+      document.getElementById('chsConnMsg').textContent = '已连接 ' + d.port + ' @ ' + d.baud;
+      toast('✓ 底盘已连接', 'ok');
+    } else { toast('✗ ' + d.error, 'err'); }
+  }).catch(e=>toast('✗ '+e,'err'));
+}
+
+function disconnectChassis() {
+  fetch('/api/chassis/disconnect', {method:'POST'}).then(r=>r.json()).then(()=>{
+    chsConnected = false;
+    setChsStatus(false, null);
+    document.getElementById('connectBtn').disabled = false;
+    document.getElementById('disconnectBtn').disabled = true;
+    document.getElementById('chsConnMsg').textContent = '';
+    toast('底盘已断开', 'info');
+  });
+}
+
+function setChsStatus(online, port) {
+  const dot = document.getElementById('chsDot');
+  dot.className = 'chassis-dot ' + (online ? 'on' : 'off');
+  document.getElementById('chsStatus').textContent = online ? ('底盘 ' + (port||'')) : '底盘未连接';
+}
+
+// ── Motion control ──────────────────────────────────────────────────────────
+// dir: 0=fwd,1=back,2=right,3=left
+function startMove(dir) {
+  currentDir = dir;
+  const btnIds = ['btn-fwd','btn-back','btn-right','btn-left'];
+  document.querySelectorAll('.dpad-btn').forEach(b => b.classList.remove('pressed'));
+  document.getElementById(btnIds[dir]).classList.add('pressed');
+  sendCurrentDir();
+  moveTimer = setInterval(sendCurrentDir, 100);
+}
+
+function stopMove() {
+  clearInterval(moveTimer);
+  moveTimer = null;
+  document.querySelectorAll('.dpad-btn').forEach(b => b.classList.remove('pressed'));
+  currentDir = null;
+  sendMove(0, 0, 0);
+}
+
+function sendCurrentDir() {
+  const lin = parseInt(document.getElementById('linSpeed').value);
+  const ang = parseInt(document.getElementById('angSpeed').value);
+  const dirs = [
+    [lin, 0, 0],    // fwd
+    [-lin, 0, 0],   // back
+    [0, 0, -ang],   // right turn
+    [0, 0, ang],    // left turn
+  ];
+  if (currentDir !== null) sendMove(...dirs[currentDir]);
+}
+
+function sendMove(vx, vy, vz) {
+  if (!chsConnected) return;
+  fetch('/api/chassis/move', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({vx,vy,vz})})
+  .then(r=>r.json()).then(d=>{ if(!d.success) toast('✗ '+d.error,'err'); })
+  .catch(()=>{});
+}
+
+function emergencyStop() {
+  clearInterval(moveTimer);
+  moveTimer = null;
+  document.querySelectorAll('.dpad-btn').forEach(b => b.classList.remove('pressed'));
+  currentDir = null;
+  fetch('/api/chassis/stop', {method:'POST'}).then(r=>r.json()).then(d=>{
+    toast(d.success ? '⬛ 急停' : '✗ '+d.error, d.success ? 'info' : 'err');
+  });
+}
+
+function quickMove(vx, vy, vz) {
+  if (!chsConnected) { toast('请先连接串口', 'err'); return; }
+  fetch('/api/chassis/move', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({vx,vy,vz})})
+  .then(r=>r.json()).then(d=>{ if(!d.success) toast('✗ '+d.error,'err'); })
+  .catch(()=>{});
+}
+
+// ── Raw frame ─────────────────────────────────────────────────────────────
+function buildQuickFrame() {
+  // Build example: vx=200mm/s
+  const vx = 200, vy = 0, vz = 0;
+  const hexBytes = ['7B','00','00'];
+  const toHex = (v16) => {
+    const u = v16 < 0 ? v16 + 65536 : v16;
+    return [(u >> 8 & 0xFF).toString(16).padStart(2,'0').toUpperCase(),
+            (u & 0xFF).toString(16).padStart(2,'0').toUpperCase()];
+  };
+  hexBytes.push(...toHex(vx), ...toHex(vy), ...toHex(vz));
+  const frame = hexBytes.map(h => parseInt(h,16));
+  let bcc = 0; frame.forEach(b => bcc ^= b);
+  hexBytes.push(bcc.toString(16).padStart(2,'0').toUpperCase());
+  hexBytes.push('7D');
+  document.getElementById('rawHexInput').value = hexBytes.join(' ');
+}
+
+function sendRawFrame() {
+  const hex = document.getElementById('rawHexInput').value.trim();
+  fetch('/api/chassis/raw_send', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({hex})})
+  .then(r=>r.json()).then(d=>{
+    const res = document.getElementById('rawResult');
+    if (d.success) {
+      res.style.color = 'var(--green)';
+      res.textContent = '✓ 已发送 ' + d.bytes_sent + ' 字节';
+    } else {
+      res.style.color = 'var(--red)';
+      res.textContent = '✗ ' + d.error;
+    }
+  });
+}
+
+// ── Logs ───────────────────────────────────────────────────────────────────
+function clearLogs() {
+  document.getElementById('txLogArea').innerHTML = '';
+  document.getElementById('rxLogArea').innerHTML = '';
+}
+
+function colorHexFrame(hex, isTx) {
+  const bytes = hex.split(' ');
+  if (isTx && bytes.length === 11) {
+    return [
+      `<span class="hex-byte hex-header">${bytes[0]}</span>`,
+      `<span class="hex-byte hex-cmd">${bytes[1]}</span>`,
+      `<span class="hex-byte" style="color:var(--muted)">${bytes[2]}</span>`,
+      `<span class="hex-byte hex-vel">${bytes[3]}</span>`,
+      `<span class="hex-byte hex-vel">${bytes[4]}</span>`,
+      `<span class="hex-byte hex-vel">${bytes[5]}</span>`,
+      `<span class="hex-byte hex-vel">${bytes[6]}</span>`,
+      `<span class="hex-byte hex-vel">${bytes[7]}</span>`,
+      `<span class="hex-byte hex-vel">${bytes[8]}</span>`,
+      `<span class="hex-byte hex-bcc">${bytes[9]}</span>`,
+      `<span class="hex-byte hex-tail">${bytes[10]}</span>`,
+    ].join('');
+  }
+  return `<span style="font-family:monospace;font-size:.72em;">${hex}</span>`;
+}
+
+let _lastTxCount = 0, _lastRxCount = 0;
+
+function pollLogs() {
+  fetch('/api/chassis/tx_log').then(r=>r.json()).then(logs=>{
+    if (logs.length !== _lastTxCount) {
+      _lastTxCount = logs.length;
+      const area = document.getElementById('txLogArea');
+      area.innerHTML = logs.map(l=>`
+        <div><span class="log-ts">${l.ts}</span>
+        <span class="log-tx">${colorHexFrame(l.hex, true)}</span>
+        ${l.raw ? '' : ` <span style="color:var(--muted);font-size:.9em;">Vx=${l.vx} Vy=${l.vy} Vz=${l.vz}</span>`}
+        </div>`).join('');
+      if (document.getElementById('autoScroll').checked)
+        area.scrollTop = 0;
+    }
+  }).catch(()=>{});
+
+  if (!document.getElementById('showRxLog').checked) return;
+  fetch('/api/chassis/rx_log').then(r=>r.json()).then(logs=>{
+    if (logs.length !== _lastRxCount) {
+      _lastRxCount = logs.length;
+      const area = document.getElementById('rxLogArea');
+      area.innerHTML = logs.map(l=>`
+        <div><span class="log-ts">${l.ts}</span>
+        <span class="log-rx" style="font-size:.8em;">${l.hex.substring(0,47)}…</span>
+        <span style="color:var(--muted);font-size:.8em;"> V=${l.data.voltage}V Vx=${l.data.vx}</span>
+        </div>`).join('');
+      if (document.getElementById('autoScroll').checked)
+        area.scrollTop = 0;
+    }
+  }).catch(()=>{});
+}
+
+// ── Telemetry update ────────────────────────────────────────────────────────
+function updateTelemetry() {
+  fetch('/api/chassis/status').then(r=>r.json()).then(d=>{
+    const connected = d.connected;
+    setChsStatus(connected, d.port);
+    chsConnected = connected;
+    if (!connected) {
+      document.getElementById('connectBtn').disabled = false;
+      document.getElementById('disconnectBtn').disabled = true;
+    }
+    const t = d.telemetry;
+    if (!t || !t.ts) return;
+    document.getElementById('teleTs').textContent = t.ts;
+    document.getElementById('tVx').textContent = t.vx + ' mm/s';
+    document.getElementById('tVy').textContent = t.vy + ' mm/s';
+    document.getElementById('tVz').textContent = t.vz + ' mrad/s';
+    const v = t.voltage;
+    const vEl = document.getElementById('tVolt');
+    vEl.textContent = v.toFixed(2) + ' V';
+    vEl.className = 'tele-value ' + (v < 10 ? 'red' : v < 11.5 ? 'amber' : 'green');
+    document.getElementById('tAx').textContent = 'X: ' + t.accel_x.toFixed(3);
+    document.getElementById('tAy').textContent = 'Y: ' + t.accel_y.toFixed(3);
+    document.getElementById('tAz').textContent = 'Z: ' + t.accel_z.toFixed(3);
+    document.getElementById('tGx').textContent = 'X: ' + t.gyro_x.toFixed(3);
+    document.getElementById('tGy').textContent = 'Y: ' + t.gyro_y.toFixed(3);
+    document.getElementById('tGz').textContent = 'Z: ' + t.gyro_z.toFixed(3);
+    const fs = document.getElementById('tFlagStop');
+    fs.textContent = t.flag_stop === 0 ? '正常 ●' : '失控 ●';
+    fs.style.color = t.flag_stop === 0 ? 'var(--green)' : 'var(--red)';
+  }).catch(()=>{});
+}
+
+// ── Status polling ──────────────────────────────────────────────────────────
+setInterval(() => {
+  fetch('/status').then(r=>r.json()).then(d=>{
+    setCamOnline(d.connected);
+    document.getElementById('fpsChip').textContent = d.fps != null ? d.fps.toFixed(1)+' fps' : '— fps';
+  }).catch(()=>{});
+}, 2000);
+
+setInterval(updateTelemetry, 500);
+setInterval(pollLogs, 800);
+
+// ── Keyboard shortcuts ──────────────────────────────────────────────────────
+const keyDirMap = {'w':0,'s':1,'d':2,'a':3,'arrowup':0,'arrowdown':1,'arrowright':2,'arrowleft':3};
+const activeKeys = new Set();
+
+document.addEventListener('keydown', e => {
+  const tag = document.activeElement.tagName.toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  const k = e.key.toLowerCase();
+  if (k === '1') { capture('1280x720'); return; }
+  if (k === '2') { capture('640x360');  return; }
+  if (k === 'r') { refreshCam();        return; }
+  if (k === ' ') { e.preventDefault(); emergencyStop(); return; }
+  if (k in keyDirMap && !activeKeys.has(k)) {
+    activeKeys.add(k);
+    startMove(keyDirMap[k]);
+  }
+});
+
+document.addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if (k in keyDirMap) {
+    activeKeys.delete(k);
+    if (activeKeys.size === 0) stopMove();
+  }
+});
+
+// ── Toast ───────────────────────────────────────────────────────────────────
+function toast(msg, type = 'ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show toast-' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── Init ────────────────────────────────────────────────────────────────────
+refreshPorts();
+</script>
+</body>
+</html>
