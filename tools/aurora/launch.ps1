@@ -39,6 +39,7 @@ if ($Output -ne "") {
 Write-Host "=== Aurora Companion ===" -ForegroundColor Cyan
 Write-Host "Starting Aurora Companion (camera + chassis debug)..." -ForegroundColor Green
 Write-Host "Web UI: http://localhost:$Port" -ForegroundColor Yellow
+Write-Host "Browser: auto-open enabled (use -NoBrowser to disable)" -ForegroundColor Yellow
 if ($Device -eq -1) {
     Write-Host "Camera device: auto (prefer A1 SC132GS)" -ForegroundColor Yellow
 }
@@ -46,7 +47,10 @@ else {
     Write-Host "Camera device: $Device" -ForegroundColor Yellow
 }
 Write-Host "Capture pipeline: sensor 1280x720 -> training 640x360" -ForegroundColor Yellow
-Write-Host "Tabs: 摄像头采集 / A1-STM32 联通测试 / 底盘通信调试" -ForegroundColor Yellow
+$tabCamera = -join ([char[]](0x6444, 0x50CF, 0x5934, 0x91C7, 0x96C6))
+$tabLink = -join ([char[]](0x8054, 0x901A, 0x6D4B, 0x8BD5))
+$tabChassis = -join ([char[]](0x5E95, 0x76D8, 0x901A, 0x4FE1, 0x8C03, 0x8BD5))
+Write-Host "Tabs: $tabCamera / A1-STM32 $tabLink / $tabChassis" -ForegroundColor Yellow
 if (-not $ShowDriverLogs) {
     Write-Host "Driver logs: hidden (use -ShowDriverLogs to enable)" -ForegroundColor Yellow
 }
