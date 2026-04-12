@@ -1,6 +1,4 @@
 a1-sdk-builder-latest.tar
-data/A1_SDK_SC132GS/
-src/app_demo/
 data/yolov8_dataset/raw/
 output/
 src/ros2_ws/build/

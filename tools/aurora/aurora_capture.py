@@ -114,10 +114,8 @@ def open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
 def read_grayscale_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
     """读取一帧灰度图像
 
-    确保输出为单通道 640×360 灰度图，无论摄像头驱动如何解析。
-    EVB 固件更新后，摄像头直接输出 640×360 Y8；
-    固件未更新时，YUYV 竖屏 720×1280 经 DirectShow 汇报为 360(W)×1280(H)，
-    此时自动旋转 90° 并缩放到 640×360。
+    EVB 固件已更新，摄像头直接输出 640×360 Y8 灰度帧。
+    如实际尺寸不符，执行缩放兜底（不旋转）。
     """
     ret, frame = cap.read()
     if not ret:
@@ -130,13 +128,6 @@ def read_grayscale_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
     # 已是目标尺寸，直接返回
     if frame.shape == (CAMERA_HEIGHT, CAMERA_WIDTH):
         return frame
-
-    # 360(W)×1280(H) — SDK 未更新时的竖屏 YUYV 兼容帧格式
-    # 传感器竖屏 720(W)×1280(H)，YUYV 宏像素使 DirectShow 汇报宽度减半 → 360×1280
-    # 旋转 90° 顺时针：(H=1280, W=360) → (H=360, W=1280)，再缩放到 640×360
-    if frame.shape == (1280, 360):
-        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-        return cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
 
     # 通用兜底：直接缩放
     return cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))

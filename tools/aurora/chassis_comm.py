@@ -334,3 +334,48 @@ def raw_send():
         "ts": time.strftime("%H:%M:%S"),
     })
     return jsonify({"success": True, "bytes_sent": len(raw)})
+
+
+@chassis_bp.route("/ping", methods=["POST"])
+def ping():
+    """A1 ↔ STM32 联通测试
+    发送一个零速度指令帧，等待最多 500ms，若收到有效遥测帧则判断为连通。
+    返回: {"success": bool, "connected": bool, "frame_tx": str, "telemetry": ...}
+    """
+    import time as _time
+    frame = build_cmd(0, 0, 0)
+    with _ser_lock:
+        if _ser is None or not _ser.is_open:
+            return jsonify({"success": False, "error": "串口未连接"})
+        try:
+            _ser.write(frame)
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)})
+
+    _tx_log.appendleft({
+        "hex": frame.hex(" ").upper(),
+        "vx": 0, "vy": 0, "vz": 0, "cmd": 0,
+        "ts": _time.strftime("%H:%M:%S"),
+    })
+
+    # 等待遥测数据（RX 线程持续接收，最多等 600ms）
+    deadline = _time.monotonic() + 0.6
+    while _time.monotonic() < deadline:
+        with _ser_lock:
+            tele = dict(_telemetry) if _telemetry else None
+        if tele is not None:
+            return jsonify({
+                "success": True,
+                "connected": True,
+                "frame_tx": frame.hex(" ").upper(),
+                "telemetry": tele,
+            })
+        _time.sleep(0.05)
+
+    # 超时：发送成功但未收到遥测（单向连通或遥测线未接）
+    return jsonify({
+        "success": True,
+        "connected": False,
+        "frame_tx": frame.hex(" ").upper(),
+        "note": "发送成功，未收到 STM32 遥测帧（请检查 RX 接线）",
+    })
