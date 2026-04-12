@@ -273,7 +273,7 @@ select option{background:var(--surface);}
       <div class="card">
         <div class="card-head">
           <span>实时预览</span>
-          <span style="color:var(--green);font-size:.9em">1280 × 720</span>
+          <span style="color:var(--green);font-size:.9em">采集 1280 × 720 · 推理 640 × 360</span>
         </div>
         <div class="preview-wrap">
           <img id="stream" src="/video_feed" alt="camera"
@@ -327,7 +327,8 @@ select option{background:var(--surface);}
         <div class="card-body">
           <table class="info-tbl">
             <tr><td>传感器</td><td>SC132GS (USB-C)</td></tr>
-            <tr><td>原始分辨率</td><td>1280 × 720 灰度</td></tr>
+            <tr><td>原始分辨率</td><td>1280 × 720 灰度 (采集)</td></tr>
+            <tr><td>推理输入</td><td>640 × 360 (缩放后)</td></tr>
             <tr><td>训练裁剪</td><td>640 × 360 (16:9)</td></tr>
             <tr><td>输出格式</td><td>PNG 8-bit 灰度</td></tr>
             <tr><td>输出目录</td><td>{{ output_dir }}</td></tr>
@@ -572,6 +573,29 @@ select option{background:var(--surface);}
       </div>
     </div>
 
+    <!-- ── A1 ↔ STM32 联通测试 ── -->
+    <div class="card chs-debug">
+      <div class="card-head">
+        <span>A1 ↔ STM32 联通测试</span>
+        <span id="pingBadge" style="font-size:.78em;padding:2px 8px;border-radius:10px;background:var(--surface2);color:var(--muted);">未测试</span>
+      </div>
+      <div class="card-body">
+        <div style="font-size:.75em;color:var(--muted);margin-bottom:8px;">
+          发送零速度指令帧，最多等待 600ms，验证 A1→STM32 控制链路是否畅通，并检查遥测回传。
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <button class="btn btn-blue" style="flex:1;" id="pingBtn" onclick="runPingTest()">
+            🔍 发起联通测试
+          </button>
+        </div>
+        <pre id="pingResult" style="background:var(--surface2);border-radius:6px;padding:8px 10px;font-size:.72em;color:var(--text);font-family:monospace;white-space:pre-wrap;min-height:40px;margin:0;"></pre>
+        <div class="divider"></div>
+        <div style="font-size:.72em;color:var(--muted);">
+          ⚠️ 测试前请先完成串口连接 · TX 单向连通也视为部分成功
+        </div>
+      </div>
+    </div>
+
     <!-- ── 通信日志 ── -->
     <div class="card chs-debug">
       <div class="card-head">
@@ -764,6 +788,56 @@ function emergencyStop() {
     toast(d.success ? '⬛ 急停' : '✗ '+d.error, d.success ? 'info' : 'err');
   });
 }
+
+// ── A1 ↔ STM32 联通测试 ────────────────────────────────────────────────────
+function runPingTest() {
+  const btn = document.getElementById('pingBtn');
+  const badge = document.getElementById('pingBadge');
+  const result = document.getElementById('pingResult');
+  btn.disabled = true;
+  badge.textContent = '测试中…';
+  badge.style.background = 'var(--amber)'; badge.style.color = '#000';
+  result.textContent = '正在发送零速度帧并等待遥测回应…';
+
+  fetch('/api/chassis/ping', {method:'POST'})
+  .then(r=>r.json())
+  .then(d=>{
+    btn.disabled = false;
+    if (!d.success) {
+      badge.textContent = '失败';
+      badge.style.background = 'var(--red)'; badge.style.color = '#fff';
+      result.textContent = '✗ 错误: ' + (d.error || '未知');
+      return;
+    }
+    if (d.connected) {
+      badge.textContent = '双向连通 ✓';
+      badge.style.background = 'var(--green)'; badge.style.color = '#fff';
+      const t = d.telemetry;
+      result.textContent =
+        `✅ A1 → STM32 发送成功\n✅ STM32 → A1 收到遥测帧\n\n` +
+        `发送帧: ${d.frame_tx}\n\n` +
+        `遥测数据:\n` +
+        `  速度  Vx=${t.vx} Vy=${t.vy} Vz=${t.vz} mm/s\n` +
+        `  加速度 Ax=${t.ax?.toFixed(3)} Ay=${t.ay?.toFixed(3)} Az=${t.az?.toFixed(3)} m/s²\n` +
+        `  陀螺仪 Gx=${t.gx?.toFixed(3)} Gy=${t.gy?.toFixed(3)} Gz=${t.gz?.toFixed(3)} rad/s\n` +
+        `  电池   ${t.volt?.toFixed(2)} V`;
+    } else {
+      badge.textContent = '单向连通';
+      badge.style.background = 'var(--amber)'; badge.style.color = '#000';
+      result.textContent =
+        `⚠️ A1 → STM32 发送成功，未收到遥测回传\n\n` +
+        `发送帧: ${d.frame_tx}\n\n` +
+        (d.note || '请检查 STM32→A1 (GPIO_PIN_2 / RX) 接线是否正确');
+    }
+  })
+  .catch(e => {
+    btn.disabled = false;
+    badge.textContent = '错误';
+    badge.style.background = 'var(--red)'; badge.style.color = '#fff';
+    result.textContent = '✗ 网络错误: ' + e;
+  });
+}
+
 
 function quickMove(vx, vy, vz) {
   if (!chsConnected) { toast('请先连接串口', 'err'); return; }

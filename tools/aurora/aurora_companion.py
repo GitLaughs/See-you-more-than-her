@@ -96,10 +96,7 @@ def _read_gray(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     if frame.shape == (CAMERA_HEIGHT, CAMERA_WIDTH):
         return frame
-    # 360(W)×1280(H): SDK 未更新时的 YUYV 竖屏封装格式—旋转 90° 顺时针再缩放
-    if frame.shape == (1280, 360):
-        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-        return cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
+    # 尺寸不符时直接缩放（EVB 固件已更新，不再有竖屏旋转需求）
     return cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
 
 
