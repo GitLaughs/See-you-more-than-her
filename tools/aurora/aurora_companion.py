@@ -64,6 +64,7 @@ current_fps = 0.0
 camera_connected = False
 _fail_streak = 0
 _last_reconnect = 0.0
+_orientation_warned = False
 MAX_DEVICE_SCAN = 5
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
 
@@ -258,15 +259,32 @@ def _try_open(device_id: int) -> Optional[cv2.VideoCapture]:
 
 
 def _read_gray(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
+    global _orientation_warned
+
     ret, frame = cap.read()
     if not ret:
         return None
+
     if len(frame.shape) == 3:
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    if frame.shape == (CAMERA_HEIGHT, CAMERA_WIDTH):
-        return frame
-    # 尺寸不符时直接缩放（EVB 固件已更新，不再有竖屏旋转需求）
-    return cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
+
+    src_h, src_w = frame.shape[:2]
+    corrected = frame
+
+    # 某些旧 EVB/SDK 会返回竖屏缓冲（如 360x1280 / 720x1280），先旋转纠正方向。
+    if src_h > src_w:
+        corrected = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        if not _orientation_warned:
+            dst_h, dst_w = corrected.shape[:2]
+            print(f"[WARN] 检测到竖屏帧 {src_w}x{src_h}，已自动旋转为 {dst_w}x{dst_h}。建议升级 EVB/SDK 以输出原生 1280x720。")
+            _orientation_warned = True
+
+    dst_h, dst_w = corrected.shape[:2]
+    if dst_h == CAMERA_HEIGHT and dst_w == CAMERA_WIDTH:
+        return corrected
+
+    # 兜底：统一输出为 1280x720，确保前端预览与拍照口径一致。
+    return cv2.resize(corrected, (CAMERA_WIDTH, CAMERA_HEIGHT))
 
 
 def crop_center(img: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
