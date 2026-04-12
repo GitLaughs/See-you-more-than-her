@@ -8,12 +8,11 @@
 tools/aurora/
 ├── aurora_capture.py      # 基础拍照工具（端口 5000）
 ├── aurora_companion.py    # 增强版伴侣工具（端口 5001，含底盘调试）
-├── aurora_flash_web.py    # 一键烧录 Web 工具（端口 5055）
 ├── chassis_comm.py        # STM32 WHEELTEC C50X 通信后端（Flask Blueprint）
-├── launch.ps1             # 统一入口（拍照/烧录）
+├── launch.ps1             # 统一入口（拍照）
 ├── templates/
 │   ├── companion_ui.html  # 双 Tab 前端页面（摄像头 + 底盘调试）
-│   └── flash_ui.html      # 烧录前端页面
+│   └── (无烧录页面)
 ├── requirements.txt       # 依赖：opencv, flask, pyserial 等
 └── README.md
 ```
@@ -22,11 +21,13 @@ tools/aurora/
 
 ### aurora_capture.py（基础工具）
 
-- 实时预览 1280×720 灰度摄像头画面
+- 实时预览 640×360 灰度摄像头画面
 - 拍照保存两种格式：
-  - **1280×720**: 原始灰度图（通用用途）
-  - **640×360**: 中心裁剪灰度图（YOLOv8 训练集，保持 16:9 比例）
+  - **640×360**: 原始灰度图（摄像头原生输出）
+  - **1280×720**: 上采样图（展示用途）
 - 摄像头断联自动重连 + 手动刷新
+- 启动时默认自动优先 A1 摄像头（`--device -1`）
+- 支持前端下拉切换摄像头设备
 - Web 前端界面，支持键盘快捷键
 
 ### aurora_companion.py（增强伴侣工具）
@@ -41,15 +42,6 @@ tools/aurora/
   - 📊 **实时遥测**：Vx/Vy/Vz、加速度计、陀螺仪、电池电压（颜色预警）
   - 🔬 **通信日志**：TX/RX 帧历史（彩色字节着色）
   - ⚡ **原始帧发送**：手动输入十六进制帧调试
-
-### aurora_flash_web.py（一键烧录工具）
-
-- Web 前端交互式烧录（固件选择、模式切换、日志实时刷新）
-- 支持三种烧录模式：
-  - `auto`: 优先容器 `burn_tool`，失败自动回退 Aurora GUI
-  - `docker`: 强制容器命令行烧录
-  - `aurora`: 仅启动 Aurora GUI（CH347 插件）
-- 支持停止正在执行的烧录任务
 
 ### chassis_comm.py（通信后端）
 
@@ -93,31 +85,22 @@ python aurora_capture.py
 python aurora_companion.py
 ```
 
-**一键烧录 Web 工具（端口 5055）：**
-
-```bash
-python aurora_flash_web.py
-```
-
 或使用统一入口（推荐）：
 
 ```powershell
 cd tools/aurora
 
-# 烧录指定固件（自动模式）
-.\launch.ps1 -Flash ..\..\output\evb\latest\zImage.smartsens-m1-evb
+# 自动优先选择 A1 摄像头
+.\launch.ps1
 
-# 仅启动烧录页并优先走容器模式
-.\launch.ps1 -Flash latest -Mode docker -FlashPort 5055
+# 手工指定某个设备号
+.\launch.ps1 -Device 2
 ```
 
 参数说明：
-- `--device 0`: 摄像头设备 ID（默认 0）
+- `--device -1`: 摄像头设备 ID（默认 -1，自动优先 A1）
 - `--output <dir>`: 拍照保存目录（默认 `../../data/yolov8_dataset/raw/images`）
 - `--port 5001`: Web 服务端口（默认 5001，Companion）/ `5000`（Capture）
-- `-Flash <path|latest>`: 启动烧录 Web 工具，`latest` 表示不预置路径
-- `-Mode auto|docker|aurora`: 烧录模式（默认 `auto`）
-- `-FlashPort 5055`: 烧录 Web 端口
 
 ### 4. 打开浏览器
 
@@ -139,22 +122,15 @@ cd tools/aurora
 5. 遥测面板实时显示速度、IMU、电压数据
 6. 如需手动调试，可在「原始帧发送」区域输入十六进制帧并发送
 
-### 7. 固件烧录（aurora_flash_web.py）
-
-1. 确认 SW3 拨码切到 CH347 侧，Type-C 已连接
-2. 打开 `http://localhost:5055`
-3. 选择 `zImage.smartsens-m1-evb` 固件
-4. 点击“开始烧录”，观察右侧日志直到 `SUCCESS`
-
 ## 技术说明
 
 ### 摄像头格式
 
-SC132GS 传感器通过 USB Type-C 输出标准 16:9 的 1280×720 灰度视频流。工具使用 OpenCV 打开摄像头时，会尝试设置 FOURCC 为 `Y800`/`GREY` 以正确解析灰度格式。
+SC132GS 传感器通过 USB Type-C 输出标准 16:9 的 640×360 灰度视频流。工具使用 OpenCV 打开摄像头时，会尝试设置 FOURCC 为 `Y800`/`GREY` 以正确解析灰度格式。
 
 ### 640×360 裁剪
 
-从 1280×720 原图中心裁剪 640×360 区域（同为 16:9，无拉伸）。预览画面中绿色矩形框表示裁剪区域。
+640×360 为原生输出，1280×720 由工具执行放大生成，仅用于展示或兼容输出。
 
 ### 与 SDK pipeline 的关系
 

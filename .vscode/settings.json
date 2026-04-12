@@ -1,4 +1,10 @@
 {
+    // Ignore markdownlint rule MD060 (table column style) workspace-wide
+    "markdownlint.config": {
+        "MD060": false
+    }
+}
+{
   "chat.agentSkillsLocations": [
     "https://github.com/anthropics/skills.git"
   ],

@@ -6,7 +6,6 @@ src/ros2_ws/install/
 src/ros2_ws/log/
 .venv39/
 x3_src_250401/
-Aurora-2.0.0-ciciec.13/
 src/ros2_ws/src/wheeltec_robot_urdf/
 tools/aurora/modules/__pycache__/
 # Aurora 拍照工具保留在版本控制中: tools/aurora/

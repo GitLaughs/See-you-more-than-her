@@ -1,0 +1,24 @@
+{
+    "IID": "com.aurora.IPluginEntry",
+    "id": "ch347_plugin",
+    "name": "CH347Plugin",
+    "version": {
+        "major": 1,
+        "minor": 1,
+        "patch": 4
+    },
+    "description": "CH347 Device Plugin - Serial Port, I2C, SPI",
+    "author": "Aurora Team",
+    "license": "MIT",
+    "user": {
+        "level": "basic",
+        "client_type": "production",
+        "group": "device_control"
+    },
+    "dependencies": {
+        "core_framework": "Aurora-1.0",
+        "plugins": ["CapturePlugin"],
+        "services": ["GuiService", "LogService", "ImageFactoryService", "CaptureService"]
+
+    }
+}

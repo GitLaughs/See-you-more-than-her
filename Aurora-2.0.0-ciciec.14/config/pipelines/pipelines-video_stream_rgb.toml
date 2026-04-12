@@ -1,0 +1,44 @@
+# Aurora Video Stream Pipeline - RGB Format
+# RGB视频流管道 - RGB格式直接显示
+
+name = "Video Stream Pipeline - RGB"
+version = "1.0.0"
+description = "RGB视频流管道 - RGB格式直接显示"
+
+[metadata]
+author = "Aurora Project"
+category = "video"
+
+[source_matching]
+video_stream_plugin = "aurora.videostream.source.rgb"
+
+[[nodes]]
+id = "rgb_source"
+node = "aurora.videostream.source.rgb"
+plugin = "VideoStreamPlugin"
+
+[[nodes]]
+id = "render_endpoint"
+node = "RenderNode"
+plugin = "RenderManager"
+
+[nodes.parameters]
+autoDeletePipelineOnClose = true
+
+[[nodes]]
+id = "capture_process"
+node = "aurora.capture.node"
+plugin = "CapturePlugin"
+
+[[connections]]
+from_node = "rgb_source"
+from_pin = "0"
+to_node = "render_endpoint"
+to_pin = "0"
+
+# 所有节点到截图节点
+[[connections]]
+from_node = "*"
+from_pin = "0"
+to_node = "capture_process"
+to_pin = "0"

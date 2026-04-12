@@ -1,0 +1,43 @@
+# Aurora Local Video Pipeline - YUV Format
+# 本地YUV视频管道 - YUV格式转RGB后显示
+
+name = "Local Video Pipeline - YUV"
+version = "1.0.0"
+description = "本地YUV视频管道 - YUV格式转RGB后显示"
+
+[metadata]
+author = "Aurora Project"
+category = "video"
+
+[source_matching]
+local_video_source = "local_video.yuv_source"
+
+[[nodes]]
+id = "yuv_source"
+node = "local_video.yuv_source"
+plugin = "LocalVideoSourcePlugin"
+
+[[nodes]]
+id = "yuv_to_rgb"
+node = "aurora.colorconvert.yuv_to_rgb"
+plugin = "ColorConvertPlugin"
+
+[[nodes]]
+id = "render_endpoint"
+node = "RenderNode"
+plugin = "RenderManager"
+
+[nodes.parameters]
+autoDeletePipelineOnClose = true
+
+[[connections]]
+from_node = "yuv_source"
+from_pin = "0"
+to_node = "yuv_to_rgb"
+to_pin = "0"
+
+[[connections]]
+from_node = "yuv_to_rgb"
+from_pin = "0"
+to_node = "render_endpoint"
+to_pin = "0"

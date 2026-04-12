@@ -1,0 +1,23 @@
+{
+    "IID": "com.aurora.IPluginEntry",
+    "id": "video_stream_plugin",
+    "name": "VideoStreamPlugin",
+    "version": {
+        "major": 2,
+        "minor": 0,
+        "patch": 1
+    },
+    "description": "视频流处理插件 - 从摄像头获取实时视频",
+    "author": "Aurora Team",
+    "license": "MIT",
+    "user": {
+        "level": "basic",
+        "client_type": "production",
+        "group": "video_processing"
+    },
+    "dependencies": {
+        "core_framework": "Aurora-1.0",
+        "plugins": [],
+        "services": []
+    }
+}

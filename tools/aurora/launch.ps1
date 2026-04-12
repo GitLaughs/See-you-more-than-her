@@ -1,37 +1,13 @@
 param(
-    [int]$Device = 0,
+    [int]$Device = -1,
     [string]$Output = "",
-    [int]$Port = 5000,
-    [string]$Flash = "",
-    [ValidateSet("auto", "docker", "aurora")]
-    [string]$Mode = "auto",
-    [int]$FlashPort = 5055
+    [int]$Port = 5000
 )
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Set-Location $ScriptDir
-
-if ($Flash -ne "") {
-    if (-not (Test-Path "aurora_flash_web.py")) {
-        Write-Error "aurora_flash_web.py not found in $ScriptDir"
-    }
-
-    $flashArgs = @("aurora_flash_web.py", "--port", $FlashPort, "--mode", $Mode)
-    if ($Flash -ne "latest") {
-        $flashArgs += @("--firmware", $Flash)
-    }
-
-    Write-Host "=== Aurora Flash Web Tool ===" -ForegroundColor Cyan
-    Write-Host "Starting flash web UI..." -ForegroundColor Green
-    Write-Host "Web UI: http://localhost:$FlashPort" -ForegroundColor Yellow
-    Write-Host "Mode: $Mode" -ForegroundColor Yellow
-    Write-Host ""
-
-    python @flashArgs
-    exit $LASTEXITCODE
-}
 
 if (-not (Test-Path "aurora_capture.py")) {
     Write-Error "aurora_capture.py not found in $ScriptDir"
@@ -45,6 +21,7 @@ if ($Output -ne "") {
 Write-Host "=== Aurora Capture Tool ===" -ForegroundColor Cyan
 Write-Host "Starting camera capture tool..." -ForegroundColor Green
 Write-Host "Web UI: http://localhost:$Port" -ForegroundColor Yellow
+Write-Host "Camera device: $Device (-1 means auto-select A1)" -ForegroundColor Yellow
 Write-Host ""
 
 python @args
