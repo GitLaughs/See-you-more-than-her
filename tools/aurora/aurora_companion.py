@@ -7,7 +7,7 @@ Aurora Companion — A1 开发板摄像头可视化采集伴侣
   - 摄像头断联自动检测 + 一键刷新恢复
   - 实时 FPS 及连接状态显示
   - 最近拍摄缩略图画廊 (最多 8 张)
-  - 双分辨率拍摄：1280×720 (原始) 和 640×360 (训练集, 16:9)
+  - 拍摄 640×360 原生灰度图 (摄像头原生输出, 训练集格式)
   - 键盘快捷键：1/2/R
 
 用法:
@@ -30,13 +30,13 @@ import numpy as np
 from flask import Flask, Response, jsonify, render_template, request
 
 # ─── 摄像头参数 ───────────────────────────────────────────────────────────────
-CAMERA_WIDTH = 1280
-CAMERA_HEIGHT = 720
+CAMERA_WIDTH = 640
+CAMERA_HEIGHT = 360
 CAMERA_FPS = 30
 
 CAPTURE_FORMATS = {
-    "1280x720": (1280, 720),   # 原始灰度图（全分辨率）
-    "640x360":  (640,  360),   # YOLOv8 训练集（16:9 中心裁剪）
+    "640x360":  (640,  360),   # 原始灰度图（摄像头原生输出， YOLOv8 训练集）
+    "1280x720": (1280, 720),   # 放大版（2x 上采样，仅供参考）
 }
 
 app = Flask(__name__, template_folder="templates")
@@ -94,13 +94,13 @@ def _read_gray(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
         return None
     if len(frame.shape) == 3:
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    if frame.shape != (CAMERA_HEIGHT, CAMERA_WIDTH):
-        n = CAMERA_WIDTH * CAMERA_HEIGHT
-        flat = frame.flatten()
-        frame = (flat[:n].reshape(CAMERA_HEIGHT, CAMERA_WIDTH)
-                 if flat.size >= n
-                 else cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT)))
-    return frame
+    if frame.shape == (CAMERA_HEIGHT, CAMERA_WIDTH):
+        return frame
+    # 360(W)×1280(H): SDK 未更新时的 YUYV 竖屏封装格式—旋转 90° 顺时针再缩放
+    if frame.shape == (1280, 360):
+        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        return cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
+    return cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
 
 
 def _save_capture(frame: np.ndarray, fmt: str) -> dict:
@@ -108,9 +108,8 @@ def _save_capture(frame: np.ndarray, fmt: str) -> dict:
     tw, th = CAPTURE_FORMATS[fmt]
     h, w = frame.shape[:2]
     if fmt == "640x360":
-        x = max(0, (w - tw) // 2)
-        y = max(0, (h - th) // 2)
-        out = frame[y:y + th, x:x + tw]
+        # 摄像头原生 640×360，直接使用（crop_center 在尺寸相同时原样返回）
+        out = frame.copy()
     else:
         out = frame.copy()
     if out.shape != (th, tw):
