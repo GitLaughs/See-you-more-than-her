@@ -9,7 +9,7 @@
 | SCRFD 人脸检测 | 灰度图多尺度人脸检测 (SSNE NPU 加速) | ✅ 已完成 |
 | OSD 硬件叠加 | DMA 硬件加速检测框渲染 | ✅ 已完成 |
 | 底盘控制 | A1 GPIO UART → STM32 WHEELTEC C50X 协议 | ✅ 已完成 |
-| Aurora 伴侣工具 | 图像/OSD 可视化 + CH347 固件烧录 | ✅ 已完成 |
+| Aurora 拍照工具 | SC132GS 摄像头采集 + 训练集制作 | ✅ 已完成 |
 | RPLidar 激光雷达 | 360° 点云采集与避障 | ⏸ 暂时禁用 |
 | YOLOv8 目标检测 | 基于 NPU 的多类别检测 | ⏸ 暂时禁用 |
 | ROS2 底盘控制 | UART 底盘驱动 + 导航 + SLAM | ⏸ 后续集成 |
@@ -26,31 +26,31 @@
 ├── output/                      # 编译产物（EVB 固件）
 ├── scripts/                     # 构建脚本
 ├── src/
-│   ├── a1_ssne_ai_demo/         # 主应用：人脸检测 + 底盘控制
-│   │   ├── demo_face_drive.cpp  #   入口
-│   │   ├── include/             #   头文件
-│   │   │   ├── face_drive_app.hpp     # 应用主类
-│   │   │   ├── chassis_controller.hpp # WHEELTEC 协议控制器
-│   │   │   ├── project_paths.hpp      # 运行时配置
-│   │   │   ├── common.hpp             # SCRFD/OSD 类型定义
-│   │   │   └── ...
-│   │   ├── src/                 #   源文件
-│   │   │   ├── face_drive_app.cpp     # 应用主循环
-│   │   │   ├── chassis_controller.cpp # GPIO UART 底盘通信
-│   │   │   ├── scrfd_gray.cpp         # SCRFD 人脸检测
-│   │   │   ├── pipeline_image.cpp     # 图像采集管道
-│   │   │   ├── osd-device.cpp         # OSD 设备封装
-│   │   │   └── utils.cpp
-│   │   ├── app_assets/          #   板端资源（模型 + OSD LUT）
-│   │   ├── cmake_config/        #   交叉编译路径配置
-│   │   └── scripts/run.sh       #   板端启动脚本
+│   ├── app_demo/ → data/.../app_demo  # SDK app_demo 挂载（核心应用）
+│   │   └── face_detection/
+│   │       └── ssne_ai_demo/
+│   │           ├── demo_face.cpp      #   入口
+│   │           ├── include/           #   头文件
+│   │           │   ├── project_flow.hpp       # 应用主类
+│   │           │   ├── chassis_controller.hpp # WHEELTEC 协议控制器
+│   │           │   ├── project_paths.hpp      # 运行时配置
+│   │           │   ├── common.hpp             # SCRFD/OSD 类型定义
+│   │           │   └── utils.hpp              # OSD 绘制+标签
+│   │           ├── src/               #   源文件
+│   │           │   ├── project_flow.cpp       # 应用主循环
+│   │           │   ├── chassis_controller.cpp # GPIO UART 底盘通信
+│   │           │   ├── scrfd_gray.cpp         # SCRFD 人脸检测
+│   │           │   ├── pipeline_image.cpp     # 图像采集管道
+│   │           │   └── utils.cpp              # OSD 绘制
+│   │           ├── app_assets/        #   板端资源（模型 + OSD LUT）
+│   │           └── cmake_config/      #   交叉编译路径配置
 │   ├── buildroot_pkg/           # Buildroot 外部包定义
 │   ├── ros2_ws/                 # ROS2 工作区（后续集成）
 │   └── stm32_akm_driver/       # STM32 AKM 控制板文档
 ├── third_party/
 │   └── ultralytics/             # YOLOv8 训练框架
 ├── tools/
-│   ├── aurora/                  # Aurora 伴侣工具（可视化 + 烧录）
+│   ├── aurora/                  # Aurora 拍照工具（SC132GS 摄像头采集）
 │   └── yolov8/                  # 标注、划分、训练脚本
 └── WHEELTEC_C50X_2025.12.26/    # WHEELTEC 小车 STM32 固件源码（Keil工程）
 ```
@@ -128,7 +128,7 @@ docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --skip-
 docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh"
 
 # 或：增量编译（仅更新 Demo，快速迭代）
-docker exec A1_Builder bash -lc "bash /app/scripts/build_incremental.sh sdk ssne_face_drive_demo"
+docker exec A1_Builder bash -lc "bash /app/scripts/build_incremental.sh sdk ssne_ai_demo"
 ```
 
 ### 3. 烧录到主板
@@ -155,18 +155,16 @@ ssh root@<A1_IP>
 
 **详见** [03 编译与烧录指南](docs/03_编译与烧录.md)
 
-### 5. Aurora 伴侣工具
+### 5. Aurora 拍照工具
 
 ```powershell
 cd tools/aurora
-.\launch.ps1           # 启动图像/OSD可视化
-.\launch.ps1 -Flash    # CH347 固件烧录
-.\launch.ps1 -Demo     # 演示模式（无需硬件）
+.\launch.ps1           # 启动 SC132GS 摄像头拍照
 ```
 
 ## 运行时配置
 
-集中在 `src/a1_ssne_ai_demo/include/project_paths.hpp`：
+集中在 `src/app_demo/face_detection/ssne_ai_demo/include/project_paths.hpp`：
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
