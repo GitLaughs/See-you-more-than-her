@@ -1,0 +1,23 @@
+{
+  "chat.agentSkillsLocations": [
+    "https://github.com/anthropics/skills.git"
+  ],
+
+  // ── Markdown：关闭全部报错/警告 ─────────────────────────────────────────
+  "markdown.validate.enabled": false,
+  "markdown.validate.fileLinks.enabled": false,
+  "markdown.validate.fragmentLinks.enabled": false,
+  "markdown.validate.referenceLinks.enabled": false,
+  // markdownlint 扩展（如已安装）
+  "markdownlint.enabled": false,
+
+  // ── Editor (Markdown) ────────────────────────────────────────────────────
+  "[markdown]": {
+    "editor.wordWrap": "on",
+    "editor.quickSuggestions": {
+      "other": false,
+      "comments": false,
+      "strings": false
+    }
+  }
+}

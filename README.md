@@ -9,7 +9,7 @@
 | SCRFD 人脸检测 | 灰度图多尺度人脸检测 (SSNE NPU 加速) | ✅ 已完成 |
 | OSD 硬件叠加 | DMA 硬件加速检测框渲染 | ✅ 已完成 |
 | 底盘控制 | A1 GPIO UART → STM32 WHEELTEC C50X 协议 | ✅ 已完成 |
-| Aurora 拍照工具 | SC132GS 摄像头采集 + 训练集制作 | ✅ 已完成 |
+| Aurora 拍照工具 | SC132GS 摄像头采集 + 训练集制作 + **STM32 底盘调试 UI** | ✅ 已完成 |
 | RPLidar 激光雷达 | 360° 点云采集与避障 | ⏸ 暂时禁用 |
 | YOLOv8 目标检测 | 基于 NPU 的多类别检测 | ⏸ 暂时禁用 |
 | ROS2 底盘控制 | UART 底盘驱动 + 导航 + SLAM | ⏸ 后续集成 |
@@ -159,9 +159,17 @@ ssh root@<A1_IP>
 
 ```powershell
 cd tools/aurora
-.\launch.ps1           # 启动 aurora_capture（基础工具）
-python aurora_companion.py  # 启动 Aurora Companion（美化界面 + 断联恢复）
+
+# 基础拍照工具 (端口 5000)
+python aurora_capture.py
+
+# 增强伴侣工具（美化界面 + 断联恢复 + STM32 底盘调试）
+python aurora_companion.py  # 访问 http://localhost:5001
 ```
+
+aurora_companion.py 提供双 Tab 界面：
+- **摄像头采集**：实时预览、拍照、缩略图画廊
+- **底盘调试**：串口连接、运动控制（WASD 键盘）、遥测显示、帧日志
 
 ## 同伴拉取更新步骤
 
@@ -289,7 +297,7 @@ git log --oneline -5        # 确认历史
 | [10 雷达集成](docs/10_雷达集成.md) | RPLidar SDK 接入（暂未安装） |
 | [STM32 控制板](src/stm32_akm_driver/README.md) | WHEELTEC C50X 固件与协议 |
 | [ROS2 工作区](src/ros2_ws/README.md) | ROS2 包与构建 |
-| [Aurora 伴侣工具](tools/aurora/README.md) | 可视化 + 固件烧录 |
+| Aurora 伴侣工具 | [tools/aurora/README.md](tools/aurora/README.md) | 摄像头采集 + 底盘调试 UI |
 
 ### 项目管理
 
