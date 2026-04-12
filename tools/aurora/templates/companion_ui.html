@@ -363,6 +363,17 @@ select option{background:var(--surface);}
             <span class="btn-icon" id="camRefIcon">🔄</span>
             <label>刷新摄像头<small>断联后点此恢复</small></label>
           </button>
+          <div class="divider"></div>
+          <div class="form-row" style="margin-bottom:6px;">
+            <label>设备</label>
+            <select id="cameraSelect">
+              <option value="">加载中...</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="loadCameraDevices()">⟳ 列表</button>
+            <button class="btn btn-blue" style="flex:1;justify-content:center;" onclick="switchCamera()">🎥 切换</button>
+          </div>
         </div>
       </div>
 
@@ -737,6 +748,7 @@ function switchTab(tab) {
   }
   pageEl.classList.add('active');
   tabEl.classList.add('active');
+  if (tab === 'camera') loadCameraDevices();
   if (tab === 'chassis' || tab === 'stm32') refreshPorts();
 }
 
@@ -775,6 +787,46 @@ function refreshCam() {
     btn.disabled = false;
     document.getElementById('camRefIcon').style.animation = '';
   });
+}
+
+function loadCameraDevices() {
+  fetch('/camera_devices').then(r=>r.json()).then(d=>{
+    const sel = document.getElementById('cameraSelect');
+    if (!sel) return;
+    const devices = d.devices || [];
+    const current = d.current_device;
+    if (!devices.length) {
+      sel.innerHTML = '<option value="">— 无可用摄像头 —</option>';
+      return;
+    }
+    sel.innerHTML = devices.map(cam =>
+      `<option value="${cam.id}" ${cam.id===current?'selected':''}>${cam.label}</option>`
+    ).join('');
+  }).catch(()=>{});
+}
+
+function switchCamera() {
+  const sel = document.getElementById('cameraSelect');
+  if (!sel || !sel.value) { toast('请选择摄像头设备', 'err'); return; }
+  const device = parseInt(sel.value, 10);
+  if (Number.isNaN(device)) { toast('设备号无效', 'err'); return; }
+
+  sel.disabled = true;
+  fetch('/switch_camera', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({device})
+  }).then(r=>r.json()).then(d=>{
+    if (d.success) {
+      const img = document.getElementById('stream');
+      img.src = '/video_feed?' + Date.now();
+      toast('✓ 已切换摄像头设备 ' + device, 'ok');
+      loadCameraDevices();
+    } else {
+      toast('✗ ' + d.error, 'err');
+    }
+  }).catch(e=>toast('✗ '+e,'err'))
+  .finally(()=>{ sel.disabled = false; });
 }
 
 function fetchGallery() {
@@ -1117,6 +1169,8 @@ function toast(msg, type = 'ok') {
 
 // ── Init ────────────────────────────────────────────────────────────────────
 refreshPorts();
+fetchGallery();
+loadCameraDevices();
 </script>
 </body>
 </html>

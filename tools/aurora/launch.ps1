@@ -1,12 +1,28 @@
 param(
     [int]$Device = -1,
     [string]$Output = "",
-    [int]$Port = 5001,
+    [int]$Port = 5801,
     [switch]$ShowDriverLogs,
     [switch]$NoBrowser
 )
 
 $ErrorActionPreference = "Stop"
+
+# 强制 UTF-8，避免中文输出在不同终端编码下乱码
+try {
+    & chcp.com 65001 | Out-Null
+}
+catch {
+}
+$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[Console]::InputEncoding = $Utf8NoBom
+[Console]::OutputEncoding = $Utf8NoBom
+$OutputEncoding = $Utf8NoBom
+
+# 确保 Python 子进程也按 UTF-8 输出
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Set-Location $ScriptDir
@@ -23,6 +39,7 @@ if ($Output -ne "") {
 Write-Host "=== Aurora Companion ===" -ForegroundColor Cyan
 Write-Host "Starting Aurora Companion (camera + chassis debug)..." -ForegroundColor Green
 Write-Host "Web UI: http://localhost:$Port" -ForegroundColor Yellow
+Write-Host "Browser: auto-open enabled (use -NoBrowser to disable)" -ForegroundColor Yellow
 if ($Device -eq -1) {
     Write-Host "Camera device: auto (prefer A1 SC132GS)" -ForegroundColor Yellow
 }
@@ -30,15 +47,47 @@ else {
     Write-Host "Camera device: $Device" -ForegroundColor Yellow
 }
 Write-Host "Capture pipeline: sensor 1280x720 -> training 640x360" -ForegroundColor Yellow
-Write-Host "Tabs: 摄像头采集 / A1-STM32 联通测试 / 底盘通信调试" -ForegroundColor Yellow
+$tabCamera = -join ([char[]](0x6444, 0x50CF, 0x5934, 0x91C7, 0x96C6))
+$tabLink = -join ([char[]](0x8054, 0x901A, 0x6D4B, 0x8BD5))
+$tabChassis = -join ([char[]](0x5E95, 0x76D8, 0x901A, 0x4FE1, 0x8C03, 0x8BD5))
+Write-Host "Tabs: $tabCamera / A1-STM32 $tabLink / $tabChassis" -ForegroundColor Yellow
 if (-not $ShowDriverLogs) {
     Write-Host "Driver logs: hidden (use -ShowDriverLogs to enable)" -ForegroundColor Yellow
 }
 Write-Host ""
 
 if (-not $NoBrowser) {
+    $launchUrl = "http://localhost:$Port"
     try {
-        Start-Process "http://localhost:$Port" | Out-Null
+        # 后台等待端口就绪后再打开浏览器，避免启动瞬间出现“拒绝连接”
+        Start-Job -ScriptBlock {
+            param([string]$Url, [int]$ReadyPort)
+
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            while ([DateTime]::UtcNow -lt $deadline) {
+                try {
+                    $client = New-Object System.Net.Sockets.TcpClient
+                    $async = $client.BeginConnect("127.0.0.1", $ReadyPort, $null, $null)
+                    if ($async.AsyncWaitHandle.WaitOne(250)) {
+                        $client.EndConnect($async)
+                        $client.Close()
+                        Start-Process $Url | Out-Null
+                        return
+                    }
+                    $client.Close()
+                }
+                catch {
+                }
+                [System.Threading.Thread]::Sleep(250)
+            }
+
+            # 超时兜底：仍尝试打开一次
+            try {
+                Start-Process $Url | Out-Null
+            }
+            catch {
+            }
+        } -ArgumentList $launchUrl, $Port | Out-Null
     }
     catch {
         Write-Host "[WARN] Unable to open browser automatically. Please open http://localhost:$Port manually." -ForegroundColor DarkYellow

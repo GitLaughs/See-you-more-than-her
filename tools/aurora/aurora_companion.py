@@ -12,7 +12,7 @@ Aurora Companion — A1 开发板摄像头可视化采集伴侣
   - 键盘快捷键：1/2/R
 
 用法:
-  python aurora_companion.py [--device 0] [--output ../../data/yolov8_dataset/raw/images] [--port 5001]
+    python aurora_companion.py [--device 0] [--output ../../data/yolov8_dataset/raw/images] [--port 5801]
 """
 
 import argparse
@@ -435,6 +435,57 @@ def refresh_camera():
     return jsonify({"success": False, "error": "无法连接到摄像头设备"})
 
 
+@app.route("/camera_devices")
+def camera_devices():
+    devices = list_camera_devices()
+    items = []
+    for d in devices:
+        kind = "Gray" if d.get("is_grayscale") else "Color"
+        y8 = "Y8" if d.get("supports_gray_fourcc") else "NoY8"
+        label = f"device {d['id']} - {d['actual_width']}x{d['actual_height']} {kind} {y8} score={d['score']}"
+        items.append({
+            "id": d["id"],
+            "label": label,
+            "score": d["score"],
+            "actual_width": d["actual_width"],
+            "actual_height": d["actual_height"],
+            "is_grayscale": d.get("is_grayscale", False),
+            "supports_gray_fourcc": d.get("supports_gray_fourcc", False),
+        })
+    return jsonify({"current_device": device_id_global, "devices": items})
+
+
+@app.route("/switch_camera", methods=["POST"])
+def switch_camera():
+    global camera, device_id_global, _fail_streak, camera_connected
+
+    data = request.get_json(silent=True) or {}
+    if "device" not in data:
+        return jsonify({"success": False, "error": "缺少 device 参数"})
+
+    try:
+        new_device = int(data.get("device"))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "device 必须是整数"})
+
+    with camera_lock:
+        old_camera = camera
+        new_camera = _try_open(new_device)
+        if new_camera is None:
+            return jsonify({"success": False, "error": "目标摄像头无法打开"})
+
+        camera = new_camera
+        device_id_global = new_device
+        if old_camera:
+            old_camera.release()
+
+    _fail_streak = 0
+    camera_connected = True
+    save_preferred_device(new_device)
+    print(f"[INFO] 已切换到摄像头设备 {new_device}")
+    return jsonify({"success": True, "device": new_device})
+
+
 @app.route("/recent_captures")
 def recent_captures_api():
     return jsonify(list(recent_captures))
@@ -463,7 +514,7 @@ def main():
     parser.add_argument("--output", type=str,
                         default="../../data/yolov8_dataset/raw/images",
                         help="拍照保存目录")
-    parser.add_argument("--port",   type=int, default=5001, help="Web 服务端口 (默认: 5001)")
+    parser.add_argument("--port",   type=int, default=5801, help="Web 服务端口 (默认: 5801)")
     parser.add_argument("--host",   type=str, default="0.0.0.0", help="监听地址")
     args = parser.parse_args()
 
