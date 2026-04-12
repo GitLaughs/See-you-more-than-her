@@ -3,17 +3,18 @@
 Aurora Capture Tool — A1 开发板摄像头拍照工具
 
 通过 USB Type-C 连接 A1 开发板，接收 SC132GS 摄像头的灰度视频流。
-摄像头原始输出为 1280×640 灰度图 (Y8 格式)。
+摄像头原始输出为 1280×720 灰度图 (Y8 格式)。
 
 功能:
   - 实时预览摄像头画面
-  - 拍照保存 1280×640 原始灰度图 (用于通用用途)
-  - 拍照保存 640×480 裁剪灰度图 (用于 YOLOv8 训练集)
+  - 拍照保存 1280×720 原始灰度图 (用于通用用途)
+  - 拍照保存 640×360 裁剪灰度图 (用于 YOLOv8 训练集)
   - Web 前端界面选择拍照格式
+  - 摄像头断联自动检测与一键刷新恢复
 
 注意:
-  SDK 中 pipeline_image.cpp 会将模型输入裁剪到 720×540，
-  此工具的 640×480 裁剪模式用于制作 YOLO 训练数据集。
+  SC132GS 传感器实际输出为标准 16:9 的 1280×720 灰度图，
+  此工具的 640×360 裁剪模式用于制作 YOLO 训练数据集。
 
 用法:
   python aurora_capture.py [--device 0] [--output ../data/yolov8_dataset/raw/images]
@@ -22,6 +23,7 @@ Aurora Capture Tool — A1 开发板摄像头拍照工具
 import argparse
 import os
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -31,23 +33,27 @@ import numpy as np
 from flask import Flask, Response, jsonify, render_template_string, request
 
 # ─── 摄像头参数 ───────────────────────────────────────────────────────────────
-# SC132GS 通过 USB Type-C 传输，原始格式为 1280×640 灰度 (Y8)
+# SC132GS 通过 USB Type-C 传输，实际输出标准 16:9 格式 1280×720 灰度 (Y8)
 CAMERA_WIDTH = 1280
-CAMERA_HEIGHT = 640
+CAMERA_HEIGHT = 720
 CAMERA_FPS = 30
 
 # 拍照输出格式
 CAPTURE_FORMATS = {
-    "1280x640": (1280, 640),   # 原始灰度图
-    "640x480":  (640, 480),    # YOLOv8 训练集格式 (从中心裁剪)
+    "1280x720": (1280, 720),   # 原始灰度图
+    "640x360":  (640, 360),    # YOLOv8 训练集格式 (16:9 中心裁剪)
 }
 
 app = Flask(__name__)
 
 # ─── 全局状态 ─────────────────────────────────────────────────────────────────
 camera = None
+camera_lock = threading.Lock()
+device_id_global = 0
 output_dir = None
 capture_count = 0
+_consecutive_failures = 0  # 连续读帧失败计数，用于触发自动重连
+_last_reconnect_time = 0.0
 
 
 def open_camera(device_id: int) -> cv2.VideoCapture:
@@ -107,7 +113,7 @@ def open_camera(device_id: int) -> cv2.VideoCapture:
 def read_grayscale_frame(cap: cv2.VideoCapture) -> np.ndarray | None:
     """读取一帧灰度图像
 
-    确保输出为单通道 1280×640 灰度图, 无论摄像头驱动如何解析。
+    确保输出为单通道 1280×720 灰度图, 无论摄像头驱动如何解析。
     """
     ret, frame = cap.read()
     if not ret:
@@ -147,8 +153,8 @@ def save_capture(frame: np.ndarray, fmt: str) -> str:
 
     target_w, target_h = CAPTURE_FORMATS[fmt]
 
-    if fmt == "640x480":
-        # 从 1280x640 中心裁剪为 640x480
+    if fmt == "640x360":
+        # 从 1280x720 中心裁剪为 640x360 (保持 16:9 比例)
         result = crop_center(frame, target_w, target_h)
     else:
         result = frame.copy()
@@ -178,135 +184,268 @@ HTML_TEMPLATE = """
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: #1a1a2e;
-            color: #eee;
+            background: #0d1117;
+            color: #c9d1d9;
             min-height: 100vh;
         }
         .header {
-            background: #16213e;
-            padding: 15px 30px;
+            background: linear-gradient(135deg, #161b22 0%, #21262d 100%);
+            padding: 14px 28px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            border-bottom: 2px solid #0f3460;
+            border-bottom: 1px solid #30363d;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.4);
         }
+        .header-left { display: flex; align-items: center; gap: 12px; }
         .header h1 {
-            font-size: 1.4em;
-            color: #e94560;
+            font-size: 1.3em;
+            background: linear-gradient(90deg, #58a6ff, #a371f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 700;
         }
-        .header .status {
-            color: #53d769;
-            font-size: 0.9em;
+        .header-badge {
+            font-size: 0.7em;
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #8b949e;
+            padding: 2px 8px;
+            border-radius: 12px;
+        }
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.85em;
+            padding: 5px 14px;
+            border-radius: 20px;
+            border: 1px solid #30363d;
+            background: #161b22;
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #3fb950;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.offline { background: #f85149; animation: none; }
+        @keyframes pulse {
+            0%,100% { opacity: 1; }
+            50% { opacity: 0.4; }
         }
         .main {
-            display: flex;
-            gap: 20px;
-            padding: 20px;
-            max-width: 1400px;
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 16px;
+            padding: 16px;
+            max-width: 1440px;
             margin: 0 auto;
         }
-        .preview {
-            flex: 1;
-            background: #16213e;
-            border-radius: 8px;
-            padding: 15px;
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 10px;
+            overflow: hidden;
         }
-        .preview img {
+        .card-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid #21262d;
+            font-size: 0.85em;
+            font-weight: 600;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .preview .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .preview-wrap {
+            position: relative;
+            background: #0d1117;
+        }
+        .preview-wrap img {
             width: 100%;
+            display: block;
+        }
+        .preview-overlay {
+            position: absolute;
+            top: 8px; left: 8px;
+            background: rgba(0,0,0,0.6);
+            color: #3fb950;
+            font-size: 0.75em;
+            padding: 3px 8px;
             border-radius: 4px;
-            background: #000;
+            font-family: monospace;
         }
         .controls {
-            width: 300px;
-            background: #16213e;
-            border-radius: 8px;
-            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 0;
         }
-        .controls h2 {
-            font-size: 1.1em;
-            margin-bottom: 15px;
-            color: #e94560;
+        .controls .card { flex: none; }
+        .controls-inner { padding: 16px; }
+        .counter-row {
+            text-align: center;
+            margin-bottom: 14px;
         }
+        .counter-num {
+            font-size: 3em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #58a6ff, #a371f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1;
+        }
+        .counter-label { font-size: 0.75em; color: #8b949e; margin-top: 2px; }
         .btn {
             width: 100%;
-            padding: 12px;
-            margin: 8px 0;
-            border: none;
-            border-radius: 6px;
-            font-size: 1em;
+            padding: 11px 16px;
+            margin: 5px 0;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            font-size: 0.95em;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.15s;
             font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        .btn-full {
-            background: #e94560;
+        .btn-icon { font-size: 1.2em; }
+        .btn small { font-weight: 400; color: rgba(255,255,255,0.6); font-size: 0.78em; display: block; margin-top: 1px; }
+        .btn-primary {
+            background: linear-gradient(135deg, #1f6feb, #388bfd);
             color: white;
+            border-color: #1f6feb;
         }
-        .btn-full:hover { background: #c73550; }
-        .btn-crop {
-            background: #0f3460;
+        .btn-primary:hover { background: linear-gradient(135deg, #388bfd, #58a6ff); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(31,111,235,0.4); }
+        .btn-secondary {
+            background: linear-gradient(135deg, #238636, #2ea043);
             color: white;
+            border-color: #238636;
         }
-        .btn-crop:hover { background: #1a4a7a; }
-        .info {
-            margin-top: 20px;
-            padding: 12px;
-            background: #1a1a2e;
-            border-radius: 6px;
-            font-size: 0.85em;
-            line-height: 1.6;
+        .btn-secondary:hover { background: linear-gradient(135deg, #2ea043, #3fb950); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(35,134,54,0.4); }
+        .btn-refresh {
+            background: #21262d;
+            color: #8b949e;
+            border-color: #30363d;
         }
-        .info .label { color: #888; }
+        .btn-refresh:hover { background: #30363d; color: #c9d1d9; border-color: #58a6ff; }
+        .btn-refresh.spinning .btn-icon { display: inline-block; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .divider {
+            height: 1px;
+            background: #21262d;
+            margin: 12px 0;
+        }
+        .info-table { font-size: 0.82em; width: 100%; }
+        .info-table tr td { padding: 3px 0; }
+        .info-table td:first-child { color: #8b949e; width: 90px; }
+        .info-table td:last-child { color: #c9d1d9; word-break: break-all; }
+        .shortcut-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+        .kbd {
+            background: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 4px;
+            padding: 2px 7px;
+            font-size: 0.78em;
+            font-family: monospace;
+            color: #8b949e;
+        }
         .toast {
             position: fixed;
-            bottom: 30px;
-            right: 30px;
-            background: #53d769;
-            color: #1a1a2e;
-            padding: 12px 24px;
-            border-radius: 6px;
+            bottom: 24px;
+            right: 24px;
+            background: #238636;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
             font-weight: 600;
+            font-size: 0.9em;
             opacity: 0;
-            transition: opacity 0.3s;
+            transform: translateY(8px);
+            transition: all 0.25s;
             z-index: 1000;
+            max-width: 340px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
         }
-        .toast.show { opacity: 1; }
-        .counter {
-            text-align: center;
-            font-size: 2em;
-            color: #e94560;
-            margin: 15px 0;
-        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.error { background: #da3633; }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>Aurora Capture</h1>
-        <span class="status" id="status">● 连接中...</span>
+        <div class="header-left">
+            <h1>⚡ Aurora Capture</h1>
+            <span class="header-badge">SC132GS · 1280×720</span>
+        </div>
+        <div class="status-pill">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">连接中...</span>
+        </div>
     </div>
     <div class="main">
-        <div class="preview">
-            <img id="stream" src="/video_feed" alt="摄像头预览"
-                 onerror="document.getElementById('status').textContent='● 摄像头未连接'"
-                 onload="document.getElementById('status').textContent='● 实时预览中'">
+        <div class="card preview">
+            <div class="card-header">
+                <span>实时预览</span>
+                <span id="resLabel" style="color:#3fb950;font-size:0.9em">1280 × 720</span>
+            </div>
+            <div class="preview-wrap">
+                <img id="stream" src="/video_feed" alt="摄像头预览"
+                     onload="setOnline(true)"
+                     onerror="setOnline(false)">
+                <div class="preview-overlay" id="fpsLabel">一 fps</div>
+            </div>
         </div>
         <div class="controls">
-            <h2>拍照控制</h2>
-            <div class="counter" id="counter">0</div>
-            <button class="btn btn-full" onclick="capture('1280x640')">
-                📷 拍照 1280×640<br>
-                <small>原始灰度图</small>
-            </button>
-            <button class="btn btn-crop" onclick="capture('640x480')">
-                📷 拍照 640×480<br>
-                <small>YOLOv8 训练集</small>
-            </button>
-            <div class="info">
-                <div><span class="label">摄像头:</span> SC132GS (USB-C)</div>
-                <div><span class="label">原始分辨率:</span> 1280×640 灰度</div>
-                <div><span class="label">640×480模式:</span> 中心裁剪</div>
-                <div><span class="label">输出目录:</span> {{ output_dir }}</div>
-                <div><span class="label">格式:</span> PNG 灰度</div>
+            <div class="card" style="margin-bottom:12px">
+                <div class="card-header">拍照控制</div>
+                <div class="controls-inner">
+                    <div class="counter-row">
+                        <div class="counter-num" id="counter">0</div>
+                        <div class="counter-label">已拍照数量</div>
+                    </div>
+                    <button class="btn btn-primary" onclick="capture('1280x720')">
+                        <span class="btn-icon">📷</span>
+                        <span>拍照 1280×720<small>原始灰度图</small></span>
+                    </button>
+                    <button class="btn btn-secondary" onclick="capture('640x360')">
+                        <span class="btn-icon">🏹</span>
+                        <span>拍照 640×360<small>YOLOv8 训练集 (16:9)</small></span>
+                    </button>
+                    <div class="divider"></div>
+                    <button class="btn btn-refresh" id="refreshBtn" onclick="refreshCamera()">
+                        <span class="btn-icon">🔄</span>
+                        <span>刷新摄像头<small>断联后点此恢复</small></span>
+                    </button>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">设备信息</div>
+                <div class="controls-inner">
+                    <table class="info-table">
+                        <tr><td>摄像头</td><td>SC132GS (USB-C)</td></tr>
+                        <tr><td>原始分辨率</td><td>1280 × 720 灰度</td></tr>
+                        <tr><td>训练裁剪</td><td>640 × 360 (16:9 中心)</td></tr>
+                        <tr><td>输出格式</td><td>PNG 灰度</td></tr>
+                        <tr><td>输出目录</td><td>{{ output_dir }}</td></tr>
+                    </table>
+                    <div class="shortcut-row">
+                        <span class="kbd">1</span> <span style="font-size:.78em;color:#8b949e">拍够 1280×720</span>
+                        &nbsp;&nbsp;
+                        <span class="kbd">2</span> <span style="font-size:.78em;color:#8b949e">拍切 640×360</span>
+                        &nbsp;&nbsp;
+                        <span class="kbd">R</span> <span style="font-size:.78em;color:#8b949e">刷新</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -314,6 +453,14 @@ HTML_TEMPLATE = """
 
     <script>
         let captureCount = 0;
+        let fpsTimer = null;
+
+        function setOnline(online) {
+            const dot = document.getElementById('statusDot');
+            const txt = document.getElementById('statusText');
+            dot.className = 'status-dot' + (online ? '' : ' offline');
+            txt.textContent = online ? '实时预览中' : '摄像头未连接';
+        }
 
         function capture(fmt) {
             fetch('/capture', {
@@ -326,26 +473,55 @@ HTML_TEMPLATE = """
                 if (data.success) {
                     captureCount++;
                     document.getElementById('counter').textContent = captureCount;
-                    showToast('已保存: ' + data.filename);
+                    showToast('✓ 已保存: ' + data.filename);
                 } else {
-                    showToast('拍照失败: ' + data.error);
+                    showToast('✗ 拍照失败: ' + data.error, true);
                 }
             })
-            .catch(err => showToast('请求失败: ' + err));
+            .catch(err => showToast('✗ 请求失败: ' + err, true));
         }
 
-        function showToast(msg) {
+        function refreshCamera() {
+            const btn = document.getElementById('refreshBtn');
+            btn.classList.add('spinning');
+            btn.disabled = true;
+            fetch('/refresh_camera', {method: 'POST'})
+            .then(r => r.json())
+            .then(data => {
+                showToast(data.success ? '✓ 摄像头已刷新' : '✗ ' + data.error, !data.success);
+                if (data.success) {
+                    const img = document.getElementById('stream');
+                    img.src = '/video_feed?' + Date.now();
+                    setOnline(true);
+                }
+            })
+            .catch(err => showToast('✗ 刷新失败: ' + err, true))
+            .finally(() => {
+                btn.classList.remove('spinning');
+                btn.disabled = false;
+            });
+        }
+
+        function showToast(msg, isError = false) {
             const t = document.getElementById('toast');
             t.textContent = msg;
-            t.classList.add('show');
-            setTimeout(() => t.classList.remove('show'), 2000);
+            t.className = 'toast show' + (isError ? ' error' : '');
+            setTimeout(() => t.classList.remove('show'), 3000);
         }
 
         // 键盘快捷键
         document.addEventListener('keydown', (e) => {
-            if (e.key === '1') capture('1280x640');
-            if (e.key === '2') capture('640x480');
+            if (e.key === '1') capture('1280x720');
+            if (e.key === '2') capture('640x360');
+            if (e.key === 'r' || e.key === 'R') refreshCamera();
         });
+
+        // 定期轮询摄像头状态
+        setInterval(() => {
+            fetch('/status').then(r => r.json()).then(d => {
+                setOnline(d.connected);
+            }).catch(() => {});
+        }, 3000);
     </script>
 </body>
 </html>
@@ -353,26 +529,56 @@ HTML_TEMPLATE = """
 
 
 def generate_frames():
-    """生成 MJPEG 视频流"""
+    """生成 MJPEG 视频流，内置自动重连逻辑"""
+    global camera, _consecutive_failures, _last_reconnect_time
+    RECONNECT_INTERVAL = 3.0   # 两次重连尝试之间的最小间隔秒
+    FAIL_THRESHOLD = 10        # 连续读帧失败达到此阈值才触发重连
+
     while True:
-        frame = read_grayscale_frame(camera)
+        with camera_lock:
+            cap = camera
+        frame = read_grayscale_frame(cap) if cap else None
+
         if frame is None:
-            time.sleep(0.01)
+            _consecutive_failures += 1
+            now = time.time()
+            if (_consecutive_failures >= FAIL_THRESHOLD
+                    and now - _last_reconnect_time > RECONNECT_INTERVAL):
+                _last_reconnect_time = now
+                _consecutive_failures = 0
+                print("[INFO] 视频流中断，自动尝试重连摄像头...")
+                with camera_lock:
+                    if camera:
+                        camera.release()
+                    camera = open_camera(device_id_global)
+                if camera:
+                    print("[INFO] 摄像头自动重连成功")
+            # 发送暗帧占位
+            black = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH), dtype=np.uint8)
+            cv2.putText(black, "No Signal - Reconnecting...",
+                        (CAMERA_WIDTH // 2 - 160, CAMERA_HEIGHT // 2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (80, 80, 80), 2)
+            disp = cv2.cvtColor(black, cv2.COLOR_GRAY2BGR)
+            _, buffer = cv2.imencode('.jpg', disp, [cv2.IMWRITE_JPEG_QUALITY, 50])
+            yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n'
+                   + buffer.tobytes() + b'\r\n')
+            time.sleep(0.3)
             continue
 
+        _consecutive_failures = 0
         # 转为 3 通道用于 JPEG 编码 (浏览器需要)
         display = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
-        # 绘制裁剪区域参考框 (640x480 中心区域)
+        # 绘制裁剪区域参考框 (640×360 中心区域, 16:9)
         h, w = frame.shape
         cx, cy = w // 2, h // 2
         x1 = cx - 320
-        y1 = cy - 240
+        y1 = cy - 180
         x2 = cx + 320
-        y2 = cy + 240
-        cv2.rectangle(display, (x1, y1), (x2, y2), (0, 255, 0), 1)
-        cv2.putText(display, "640x480", (x1 + 5, y1 + 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        y2 = cy + 180
+        cv2.rectangle(display, (x1, y1), (x2, y2), (50, 205, 90), 1)
+        cv2.putText(display, "640x360 (train)", (x1 + 5, y1 + 18),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (50, 205, 90), 1)
 
         _, buffer = cv2.imencode('.jpg', display, [cv2.IMWRITE_JPEG_QUALITY, 80])
         yield (b'--frame\r\n'
@@ -391,14 +597,16 @@ def video_feed():
 
 
 @app.route('/capture', methods=['POST'])
-def capture():
+def do_capture():
     data = request.get_json()
-    fmt = data.get('format', '1280x640')
+    fmt = data.get('format', '1280x720')
 
     if fmt not in CAPTURE_FORMATS:
         return jsonify({"success": False, "error": f"不支持的格式: {fmt}"})
 
-    frame = read_grayscale_frame(camera)
+    with camera_lock:
+        cap = camera
+    frame = read_grayscale_frame(cap) if cap else None
     if frame is None:
         return jsonify({"success": False, "error": "无法获取摄像头画面"})
 
@@ -406,10 +614,30 @@ def capture():
     return jsonify({"success": True, "filename": filename, "format": fmt})
 
 
+@app.route('/refresh_camera', methods=['POST'])
+def refresh_camera():
+    """(手动)刷新摄像头，断开旧连接并重新打开"""
+    global camera, _consecutive_failures
+    with camera_lock:
+        if camera:
+            camera.release()
+        camera = open_camera(device_id_global)
+        ok = camera is not None and camera.isOpened()
+    _consecutive_failures = 0
+    if ok:
+        print("[INFO] 摄像头手动刷新成功")
+        return jsonify({"success": True, "message": "摄像头已重新连接"})
+    else:
+        print("[WARN] 摄像头刷新失败")
+        return jsonify({"success": False, "error": "无法连接到摄像头设备"})
+
+
 @app.route('/status')
 def status():
+    with camera_lock:
+        connected = camera is not None and camera.isOpened()
     return jsonify({
-        "connected": camera is not None and camera.isOpened(),
+        "connected": connected,
         "capture_count": capture_count,
         "output_dir": output_dir,
         "camera_resolution": f"{CAMERA_WIDTH}x{CAMERA_HEIGHT}",
@@ -438,11 +666,13 @@ def main():
     print(f"[INFO] 输出目录: {output_dir}")
 
     # 打开摄像头
+    global device_id_global
+    device_id_global = args.device
     print(f"[INFO] 正在连接 A1 摄像头 (设备 {args.device})...")
     camera = open_camera(args.device)
 
     print(f"[INFO] Web 界面已启动: http://localhost:{args.port}")
-    print(f"[INFO] 快捷键: 按 1 拍摄 1280x640, 按 2 拍摄 640x480")
+    print(f"[INFO] 快捷键: 1=1280x720  2=640x360  R=刷新摄像头")
     app.run(host=args.host, port=args.port, debug=False, threaded=True)
 
 

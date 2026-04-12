@@ -63,7 +63,7 @@
 ├──────────┬──────────┬──────────────────────┤
 │ 图像采集  │ 人脸检测  │     OSD 渲染          │
 │ SC132GS  │ SCRFD    │   硬件叠加检测框       │
-│ 720×1280 │ 640×480  │   DMA 图层            │
+│ 1280×720 │ 640×480  │   DMA 图层            │
 └────┬─────┴────┬─────┴──────────────────────┘
      │          │
      │          ▼
@@ -159,7 +159,91 @@ ssh root@<A1_IP>
 
 ```powershell
 cd tools/aurora
-.\launch.ps1           # 启动 SC132GS 摄像头拍照
+.\launch.ps1           # 启动 aurora_capture（基础工具）
+python aurora_companion.py  # 启动 Aurora Companion（美化界面 + 断联恢复）
+```
+
+## 同伴拉取更新步骤
+
+> 适用于同一项目的开发功能良拉取其他小伙䯅的最新代码。
+
+### 第一步：确认本地工作区干净
+
+```powershell
+# 查看未提交的本地改动
+
+git status
+```
+
+如果有未提交的修改，先处理：
+
+```powershell
+# 方案 A：暂存修改（拉取后可恢复）
+git stash
+
+# 方案 B：直接提交
+git add .
+git commit -m "WIP: 保存本地进度"
+```
+
+### 第二步：获取远端最新代码
+
+```powershell
+# 拉取 main 分支的最新提交
+git fetch origin
+
+# 切换到 main 分支
+git checkout main
+
+# 快进合并
+git merge --ff-only origin/main
+# 若报错可改用： git pull origin main
+```
+
+### 第三步：将自己的工作分支同步到最新 main
+
+```powershell
+# 切回自己的工作分支
+git checkout <你的分支名>
+
+# 将 main 的最新提交变基（rebase）到自己分支
+git rebase origin/main
+
+# 若 rebase 期间出现冲突：
+#   1. 按照提示手动解决冲突文件
+#   2. git add <冲突文件>
+#   3. git rebase --continue
+#   放弃 rebase： git rebase --abort
+```
+
+> 如果不想修改历史，也可用 `git merge origin/main` 代替 rebase。
+
+### 第四步：恢复暗存（如果执行了方案 A）
+
+```powershell
+git stash pop
+# 若出现冲突手动解决后再提交
+```
+
+### 第五步：确认更新成功
+
+```powershell
+# 查看提交日志，确认已包含同伴的最新提交
+git log --oneline -10
+
+# 重新构建 Docker 镜像（如果 Dockerfile 已变更）
+docker build -f docker/Dockerfile -t a1-sdk-builder:latest .
+
+# 增量编译验证
+docker exec A1_Builder bash -lc "bash /app/scripts/build_incremental.sh sdk ssne_ai_demo"
+```
+
+### 快速正常流程（无冲突时）
+
+```powershell
+git fetch origin
+git rebase origin/main      # 在自己的分支上执行
+git log --oneline -5        # 确认历史
 ```
 
 ## 运行时配置
