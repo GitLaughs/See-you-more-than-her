@@ -29,19 +29,19 @@
 │   ├── app_demo/ → data/.../app_demo  # SDK app_demo 挂载（核心应用）
 │   │   └── face_detection/
 │   │       └── ssne_ai_demo/
-│   │           ├── demo_face.cpp      #   入口
+│   │           ├── demo_face.cpp      #   入口（主循环：采图→检测→底盘控制→OSD）
+│   │           ├── project_paths.hpp  #   全局配置（模型路径、阈值、波特率等）
 │   │           ├── include/           #   头文件
-│   │           │   ├── project_flow.hpp       # 应用主类
 │   │           │   ├── chassis_controller.hpp # WHEELTEC 协议控制器
-│   │           │   ├── project_paths.hpp      # 运行时配置
 │   │           │   ├── common.hpp             # SCRFD/OSD 类型定义
-│   │           │   └── utils.hpp              # OSD 绘制+标签
+│   │           │   ├── osd-device.hpp         # VISUALIZER OSD 绘制类
+│   │           │   └── utils.hpp              # NMS / 排序工具
 │   │           ├── src/               #   源文件
-│   │           │   ├── project_flow.cpp       # 应用主循环
 │   │           │   ├── chassis_controller.cpp # GPIO UART 底盘通信
-│   │           │   ├── scrfd_gray.cpp         # SCRFD 人脸检测
-│   │           │   ├── pipeline_image.cpp     # 图像采集管道
-│   │           │   └── utils.cpp              # OSD 绘制
+│   │           │   ├── scrfd_gray.cpp         # SCRFD 人脸检测 + 后处理
+│   │           │   ├── pipeline_image.cpp     # 全分辨率采集 1280×720（无裁剪）
+│   │           │   ├── osd-device.cpp         # OSD 绘制实现
+│   │           │   └── utils.cpp              # NMS / 排序工具实现
 │   │           ├── app_assets/        #   板端资源（模型 + OSD LUT）
 │   │           └── cmake_config/      #   交叉编译路径配置
 │   ├── buildroot_pkg/           # Buildroot 外部包定义
@@ -63,7 +63,7 @@
 ├──────────┬──────────┬──────────────────────┤
 │ 图像采集  │ 人脸检测  │     OSD 渲染          │
 │ SC132GS  │ SCRFD    │   硬件叠加检测框       │
-│ 1280×720 │ 640×480  │   DMA 图层            │
+│ 1280×720 │ 640×360  │   DMA 图层            │
 └────┬─────┴────┬─────┴──────────────────────┘
      │          │
      │          ▼
@@ -260,10 +260,8 @@ git log --oneline -5        # 确认历史
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
-| `image_shape` | `{720, 1280}` | 传感器分辨率（H×W） |
-| `crop_shape` | `{720, 540}` | 裁剪后输入尺寸 |
-| `crop_offset_y` | `370` | 裁剪纵向偏移 |
-| `det_shape` | `{640, 480}` | SCRFD 检测输入尺寸 |
+| `image_shape` | `{1280, 720}` | 传感器全分辨率（W×H） |
+| `det_shape` | `{640, 360}` | SCRFD 推理输入尺寸（RunAiPreprocessPipe 缩放） |
 | `confidence_threshold` | `0.4f` | SCRFD 置信度阈值 |
 | `face_model_path` | `/app_demo/app_assets/models/face_640x480.m1model` | 板端模型路径 |
 | `chassis_baudrate` | `115200` | UART 波特率 |

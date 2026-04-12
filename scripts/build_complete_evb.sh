@@ -96,7 +96,7 @@ log "✓ SDK 基础库编译成功"
 step "Step 2/4: ssne_ai_demo（人脸检测 + OSD标签 + UART 底盘控制）"
 cd "${SDK_DIR}"
 rm -rf output/build/ssne_ai_demo/
-make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg ssne_ai_demo \
+make BR2_EXTERNAL=./smart_software ssne_ai_demo \
     2>&1 | tee "${LOG_DIR}/demo.log" \
   || fail "ssne_ai_demo 编译失败，日志：${LOG_DIR}/demo.log"
 log "✓ ssne_ai_demo 编译成功"
