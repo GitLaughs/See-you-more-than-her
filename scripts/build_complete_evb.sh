@@ -92,14 +92,14 @@ bash scripts/build_release_sdk.sh 2>&1 | tee "${LOG_DIR}/sdk_pass1.log" \
   || fail "SDK 基础库编译失败，日志：${LOG_DIR}/sdk_pass1.log"
 log "✓ SDK 基础库编译成功"
 
-# ─── Step 2：编译 ssne_face_drive_demo ───────────────────────────────────────
-step "Step 2/4: ssne_face_drive_demo（人脸检测 + UART 底盘控制）"
+# ─── Step 2：编译 ssne_ai_demo ───────────────────────────────────────────────
+step "Step 2/4: ssne_ai_demo（人脸检测 + OSD标签 + UART 底盘控制）"
 cd "${SDK_DIR}"
-rm -rf output/build/ssne_face_drive_demo/
-make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg ssne_face_drive_demo \
+rm -rf output/build/ssne_ai_demo/
+make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg ssne_ai_demo \
     2>&1 | tee "${LOG_DIR}/demo.log" \
-  || fail "ssne_face_drive_demo 编译失败，日志：${LOG_DIR}/demo.log"
-log "✓ ssne_face_drive_demo 编译成功"
+  || fail "ssne_ai_demo 编译失败，日志：${LOG_DIR}/demo.log"
+log "✓ ssne_ai_demo 编译成功"
 
 # ─── Step 3：ROS2（可选）─────────────────────────────────────────────────────
 if [[ ${SKIP_ROS} -eq 0 ]]; then
@@ -126,15 +126,15 @@ log "✓ zImage 重新打包成功"
 # ─── 收集产物到时间戳目录 ─────────────────────────────────────────────────────
 step "收集产物 → ${ARTIFACT_DIR}/"
 EVB_SRC="${SDK_DIR}/output/images/zImage.smartsens-m1-evb"
-DEMO_SRC="${SDK_DIR}/output/target/app_demo/ssne_face_drive_demo"
+DEMO_SRC="${SDK_DIR}/output/target/app_demo/ssne_ai_demo"
 
 [[ -f "${EVB_SRC}" ]] || fail "未找到 zImage：${EVB_SRC}"
 cp "${EVB_SRC}"  "${ARTIFACT_DIR}/zImage.smartsens-m1-evb"
 log "  ✓ zImage.smartsens-m1-evb  ($(du -sh "${ARTIFACT_DIR}/zImage.smartsens-m1-evb" | cut -f1))"
 
 if [[ -f "${DEMO_SRC}" ]]; then
-  cp "${DEMO_SRC}" "${ARTIFACT_DIR}/ssne_face_drive_demo"
-  log "  ✓ ssne_face_drive_demo      ($(du -sh "${ARTIFACT_DIR}/ssne_face_drive_demo" | cut -f1))"
+  cp "${DEMO_SRC}" "${ARTIFACT_DIR}/ssne_ai_demo"
+  log "  ✓ ssne_ai_demo              ($(du -sh "${ARTIFACT_DIR}/ssne_ai_demo" | cut -f1))"
 else
   log "  ⚠ Demo 二进制未找到，跳过"
 fi

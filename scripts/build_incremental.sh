@@ -39,13 +39,13 @@ shift
 
 case "${mode}" in
   sdk)
-    target="${1:-ssne_face_drive_demo}"
+    target="${1:-ssne_ai_demo}"
     cd "${SDK_DIR}"
     case "${target}" in
-      ssne_face_drive_demo|demo)
-        echo "[build_incremental.sh] 构建 ssne_face_drive_demo（人脸检测 + 底盘控制）"
-        rm -rf output/build/ssne_face_drive_demo/
-        make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg ssne_face_drive_demo
+      ssne_ai_demo|demo)
+        echo "[build_incremental.sh] 构建 ssne_ai_demo（人脸检测 + OSD标签 + 底盘控制）"
+        rm -rf output/build/ssne_ai_demo/
+        make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg ssne_ai_demo
         ;;
       m1_sdk_lib|lib)
         echo "[build_incremental.sh] 重新构建 SDK 基础库"
