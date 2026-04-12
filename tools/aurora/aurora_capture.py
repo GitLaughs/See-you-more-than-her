@@ -3,16 +3,17 @@
 Aurora Capture Tool — A1 开发板摄像头拍照工具
 
 通过 USB Type-C 连接 A1 开发板，接收 SC132GS 摄像头的灰度视频流。
-摄像头原始输出为 640×360 灰度图 (Y8 格式，16:9)。
+传感器采集分辨率为 1280×720 (16:9)，训练输出使用 640×360。
 
 功能:
   - 实时预览摄像头画面
-  - 拍照保存 640×360 原始灰度图 (摄像头原生分辨率，用于 YOLOv8 训练集)
+    - 拍照保存 1280×720 原始灰度图 (传感器采集)
+    - 拍照保存 640×360 训练灰度图 (中心裁剪)
   - Web 前端界面选择拍照格式
   - 摄像头断联自动检测与一键刷新恢复
 
 注意:
-  SC132GS 传感器输出 16:9 的 640×360 灰度图 (与 YOLOv8 模型输入匹配)。
+    SC132GS 传感器采集 16:9 的 1280×720 灰度图。
   若 EVB 固件未更新，摄像头可能以 YUYV 竖屏格式输出 360×1280，
   此时工具会自动旋转 + 缩放到 640×360。
 
@@ -21,10 +22,12 @@ Aurora Capture Tool — A1 开发板摄像头拍照工具
 """
 
 import argparse
+import contextlib
 import os
 import sys
 import threading
 import time
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -34,15 +37,15 @@ import numpy as np
 from flask import Flask, Response, jsonify, render_template_string, request
 
 # ─── 摄像头参数 ───────────────────────────────────────────────────────────────
-# SC132GS 通过 USB Type-C 传输，输出 16:9 格式 640×360 灰度 (Y8)
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 360
+# SC132GS 通过 USB Type-C 传输，传感器采集为 16:9 的 1280×720
+CAMERA_WIDTH = 1280
+CAMERA_HEIGHT = 720
 CAMERA_FPS = 30
 
 # 拍照输出格式
 CAPTURE_FORMATS = {
-    "640x360":  (640, 360),    # 原始灰度图 (摄像头原生输出, YOLOv8 训练集格式)
-    "1280x720": (1280, 720),   # 放大版 (2x 上采样，仅供参考)
+    "1280x720": (1280, 720),   # 原始灰度图 (传感器采集分辨率)
+    "640x360":  (640, 360),    # YOLOv8 训练集尺寸（中心裁剪）
 }
 
 app = Flask(__name__)
@@ -55,14 +58,55 @@ output_dir = None
 capture_count = 0
 _consecutive_failures = 0  # 连续读帧失败计数，用于触发自动重连
 _last_reconnect_time = 0.0
-MAX_DEVICE_SCAN = 8
+MAX_DEVICE_SCAN = 4
+PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
+
+
+@contextlib.contextmanager
+def _suppress_c_stderr():
+    """临时屏蔽 C/DLL 层 stderr（如摄像头驱动初始化日志），仅 Windows 生效。"""
+    if sys.platform != "win32":
+        yield
+        return
+    try:
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        saved = os.dup(2)
+        os.dup2(devnull_fd, 2)
+        try:
+            yield
+        finally:
+            os.dup2(saved, 2)
+            os.close(saved)
+            os.close(devnull_fd)
+    except Exception:
+        yield  # 降级：不抑制
 
 
 def _open_raw_camera(device_id: int) -> cv2.VideoCapture:
-    cap = cv2.VideoCapture(device_id, cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_V4L2)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(device_id)
+    with _suppress_c_stderr():
+        cap = cv2.VideoCapture(device_id, cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_V4L2)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(device_id)
     return cap
+
+
+def load_preferred_device() -> Optional[int]:
+    try:
+        if not PREFERRED_DEVICE_FILE.exists():
+            return None
+        text = PREFERRED_DEVICE_FILE.read_text(encoding="utf-8").strip()
+        if text == "":
+            return None
+        return int(text)
+    except Exception:
+        return None
+
+
+def save_preferred_device(device_id: int) -> None:
+    try:
+        PREFERRED_DEVICE_FILE.write_text(str(device_id), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def probe_camera_device(device_id: int) -> dict:
@@ -79,12 +123,26 @@ def probe_camera_device(device_id: int) -> dict:
             "label": f"设备 {device_id} (不可用)",
         }
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-    ret, frame = cap.read()
-    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    cap.release()
+    with _suppress_c_stderr():
+        gray_fourccs = [
+            cv2.VideoWriter_fourcc(*'Y800'),
+            cv2.VideoWriter_fourcc(*'GREY'),
+            cv2.VideoWriter_fourcc(*'Y8  '),
+        ]
+        supports_gray_fourcc = False
+        for fourcc in gray_fourccs:
+            cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+            actual = int(cap.get(cv2.CAP_PROP_FOURCC))
+            if actual == fourcc:
+                supports_gray_fourcc = True
+                break
+
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+        ret, frame = cap.read()
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()
 
     if not ret or frame is None:
         return {
@@ -94,28 +152,59 @@ def probe_camera_device(device_id: int) -> dict:
             "actual_width": actual_w,
             "actual_height": actual_h,
             "is_grayscale": False,
+            "has_content": False,
+            "supports_gray_fourcc": False,
             "label": f"设备 {device_id} ({actual_w}x{actual_h}, 无帧)",
         }
 
-    is_gray = len(frame.shape) == 2
     frame_h, frame_w = frame.shape[:2]
 
-    score = 0
-    if frame_w == CAMERA_WIDTH and frame_h == CAMERA_HEIGHT:
-        score += 4
-    if is_gray:
-        score += 3
-    if device_id > 0:
-        score += 1
+    # 检测是否为灰度内容：三通道完全相等 → 灰度源（A1 SC132GS 特征）
+    if len(frame.shape) == 2:
+        is_grayscale = True
+    elif frame.shape[2] >= 3:
+        b, g, r = frame[:, :, 0], frame[:, :, 1], frame[:, :, 2]
+        is_grayscale = np.array_equal(b, g) and np.array_equal(g, r)
+    else:
+        is_grayscale = False
 
+    # 检测画面是否有内容（标准差 > 阈值 → 非空帧/非虚拟摄像头）
+    check = frame if len(frame.shape) == 2 else frame[:, :, 0]
+    has_content = float(np.std(check.astype(np.float32))) > 3.0
+
+    score = 0
+    if supports_gray_fourcc:
+        score += 8   # Aurora 以灰度源为主，优先支持灰度 FOURCC 的设备
+    if frame_w == CAMERA_WIDTH and frame_h == CAMERA_HEIGHT:
+        score += 6   # 传感器采集分辨率匹配
+    elif frame_w == 640 and frame_h == 360:
+        score += 2   # 次优分辨率
+    if frame_w == 360 and frame_h == 1280:
+        score += 5   # Aurora 日志中常见的竖屏灰度源尺寸
+    if frame_w == 720 and frame_h == 1280:
+        score += 4   # Aurora pipeline 运行中常见的灰度缓冲尺寸
+    if is_grayscale:
+        score += 8   # 灰度内容优先，尽量贴近 Aurora 的 gray source 行为
+    else:
+        score -= 4   # 彩色设备（常见内置/虚拟摄像头）降权
+    if has_content:
+        score += 2   # 非空帧 → 非虚拟摄像头
+    else:
+        score -= 6   # 空帧设备显著降权
+    if frame_w == CAMERA_WIDTH and frame_h == CAMERA_HEIGHT and (not is_grayscale) and (not supports_gray_fourcc):
+        score -= 3   # 1280x720 彩色且非 Y8，多为普通/虚拟摄像头
+
+    display_type = "灰度" if is_grayscale else "彩色"
     return {
         "id": device_id,
         "opened": True,
         "score": score,
         "actual_width": frame_w,
         "actual_height": frame_h,
-        "is_grayscale": is_gray,
-        "label": f"设备 {device_id} ({frame_w}x{frame_h}, {'灰度' if is_gray else '彩色'})",
+        "is_grayscale": is_grayscale,
+        "has_content": has_content,
+        "supports_gray_fourcc": supports_gray_fourcc,
+        "label": f"设备 {device_id} ({frame_w}x{frame_h}, {display_type}, {'Y8' if supports_gray_fourcc else '非Y8'})",
     }
 
 
@@ -130,10 +219,16 @@ def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
 
 def choose_camera_device(requested_device: int) -> tuple:
     """返回 (device_id, candidates)。requested_device=-1 时自动优先 A1。"""
-    candidates = list_camera_devices()
-
     if requested_device >= 0:
-        return requested_device, candidates
+        return requested_device, list_camera_devices()
+
+    preferred = load_preferred_device()
+    if preferred is not None:
+        preferred_info = probe_camera_device(preferred)
+        if preferred_info["opened"] and (preferred_info.get("has_content") or preferred_info.get("supports_gray_fourcc")):
+            return preferred, [preferred_info]
+
+    candidates = list_camera_devices()
 
     if not candidates:
         return 0, []
@@ -197,7 +292,7 @@ def open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
 def read_grayscale_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
     """读取一帧灰度图像
 
-    EVB 固件已更新，摄像头直接输出 640×360 Y8 灰度帧。
+    EVB 固件已更新，摄像头采集为 1280×720 灰度帧。
     如实际尺寸不符，执行缩放兜底（不旋转）。
     """
     ret, frame = cap.read()
@@ -234,7 +329,7 @@ def save_capture(frame: np.ndarray, fmt: str) -> str:
     target_w, target_h = CAPTURE_FORMATS[fmt]
 
     if fmt == "640x360":
-        # 摄像头原生 640×360，直接使用（crop_center 在尺寸相同时原样返回）
+        # 传感器 1280×720 -> 中心裁剪 640×360（保持 16:9）
         result = crop_center(frame, target_w, target_h)
     else:
         result = frame.copy()
@@ -807,6 +902,7 @@ def switch_camera():
         if not ok:
             raise RuntimeError("目标摄像头无法打开")
         device_id_global = new_device
+        save_preferred_device(new_device)
         _consecutive_failures = 0
         print(f"[INFO] 已切换到摄像头设备 {new_device}")
         return jsonify({"success": True, "device": new_device})
@@ -846,9 +942,24 @@ def main():
 
     print(f"[INFO] 正在连接 A1 摄像头 (设备 {selected_device})...")
     camera = open_camera(selected_device)
+    save_preferred_device(selected_device)
 
-    print(f"[INFO] Web 界面已启动: http://localhost:{args.port}")
-    print(f"[INFO] 快捷键: 1=1280x720  2=640x360  R=刷新摄像头")
+    url = f"http://localhost:{args.port}"
+
+    # 1.5 秒后自动打开浏览器（等 Flask 完成绑定）
+    def _open_browser():
+        time.sleep(1.5)
+        webbrowser.open_new_tab(url)
+    threading.Thread(target=_open_browser, daemon=True).start()
+
+    # 突出显示 Web 地址，避免被 Flask/驱动日志淹没
+    border = "=" * 54
+    print(f"\n{border}")
+    print(f"  Aurora Capture 已启动")
+    print(f"  Web 界面: {url}")
+    print(f"  快捷键:  1=1280x720  2=640x360  R=刷新  切换摄像头见下拉")
+    print(f"{border}\n")
+
     app.run(host=args.host, port=args.port, debug=False, threaded=True)
 
 

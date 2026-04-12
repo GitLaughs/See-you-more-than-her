@@ -7,6 +7,22 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# 强制 UTF-8，避免中文输出在不同终端编码下乱码
+try {
+    & chcp.com 65001 | Out-Null
+}
+catch {
+}
+$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[Console]::InputEncoding = $Utf8NoBom
+[Console]::OutputEncoding = $Utf8NoBom
+$OutputEncoding = $Utf8NoBom
+
+# 确保 Python 子进程也按 UTF-8 输出
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Set-Location $ScriptDir
