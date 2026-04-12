@@ -3,18 +3,18 @@
 Aurora Capture Tool — A1 开发板摄像头拍照工具
 
 通过 USB Type-C 连接 A1 开发板，接收 SC132GS 摄像头的灰度视频流。
-摄像头原始输出为 1280×720 灰度图 (Y8 格式)。
+摄像头原始输出为 640×360 灰度图 (Y8 格式，16:9)。
 
 功能:
   - 实时预览摄像头画面
-  - 拍照保存 1280×720 原始灰度图 (用于通用用途)
-  - 拍照保存 640×360 裁剪灰度图 (用于 YOLOv8 训练集)
+  - 拍照保存 640×360 原始灰度图 (摄像头原生分辨率，用于 YOLOv8 训练集)
   - Web 前端界面选择拍照格式
   - 摄像头断联自动检测与一键刷新恢复
 
 注意:
-  SC132GS 传感器实际输出为标准 16:9 的 1280×720 灰度图，
-  此工具的 640×360 裁剪模式用于制作 YOLO 训练数据集。
+  SC132GS 传感器输出 16:9 的 640×360 灰度图 (与 YOLOv8 模型输入匹配)。
+  若 EVB 固件未更新，摄像头可能以 YUYV 竖屏格式输出 360×1280，
+  此时工具会自动旋转 + 缩放到 640×360。
 
 用法:
   python aurora_capture.py [--device 0] [--output ../data/yolov8_dataset/raw/images]
@@ -34,15 +34,15 @@ import numpy as np
 from flask import Flask, Response, jsonify, render_template_string, request
 
 # ─── 摄像头参数 ───────────────────────────────────────────────────────────────
-# SC132GS 通过 USB Type-C 传输，实际输出标准 16:9 格式 1280×720 灰度 (Y8)
-CAMERA_WIDTH = 1280
-CAMERA_HEIGHT = 720
+# SC132GS 通过 USB Type-C 传输，输出 16:9 格式 640×360 灰度 (Y8)
+CAMERA_WIDTH = 640
+CAMERA_HEIGHT = 360
 CAMERA_FPS = 30
 
 # 拍照输出格式
 CAPTURE_FORMATS = {
-    "1280x720": (1280, 720),   # 原始灰度图
-    "640x360":  (640, 360),    # YOLOv8 训练集格式 (16:9 中心裁剪)
+    "640x360":  (640, 360),    # 原始灰度图 (摄像头原生输出, YOLOv8 训练集格式)
+    "1280x720": (1280, 720),   # 放大版 (2x 上采样，仅供参考)
 }
 
 app = Flask(__name__)
@@ -61,7 +61,7 @@ def open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
     """打开 A1 开发板摄像头 (SC132GS via USB Type-C)
 
     关键: 必须显式设置 FOURCC 为 GREY/Y800 以正确解析灰度格式,
-    否则 OpenCV 会按默认的 YUV/RGB 解析导致错误的比例和灰度。
+    否则 OpenCV 会按默认的 YUV/RGB 解析。摄像头目标分辨率为 640×360。
     """
     cap = cv2.VideoCapture(device_id, cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_V4L2)
     if not cap.isOpened():
@@ -114,27 +114,32 @@ def open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
 def read_grayscale_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
     """读取一帧灰度图像
 
-    确保输出为单通道 1280×720 灰度图, 无论摄像头驱动如何解析。
+    确保输出为单通道 640×360 灰度图，无论摄像头驱动如何解析。
+    EVB 固件更新后，摄像头直接输出 640×360 Y8；
+    固件未更新时，YUYV 竖屏 720×1280 经 DirectShow 汇报为 360(W)×1280(H)，
+    此时自动旋转 90° 并缩放到 640×360。
     """
     ret, frame = cap.read()
     if not ret:
         return None
 
-    # 如果读出来是彩色的, 转灰度
+    # 如果读出来是彩色的，转灰度
     if len(frame.shape) == 3:
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # 如果尺寸不对, 尝试从原始字节重新解析
-    if frame.shape[0] != CAMERA_HEIGHT or frame.shape[1] != CAMERA_WIDTH:
-        total_pixels = CAMERA_WIDTH * CAMERA_HEIGHT
-        raw = frame.flatten()
-        if raw.size >= total_pixels:
-            frame = raw[:total_pixels].reshape(CAMERA_HEIGHT, CAMERA_WIDTH)
-        else:
-            # 尺寸不够, resize
-            frame = cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
+    # 已是目标尺寸，直接返回
+    if frame.shape == (CAMERA_HEIGHT, CAMERA_WIDTH):
+        return frame
 
-    return frame
+    # 360(W)×1280(H) — SDK 未更新时的竖屏 YUYV 兼容帧格式
+    # 传感器竖屏 720(W)×1280(H)，YUYV 宏像素使 DirectShow 汇报宽度减半 → 360×1280
+    # 旋转 90° 顺时针：(H=1280, W=360) → (H=360, W=1280)，再缩放到 640×360
+    if frame.shape == (1280, 360):
+        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        return cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
+
+    # 通用兜底：直接缩放
+    return cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
 
 
 def crop_center(img: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
@@ -155,7 +160,7 @@ def save_capture(frame: np.ndarray, fmt: str) -> str:
     target_w, target_h = CAPTURE_FORMATS[fmt]
 
     if fmt == "640x360":
-        # 从 1280x720 中心裁剪为 640x360 (保持 16:9 比例)
+        # 摄像头原生 640×360，直接使用（crop_center 在尺寸相同时原样返回）
         result = crop_center(frame, target_w, target_h)
     else:
         result = frame.copy()
