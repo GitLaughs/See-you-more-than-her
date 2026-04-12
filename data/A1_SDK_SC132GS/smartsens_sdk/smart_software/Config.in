@@ -1,0 +1,8 @@
+# demo app
+menu "demos for add new pkgs"
+
+source "$BR2_EXTERNAL_SMART_SOFTWARE_PATH/package/m1_sdk_lib/Config.in"
+source "$BR2_EXTERNAL_SMART_SOFTWARE_PATH/package/ssne_ai_demo/Config.in"
+
+endmenu
+

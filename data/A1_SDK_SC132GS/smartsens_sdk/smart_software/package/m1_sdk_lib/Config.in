@@ -1,0 +1,4 @@
+config BR2_PACKAGE_M1_SDK_LIB
+    bool "m1 sdk lib"
+    help
+        This is m1 sdk lib with smarts1 external.

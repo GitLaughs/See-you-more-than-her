@@ -1,0 +1,17 @@
+config BR2_PACKAGE_SSNE_AI_DEMO
+    bool "SSNE_AI_DEMO test"
+    select BR2_PACKAGE_SSNE
+    help
+        SMARTSENS Neural Engine (SSNE) test app
+
+config BR2_PACKAGE_SSNE_AI_DEMO_APP
+    string "ai demo src path"
+    default "face_detection"
+    help
+        SMARTSENS ai app demo
+
+config BR2_M1_SDK_ROOT_PATH
+    string "ai demo LIB path"
+    default "src/app_demo/face_detection"
+    help
+        SMARTSENS ai app demo
