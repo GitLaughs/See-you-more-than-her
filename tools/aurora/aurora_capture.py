@@ -58,6 +58,7 @@ output_dir = None
 capture_count = 0
 _consecutive_failures = 0  # 连续读帧失败计数，用于触发自动重连
 _last_reconnect_time = 0.0
+_orientation_warned = False
 MAX_DEVICE_SCAN = 4
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
 
@@ -242,7 +243,7 @@ def open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
     """打开 A1 开发板摄像头 (SC132GS via USB Type-C)
 
     关键: 必须显式设置 FOURCC 为 GREY/Y800 以正确解析灰度格式,
-    否则 OpenCV 会按默认的 YUV/RGB 解析。摄像头目标分辨率为 640×360。
+    否则 OpenCV 会按默认的 YUV/RGB 解析。摄像头目标分辨率为 1280×720。
     """
     cap = _open_raw_camera(device_id)
 
@@ -292,9 +293,11 @@ def open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
 def read_grayscale_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
     """读取一帧灰度图像
 
-    EVB 固件已更新，摄像头采集为 1280×720 灰度帧。
-    如实际尺寸不符，执行缩放兜底（不旋转）。
+    摄像头标准输出为 1280×720。
+    若遇到旧 EVB/SDK 的竖屏缓冲（如 360×1280 / 720×1280），先自动旋转再兜底缩放。
     """
+    global _orientation_warned
+
     ret, frame = cap.read()
     if not ret:
         return None
@@ -303,12 +306,22 @@ def read_grayscale_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
     if len(frame.shape) == 3:
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
+    src_h, src_w = frame.shape[:2]
+    corrected = frame
+
+    if src_h > src_w:
+        corrected = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        if not _orientation_warned:
+            dst_h, dst_w = corrected.shape[:2]
+            print(f"[WARN] 检测到竖屏帧 {src_w}x{src_h}，已自动旋转为 {dst_w}x{dst_h}。建议升级 EVB/SDK 以输出原生 1280x720。")
+            _orientation_warned = True
+
     # 已是目标尺寸，直接返回
-    if frame.shape == (CAMERA_HEIGHT, CAMERA_WIDTH):
-        return frame
+    if corrected.shape == (CAMERA_HEIGHT, CAMERA_WIDTH):
+        return corrected
 
     # 通用兜底：直接缩放
-    return cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
+    return cv2.resize(corrected, (CAMERA_WIDTH, CAMERA_HEIGHT))
 
 
 def crop_center(img: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
