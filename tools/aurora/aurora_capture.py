@@ -27,6 +27,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -47,7 +48,7 @@ CAPTURE_FORMATS = {
 app = Flask(__name__)
 
 # ─── 全局状态 ─────────────────────────────────────────────────────────────────
-camera = None
+camera: Optional[cv2.VideoCapture] = None
 camera_lock = threading.Lock()
 device_id_global = 0
 output_dir = None
@@ -56,7 +57,7 @@ _consecutive_failures = 0  # 连续读帧失败计数，用于触发自动重连
 _last_reconnect_time = 0.0
 
 
-def open_camera(device_id: int) -> cv2.VideoCapture:
+def open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
     """打开 A1 开发板摄像头 (SC132GS via USB Type-C)
 
     关键: 必须显式设置 FOURCC 为 GREY/Y800 以正确解析灰度格式,
@@ -110,7 +111,7 @@ def open_camera(device_id: int) -> cv2.VideoCapture:
     return cap
 
 
-def read_grayscale_frame(cap: cv2.VideoCapture) -> np.ndarray | None:
+def read_grayscale_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
     """读取一帧灰度图像
 
     确保输出为单通道 1280×720 灰度图, 无论摄像头驱动如何解析。

@@ -23,10 +23,11 @@ import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import cv2
 import numpy as np
-from flask import Flask, Response, jsonify, render_template_string, request
+from flask import Flask, Response, jsonify, render_template, request
 
 # ─── 摄像头参数 ───────────────────────────────────────────────────────────────
 CAMERA_WIDTH = 1280
@@ -38,10 +39,16 @@ CAPTURE_FORMATS = {
     "640x360":  (640,  360),   # YOLOv8 训练集（16:9 中心裁剪）
 }
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates")
+try:
+    from chassis_comm import chassis_bp
+    app.register_blueprint(chassis_bp)
+    print("[INFO] 底盘通信模块已加载")
+except ImportError:
+    print("[WARN] chassis_comm 未找到，底盘功能不可用")
 
 # ─── 全局状态 ─────────────────────────────────────────────────────────────────
-camera: cv2.VideoCapture | None = None
+camera: Optional[cv2.VideoCapture] = None
 camera_lock = threading.Lock()
 device_id_global = 0
 output_dir: str = ""
@@ -58,7 +65,7 @@ _last_reconnect = 0.0
 
 # ─── 摄像头操作 ───────────────────────────────────────────────────────────────
 
-def _try_open(device_id: int) -> cv2.VideoCapture | None:
+def _try_open(device_id: int) -> Optional[cv2.VideoCapture]:
     apis = [cv2.CAP_DSHOW] if sys.platform == "win32" else [cv2.CAP_V4L2]
     for api in apis + [cv2.CAP_ANY]:
         cap = cv2.VideoCapture(device_id, api)
@@ -81,7 +88,7 @@ def _try_open(device_id: int) -> cv2.VideoCapture | None:
     return cap
 
 
-def _read_gray(cap: cv2.VideoCapture) -> np.ndarray | None:
+def _read_gray(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
     ret, frame = cap.read()
     if not ret:
         return None
@@ -207,415 +214,11 @@ def generate_frames():
                + buf.tobytes() + b"\r\n")
 
 
-# ─── HTML 模板 ────────────────────────────────────────────────────────────────
-
-HTML = r"""
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Aurora Companion</title>
-<style>
-:root {
-  --bg:        #0d1117;
-  --surface:   #161b22;
-  --border:    #30363d;
-  --muted:     #8b949e;
-  --text:      #e6edf3;
-  --blue:      #58a6ff;
-  --green:     #3fb950;
-  --purple:    #a371f7;
-  --red:       #f85149;
-  --amber:     #d29922;
-  --radius:    10px;
-}
-*{margin:0;padding:0;box-sizing:border-box;}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;flex-direction:column;}
-
-/* ── Topbar ─────────────────────────────────── */
-.topbar{
-  background:linear-gradient(90deg,#161b22,#1c2128);
-  border-bottom:1px solid var(--border);
-  padding:10px 24px;
-  display:flex;align-items:center;justify-content:space-between;
-  box-shadow:0 2px 16px rgba(0,0,0,.5);
-  position:sticky;top:0;z-index:100;
-}
-.logo{display:flex;align-items:center;gap:10px;}
-.logo-icon{
-  width:32px;height:32px;border-radius:8px;
-  background:linear-gradient(135deg,var(--blue),var(--purple));
-  display:flex;align-items:center;justify-content:center;font-size:16px;
-}
-.logo-text{font-size:1.15em;font-weight:700;
-  background:linear-gradient(90deg,var(--blue),var(--purple));
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;}
-.logo-sub{font-size:.72em;color:var(--muted);margin-left:2px;border-left:1px solid var(--border);padding-left:10px;}
-.status-badge{
-  display:flex;align-items:center;gap:7px;
-  padding:5px 14px;border-radius:20px;
-  border:1px solid var(--border);background:var(--bg);
-  font-size:.83em;
-}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:blink 2s ease-in-out infinite;}
-.dot.off{background:var(--red);animation:none;}
-@keyframes blink{0%,100%{opacity:1;}50%{opacity:.3;}}
-
-/* ── Layout ─────────────────────────────────── */
-.workspace{display:grid;grid-template-columns:1fr 320px;gap:14px;padding:14px;flex:1;}
-
-/* ── Cards ──────────────────────────────────── */
-.card{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:var(--radius);overflow:hidden;
-}
-.card-head{
-  padding:9px 16px;border-bottom:1px solid var(--border);
-  display:flex;align-items:center;justify-content:space-between;
-  font-size:.78em;font-weight:600;color:var(--muted);
-  text-transform:uppercase;letter-spacing:.06em;
-}
-.card-body{padding:14px;}
-
-/* ── Preview ─────────────────────────────────── */
-.preview-wrap{position:relative;background:#000;line-height:0;}
-.preview-wrap img{width:100%;display:block;}
-.preview-chip{
-  position:absolute;top:8px;left:8px;
-  background:rgba(13,17,23,.75);backdrop-filter:blur(4px);
-  border:1px solid var(--border);
-  border-radius:6px;padding:3px 10px;font-size:.72em;font-family:monospace;
-  color:var(--green);
-}
-.preview-fps{
-  position:absolute;top:8px;right:8px;
-  background:rgba(13,17,23,.75);backdrop-filter:blur(4px);
-  border:1px solid var(--border);
-  border-radius:6px;padding:3px 10px;font-size:.72em;font-family:monospace;
-  color:var(--muted);
-}
-
-/* ── Sidebar ─────────────────────────────────── */
-.sidebar{display:flex;flex-direction:column;gap:12px;}
-
-/* counter */
-.counter-box{text-align:center;padding:18px 0 10px;}
-.counter-num{
-  font-size:3.4em;font-weight:800;line-height:1;
-  background:linear-gradient(135deg,var(--blue),var(--purple));
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-}
-.counter-lbl{font-size:.72em;color:var(--muted);margin-top:4px;}
-
-/* buttons */
-.btn{
-  width:100%;padding:11px 14px;margin-bottom:6px;
-  border:1px solid transparent;border-radius:8px;
-  font-size:.92em;font-weight:600;cursor:pointer;
-  display:flex;align-items:center;gap:10px;
-  transition:transform .12s,box-shadow .12s,background .12s;
-}
-.btn:active{transform:scale(.98);}
-.btn-label{display:flex;flex-direction:column;align-items:flex-start;}
-.btn small{font-weight:400;font-size:.76em;color:rgba(255,255,255,.55);margin-top:1px;}
-.btn-icon{font-size:1.3em;flex-shrink:0;}
-
-.btn-blue{background:linear-gradient(135deg,#1f6feb,#388bfd);color:#fff;border-color:#1f6feb;}
-.btn-blue:hover{background:linear-gradient(135deg,#388bfd,var(--blue));box-shadow:0 4px 14px rgba(56,139,253,.4);}
-
-.btn-green{background:linear-gradient(135deg,#238636,#2ea043);color:#fff;border-color:#238636;}
-.btn-green:hover{background:linear-gradient(135deg,#2ea043,var(--green));box-shadow:0 4px 14px rgba(46,160,67,.4);}
-
-.btn-ghost{background:transparent;color:var(--muted);border-color:var(--border);}
-.btn-ghost:hover{background:#21262d;color:var(--text);border-color:var(--blue);}
-.btn-ghost:disabled{opacity:.5;cursor:not-allowed;}
-
-.spin-icon{display:inline-block;}
-.spinning .spin-icon{animation:spin .8s linear infinite;}
-@keyframes spin{to{transform:rotate(360deg);}}
-
-/* divider */
-.divider{height:1px;background:var(--border);margin:8px 0;}
-
-/* info table */
-.info-tbl{width:100%;font-size:.8em;border-collapse:collapse;}
-.info-tbl td{padding:4px 0;vertical-align:top;}
-.info-tbl td:first-child{color:var(--muted);width:80px;white-space:nowrap;}
-.info-tbl td:last-child{color:var(--text);word-break:break-all;}
-
-/* kbd shortcuts */
-.shortcut-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center;}
-.kbd{
-  background:#21262d;border:1px solid var(--border);
-  border-radius:4px;padding:2px 7px;
-  font-size:.73em;font-family:monospace;color:var(--muted);
-}
-.shortcut-row span{font-size:.73em;color:var(--muted);}
-
-/* gallery */
-.gallery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
-.gallery-item{
-  position:relative;border-radius:5px;overflow:hidden;
-  background:#000;cursor:pointer;
-  border:1px solid var(--border);
-  transition:border-color .15s;
-}
-.gallery-item:hover{border-color:var(--blue);}
-.gallery-item img{width:100%;display:block;}
-.gallery-item .gallery-lbl{
-  position:absolute;bottom:0;left:0;right:0;
-  background:rgba(0,0,0,.65);
-  font-size:.58em;color:var(--muted);
-  padding:2px 4px;text-align:center;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-}
-.gallery-empty{
-  grid-column:1/-1;text-align:center;
-  color:var(--muted);font-size:.82em;padding:18px 0;
-}
-
-/* toast */
-.toast{
-  position:fixed;bottom:22px;right:22px;
-  padding:10px 18px;border-radius:8px;
-  font-size:.88em;font-weight:600;
-  opacity:0;transform:translateY(6px);
-  transition:all .22s;z-index:999;
-  box-shadow:0 4px 20px rgba(0,0,0,.5);
-  max-width:360px;pointer-events:none;
-}
-.toast.show{opacity:1;transform:translateY(0);}
-.toast-ok{background:#238636;color:#fff;}
-.toast-err{background:#da3633;color:#fff;}
-.toast-info{background:#1f6feb;color:#fff;}
-</style>
-</head>
-<body>
-
-<!-- Topbar -->
-<div class="topbar">
-  <div class="logo">
-    <div class="logo-icon">⚡</div>
-    <span class="logo-text">Aurora Companion</span>
-    <span class="logo-sub">SC132GS · 1280×720</span>
-  </div>
-  <div class="status-badge">
-    <div class="dot" id="dot"></div>
-    <span id="statusTxt">连接中...</span>
-  </div>
-</div>
-
-<!-- Main workspace -->
-<div class="workspace">
-
-  <!-- Left: Preview -->
-  <div style="display:flex;flex-direction:column;gap:12px;">
-    <div class="card">
-      <div class="card-head">
-        <span>实时预览</span>
-        <span style="color:var(--green);font-size:.9em" id="resTag">1280 × 720</span>
-      </div>
-      <div class="preview-wrap">
-        <img id="stream" src="/video_feed" alt="camera preview"
-             onload="onStreamOk()" onerror="onStreamErr()">
-        <div class="preview-chip">SC132GS · Gray</div>
-        <div class="preview-fps" id="fpsChip">— fps</div>
-      </div>
-    </div>
-
-    <!-- Gallery -->
-    <div class="card">
-      <div class="card-head">
-        <span>最近拍摄</span>
-        <span id="galleryCount" style="color:var(--muted)">0 / 8</span>
-      </div>
-      <div class="card-body">
-        <div class="gallery-grid" id="gallery">
-          <div class="gallery-empty">暂无拍摄记录</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Right: Sidebar controls -->
-  <div class="sidebar">
-
-    <div class="card">
-      <div class="card-head">拍照控制</div>
-      <div class="card-body">
-        <div class="counter-box">
-          <div class="counter-num" id="counter">0</div>
-          <div class="counter-lbl">已拍摄张数</div>
-        </div>
-        <button class="btn btn-blue" onclick="capture('1280x720')">
-          <span class="btn-icon">📷</span>
-          <span class="btn-label">
-            拍照 1280×720
-            <small>原始全分辨率灰度图</small>
-          </span>
-        </button>
-        <button class="btn btn-green" onclick="capture('640x360')">
-          <span class="btn-icon">🏹</span>
-          <span class="btn-label">
-            拍照 640×360
-            <small>YOLOv8 训练集 · 16:9 中心裁剪</small>
-          </span>
-        </button>
-        <div class="divider"></div>
-        <button class="btn btn-ghost" id="refreshBtn" onclick="refreshCam()">
-          <span class="btn-icon spin-icon" id="refreshIcon">🔄</span>
-          <span class="btn-label">
-            刷新摄像头
-            <small>断联后点此恢复连接</small>
-          </span>
-        </button>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">设备信息</div>
-      <div class="card-body">
-        <table class="info-tbl">
-          <tr><td>传感器</td><td>SC132GS (USB-C)</td></tr>
-          <tr><td>原始分辨率</td><td>1280 × 720 灰度</td></tr>
-          <tr><td>训练裁剪</td><td>640 × 360（16:9 中心）</td></tr>
-          <tr><td>输出格式</td><td>PNG 8-bit 灰度</td></tr>
-          <tr><td>输出目录</td><td>{{ output_dir }}</td></tr>
-        </table>
-        <div class="divider"></div>
-        <div class="shortcut-row">
-          <kbd class="kbd">1</kbd><span>→ 1280×720</span>
-          &nbsp;
-          <kbd class="kbd">2</kbd><span>→ 640×360</span>
-          &nbsp;
-          <kbd class="kbd">R</kbd><span>→ 刷新</span>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</div>
-
-<div class="toast" id="toast"></div>
-
-<script>
-/* ── state ────────────────────────────────────── */
-let captureCount = 0;
-let toastTimer   = null;
-
-/* ── stream events ───────────────────────────── */
-function onStreamOk() { setConnected(true); }
-function onStreamErr() { setConnected(false); }
-
-function setConnected(ok) {
-  document.getElementById('dot').className = 'dot' + (ok ? '' : ' off');
-  document.getElementById('statusTxt').textContent = ok ? '实时预览中' : '摄像头未连接';
-}
-
-/* ── capture ─────────────────────────────────── */
-function capture(fmt) {
-  fetch('/capture', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({format: fmt})
-  })
-  .then(r => r.json())
-  .then(d => {
-    if (d.success) {
-      captureCount++;
-      document.getElementById('counter').textContent = captureCount;
-      toast('✓ 已保存: ' + d.filename, 'ok');
-      fetchGallery();
-    } else {
-      toast('✗ 拍照失败: ' + d.error, 'err');
-    }
-  })
-  .catch(e => toast('✗ 请求失败: ' + e, 'err'));
-}
-
-/* ── refresh camera ──────────────────────────── */
-function refreshCam() {
-  const btn  = document.getElementById('refreshBtn');
-  const icon = document.getElementById('refreshIcon');
-  btn.disabled = true;
-  btn.classList.add('spinning');
-  fetch('/refresh_camera', {method: 'POST'})
-  .then(r => r.json())
-  .then(d => {
-    if (d.success) {
-      toast('✓ 摄像头已刷新', 'ok');
-      const img = document.getElementById('stream');
-      img.src = '/video_feed?' + Date.now();
-      setConnected(true);
-    } else {
-      toast('✗ ' + d.error, 'err');
-    }
-  })
-  .catch(e => toast('✗ 刷新失败: ' + e, 'err'))
-  .finally(() => {
-    btn.disabled = false;
-    btn.classList.remove('spinning');
-  });
-}
-
-/* ── gallery ─────────────────────────────────── */
-function fetchGallery() {
-  fetch('/recent_captures')
-  .then(r => r.json())
-  .then(items => {
-    const g = document.getElementById('gallery');
-    document.getElementById('galleryCount').textContent =
-      items.length + ' / 8';
-    if (!items.length) {
-      g.innerHTML = '<div class="gallery-empty">暂无拍摄记录</div>';
-      return;
-    }
-    g.innerHTML = items.map(it => `
-      <div class="gallery-item" title="${it.filename}">
-        <img src="data:image/jpeg;base64,${it.thumb}" alt="${it.filename}">
-        <div class="gallery-lbl">${it.time} · ${it.size}</div>
-      </div>`).join('');
-  }).catch(() => {});
-}
-
-/* ── status poll ─────────────────────────────── */
-setInterval(() => {
-  fetch('/status').then(r => r.json()).then(d => {
-    setConnected(d.connected);
-    document.getElementById('fpsChip').textContent =
-      d.fps != null ? d.fps.toFixed(1) + ' fps' : '— fps';
-  }).catch(() => {});
-}, 2000);
-
-/* ── keyboard ────────────────────────────────── */
-document.addEventListener('keydown', e => {
-  const tag = document.activeElement.tagName.toLowerCase();
-  if (tag === 'input' || tag === 'textarea') return;
-  if (e.key === '1') capture('1280x720');
-  if (e.key === '2') capture('640x360');
-  if (e.key === 'r' || e.key === 'R') refreshCam();
-});
-
-/* ── toast ───────────────────────────────────── */
-function toast(msg, type = 'ok') {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.className = 'toast show toast-' + type;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
-}
-</script>
-</body>
-</html>
-"""
-
-
 # ─── Flask 路由 ───────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
-    return render_template_string(HTML, output_dir=output_dir)
+    return render_template("companion_ui.html", output_dir=output_dir)
 
 
 @app.route("/video_feed")

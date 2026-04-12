@@ -15,7 +15,8 @@ tools/aurora/modules/__pycache__/
 
 # Local editor / IDE
 .vscode/
-.vscode/settings.json
+# 保留团队共享的编辑器设置（markdown 报错屏蔽等）
+!.vscode/settings.json
 
 # Vendor / hardware dumps and binaries
 WHEELTEC_C50X_2025.12.26/
