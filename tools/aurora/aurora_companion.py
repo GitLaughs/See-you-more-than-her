@@ -27,9 +27,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
+import concurrent.futures
+
 import cv2
 import numpy as np
 from flask import Flask, Response, jsonify, render_template, request
+
+# 可选：onnxruntime（用于 YOLOv8 检测流）
+try:
+    import onnxruntime as ort
+    _ORT_AVAILABLE = True
+except ImportError:
+    _ORT_AVAILABLE = False
 
 # ─── 摄像头参数 ───────────────────────────────────────────────────────────────
 # SC132GS 传感器采集为 1280×720 灰度帧
@@ -67,6 +76,18 @@ _last_reconnect = 0.0
 _orientation_warned = False
 MAX_DEVICE_SCAN = 5
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
+
+# ─── YOLOv8 检测器（PC 端 ONNX 推理）────────────────────────────────────────
+_DETECT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "best_head6.onnx"
+_DETECT_CONF = 0.4
+_DETECT_NMS = 0.45
+_DETECT_NUM_CLASSES = 4
+_DETECT_REG_BINS = 16
+_DETECT_TOP_K = 30
+_ort_session = None
+_ort_session_lock = threading.Lock()
+_CLASS_NAMES = {0: "class0", 1: "class1", 2: "class2", 3: "class3"}
+_CLASS_COLORS = [(0, 200, 80), (80, 140, 255), (255, 160, 50), (255, 80, 80)]
 
 
 # ─── 摄像头操作 ───────────────────────────────────────────────────────────────
@@ -212,12 +233,10 @@ def probe_camera_device(device_id: int) -> dict:
 
 
 def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
-    devices = []
-    for i in range(max_scan):
-        info = probe_camera_device(i)
-        if info["opened"]:
-            devices.append(info)
-    return devices
+    """并行探测所有摄像头设备，避免串行扫描带来的长启动延迟。"""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_scan) as ex:
+        results = list(ex.map(probe_camera_device, range(max_scan)))
+    return [r for r in results if r["opened"]]
 
 
 def choose_camera_device(requested_device: int) -> Tuple[int, list]:
@@ -251,6 +270,7 @@ def _try_open(device_id: int) -> Optional[cv2.VideoCapture]:
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS,          CAMERA_FPS)
     cap.set(cv2.CAP_PROP_CONVERT_RGB,  0)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE,   1)   # 减少缓冲，降低切换后首帧延迟
 
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -297,6 +317,146 @@ def crop_center(img: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
     return img[y_start:y_start + target_h, x_start:x_start + target_w]
 
 
+# ─── YOLOv8 推理（移植自 aurora_capture.py）──────────────────────────────────
+
+def _load_ort_session():
+    """懒加载 ONNX 推理会话（线程安全）。"""
+    global _ort_session
+    if not _ORT_AVAILABLE:
+        return None
+    if not _DETECT_MODEL_PATH.exists():
+        print(f"[WARN] YOLOv8 ONNX 模型不存在: {_DETECT_MODEL_PATH}")
+        return None
+    with _ort_session_lock:
+        if _ort_session is None:
+            try:
+                opts = ort.SessionOptions()
+                opts.inter_op_num_threads = 2
+                opts.intra_op_num_threads = 2
+                _ort_session = ort.InferenceSession(
+                    str(_DETECT_MODEL_PATH),
+                    sess_options=opts,
+                    providers=["CPUExecutionProvider"],
+                )
+                print(f"[INFO] YOLOv8 ONNX 模型已加载: {_DETECT_MODEL_PATH.name}")
+            except Exception as e:
+                print(f"[ERROR] 加载 ONNX 失败: {e}")
+                return None
+    return _ort_session
+
+
+def _letterbox(img_gray: np.ndarray, target: int = 640):
+    """灰度图 letterbox 到 target×target，返回 (padded_gray, scale, pad_x, pad_y)。"""
+    h, w = img_gray.shape
+    scale = target / max(h, w)
+    new_w = int(round(w * scale))
+    new_h = int(round(h * scale))
+    resized = cv2.resize(img_gray, (new_w, new_h))
+    canvas = np.zeros((target, target), dtype=np.uint8)
+    pad_y = (target - new_h) // 2
+    pad_x = (target - new_w) // 2
+    canvas[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = resized
+    return canvas, scale, pad_x, pad_y
+
+
+def _decode_yolov8(cls_outs, reg_outs,
+                   conf_thr=_DETECT_CONF, nms_thr=_DETECT_NMS):
+    """head6 模型后处理：DFL decode + NMS。返回 [(box, score, cls_id)]。"""
+    strides = [8, 16, 32]
+    bins_arr = np.arange(_DETECT_REG_BINS, dtype=np.float32)
+    all_boxes, all_scores, all_cls = [], [], []
+
+    for i, (cls_out, reg_out) in enumerate(zip(cls_outs, reg_outs)):
+        stride = strides[i]
+        H, W = cls_out.shape[2], cls_out.shape[3]
+        cls = np.transpose(cls_out[0], (1, 2, 0))
+        cls = 1.0 / (1.0 + np.exp(-cls.astype(np.float32)))
+        best_scores = cls.max(axis=2)
+        best_cls = cls.argmax(axis=2)
+        ys, xs = np.where(best_scores >= conf_thr)
+        if len(ys) == 0:
+            continue
+        reg = np.transpose(reg_out[0], (1, 2, 0))
+        reg_sel = reg[ys, xs].reshape(-1, 4, _DETECT_REG_BINS).astype(np.float32)
+        reg_sel -= reg_sel.max(axis=2, keepdims=True)
+        reg_sel = np.exp(reg_sel)
+        reg_sel /= reg_sel.sum(axis=2, keepdims=True)
+        dist = (reg_sel * bins_arr).sum(axis=2)
+        ax = xs.astype(np.float32) + 0.5
+        ay = ys.astype(np.float32) + 0.5
+        x1 = (ax - dist[:, 0]) * stride
+        y1 = (ay - dist[:, 1]) * stride
+        x2 = (ax + dist[:, 2]) * stride
+        y2 = (ay + dist[:, 3]) * stride
+        all_boxes.append(np.stack([x1, y1, x2, y2], axis=1))
+        all_scores.append(best_scores[ys, xs])
+        all_cls.append(best_cls[ys, xs])
+
+    if not all_boxes:
+        return []
+
+    boxes = np.concatenate(all_boxes, axis=0).astype(np.float32)
+    scores = np.concatenate(all_scores).astype(np.float32)
+    cls_ids = np.concatenate(all_cls).astype(np.int32)
+
+    order = np.argsort(scores)[::-1][:200]
+    suppressed = np.zeros(len(order), dtype=bool)
+    keep = []
+    for i, idx in enumerate(order):
+        if suppressed[i]:
+            continue
+        keep.append(idx)
+        if len(keep) >= _DETECT_TOP_K:
+            break
+        b1 = boxes[idx]
+        for j in range(i + 1, len(order)):
+            if suppressed[j]:
+                continue
+            jdx = order[j]
+            if cls_ids[idx] != cls_ids[jdx]:
+                continue
+            b2 = boxes[jdx]
+            ix1, iy1 = max(b1[0], b2[0]), max(b1[1], b2[1])
+            ix2, iy2 = min(b1[2], b2[2]), min(b1[3], b2[3])
+            inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+            a1 = (b1[2] - b1[0]) * (b1[3] - b1[1])
+            a2 = (b2[2] - b2[0]) * (b2[3] - b2[1])
+            union = a1 + a2 - inter
+            if union > 0 and inter / union > nms_thr:
+                suppressed[j] = True
+
+    return [(boxes[idx], float(scores[idx]), int(cls_ids[idx])) for idx in keep]
+
+
+def detect_on_frame(frame_gray: np.ndarray):
+    """对灰度帧运行 YOLOv8 推理，返回 [(x1,y1,x2,y2,score,cls_id)]（1280×720 坐标系）。"""
+    sess = _load_ort_session()
+    if sess is None:
+        return []
+
+    h, w = frame_gray.shape
+    lb, scale, pad_x, pad_y = _letterbox(frame_gray, 640)
+    rgb3 = cv2.cvtColor(lb, cv2.COLOR_GRAY2RGB).astype(np.float32) / 255.0
+    inp = np.transpose(rgb3, (2, 0, 1))[np.newaxis]
+
+    output_names = [o.name for o in sess.get_outputs()]
+    outputs = sess.run(output_names, {sess.get_inputs()[0].name: inp})
+
+    # head6 输出顺序：cv3.0 cv3.1 cv3.2 cv2.0 cv2.1 cv2.2
+    cls_outs = outputs[:3]
+    reg_outs = outputs[3:]
+    detections = _decode_yolov8(cls_outs, reg_outs)
+
+    results = []
+    for box, score, cls_id in detections:
+        x1 = max(0.0, (box[0] - pad_x) / scale)
+        y1 = max(0.0, (box[1] - pad_y) / scale)
+        x2 = min(float(w), (box[2] - pad_x) / scale)
+        y2 = min(float(h), (box[3] - pad_y) / scale)
+        results.append((x1, y1, x2, y2, score, cls_id))
+    return results
+
+
 def _save_capture(frame: np.ndarray, fmt: str) -> dict:
     global capture_count
     tw, th = CAPTURE_FORMATS[fmt]
@@ -336,9 +496,12 @@ def _save_capture(frame: np.ndarray, fmt: str) -> dict:
 
 # ─── 视频流 ───────────────────────────────────────────────────────────────────
 
+_reconnect_in_progress = False  # 防止重入
+
+
 def generate_frames():
     global camera, current_fps, _frame_count, _fps_ts
-    global camera_connected, _fail_streak, _last_reconnect
+    global camera_connected, _fail_streak, _last_reconnect, _reconnect_in_progress
 
     FAIL_THRESH      = 10
     RECONNECT_GAP    = 3.0
@@ -354,28 +517,39 @@ def generate_frames():
             _fail_streak += 1
             now = time.time()
             if (_fail_streak >= FAIL_THRESH
-                    and now - _last_reconnect > RECONNECT_GAP):
+                    and now - _last_reconnect > RECONNECT_GAP
+                    and not _reconnect_in_progress):
                 _last_reconnect = now
                 _fail_streak = 0
-                print("[INFO] 自动重连摄像头...")
-                with camera_lock:
-                    if camera:
-                        camera.release()
-                    camera = _try_open(device_id_global)
-                if camera:
-                    print("[INFO] 摄像头自动重连成功")
-                    camera_connected = True
+                _reconnect_in_progress = True
+                print("[INFO] 自动重连摄像头（后台线程）...")
+
+                def _bg_reconnect():
+                    global camera, camera_connected, _reconnect_in_progress
+                    new_cap = _try_open(device_id_global)
+                    with camera_lock:
+                        old = camera
+                        camera = new_cap
+                    if old:
+                        old.release()
+                    if new_cap:
+                        print("[INFO] 摄像头自动重连成功")
+                        camera_connected = True
+                    _reconnect_in_progress = False
+
+                threading.Thread(target=_bg_reconnect, daemon=True).start()
 
             # 占位黑帧
             blk = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH), dtype=np.uint8)
-            cv2.putText(blk, "No Signal  —  Reconnecting...",
+            msg = "Reconnecting..." if _reconnect_in_progress else "No Signal  —  Reconnecting..."
+            cv2.putText(blk, msg,
                         (CAMERA_WIDTH // 2 - 200, CAMERA_HEIGHT // 2),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.9, (60, 60, 60), 2)
             disp = cv2.cvtColor(blk, cv2.COLOR_GRAY2BGR)
             _, buf = cv2.imencode(".jpg", disp, [cv2.IMWRITE_JPEG_QUALITY, 50])
             yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
                    + buf.tobytes() + b"\r\n")
-            time.sleep(0.35)
+            time.sleep(0.1)
             continue
 
         camera_connected = True
@@ -409,6 +583,44 @@ def generate_frames():
                + buf.tobytes() + b"\r\n")
 
 
+def _generate_detect_frames():
+    """YOLOv8+OSD 检测视频流（MJPEG）。"""
+    while True:
+        with camera_lock:
+            cap = camera
+        frame = _read_gray(cap) if cap else None
+
+        if frame is None:
+            blk = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH, 3), dtype=np.uint8)
+            cv2.putText(blk, "No Signal", (CAMERA_WIDTH // 2 - 80, CAMERA_HEIGHT // 2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (60, 60, 60), 2)
+            _, buf = cv2.imencode(".jpg", blk, [cv2.IMWRITE_JPEG_QUALITY, 50])
+            yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n")
+            time.sleep(0.5)
+            continue
+
+        detections = detect_on_frame(frame)
+        display = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+
+        for (x1, y1, x2, y2, score, cls_id) in detections:
+            color = _CLASS_COLORS[cls_id % len(_CLASS_COLORS)]
+            name = _CLASS_NAMES.get(cls_id, f"cls{cls_id}")
+            cv2.rectangle(display, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+            label = f"{name} {score:.2f}"
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            ty = max(int(y1) - 4, th + 4)
+            cv2.rectangle(display, (int(x1), ty - th - 4), (int(x1) + tw + 4, ty), color, -1)
+            cv2.putText(display, label, (int(x1) + 2, ty - 2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
+        n = len(detections)
+        cv2.putText(display, f"Det: {n}  conf>={_DETECT_CONF:.2f}", (8, 28),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 80), 2)
+
+        _, buf = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 75])
+        yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n")
+
+
 # ─── Flask 路由 ───────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -420,6 +632,26 @@ def index():
 def video_feed():
     return Response(generate_frames(),
                     mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.route("/detect_feed")
+def detect_feed():
+    return Response(_generate_detect_frames(),
+                    mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.route("/detect_status")
+def detect_status():
+    model_exists = _DETECT_MODEL_PATH.exists()
+    return jsonify({
+        "ort_available": _ORT_AVAILABLE,
+        "model_exists": model_exists,
+        "model_path": str(_DETECT_MODEL_PATH),
+        "model_loaded": _ort_session is not None,
+        "num_classes": _DETECT_NUM_CLASSES,
+        "conf_threshold": _DETECT_CONF,
+        "model_name": _DETECT_MODEL_PATH.name,
+    })
 
 
 @app.route("/capture", methods=["POST"])
@@ -440,11 +672,14 @@ def do_capture():
 @app.route("/refresh_camera", methods=["POST"])
 def refresh_camera():
     global camera, _fail_streak
+    # 在锁外打开新摄像头，避免阻塞视频流生成器
+    new_cam = _try_open(device_id_global)
+    ok = new_cam is not None
     with camera_lock:
-        if camera:
-            camera.release()
-        camera = _try_open(device_id_global)
-        ok = camera is not None and camera.isOpened()
+        old_cam = camera
+        camera = new_cam if ok else None
+    if old_cam:
+        old_cam.release()
     _fail_streak = 0
     if ok:
         print("[INFO] 摄像头手动刷新成功")
@@ -486,16 +721,17 @@ def switch_camera():
     except (TypeError, ValueError):
         return jsonify({"success": False, "error": "device 必须是整数"})
 
+    # 在锁外打开新摄像头，避免阻塞视频流生成器（关键修复）
+    new_camera = _try_open(new_device)
+    if new_camera is None:
+        return jsonify({"success": False, "error": "目标摄像头无法打开"})
+
     with camera_lock:
         old_camera = camera
-        new_camera = _try_open(new_device)
-        if new_camera is None:
-            return jsonify({"success": False, "error": "目标摄像头无法打开"})
-
         camera = new_camera
         device_id_global = new_device
-        if old_camera:
-            old_camera.release()
+    if old_camera:
+        old_camera.release()
 
     _fail_streak = 0
     camera_connected = True
