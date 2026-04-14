@@ -16,15 +16,20 @@
 
 ## 仓库结构
 
+> **注意**：`output/` 目录受 `.gitignore` 排除，不会进入版本库。EVB 固件产物（`ssne_ai_demo`、`zImage`）需在本地运行构建脚本生成，详见[协作与代码同步](#协作与代码同步)。
+
 ```text
 ├── data/
 │   ├── A1_SDK_SC132GS/          # SmartSens SDK（Buildroot + NPU 工具链）
 │   └── yolov8_dataset/          # YOLOv8 训练数据集模板
 ├── docker/                      # Docker 编译环境（a1-sdk-builder）
 ├── docs/                        # 开发文档
-├── models/                      # 模型文件（.m1model）
-├── output/                      # 编译产物（EVB 固件）
-├── scripts/                     # 构建脚本
+├── models/                      # 模型文件（.onnx / .m1model，已纳入版本库）
+├── output/                      # ⚠ gitignored — 编译产物，不在版本库中
+│   └── evb/<YYYYMMDD_HHMMSS>/   #   每次构建的带时间戳产物目录
+│       ├── ssne_ai_demo         #     ARM ELF 应用二进制
+│       └── zImage.smartsens-m1-evb  # 完整内核镜像（内嵌应用，可直接烧录）
+├── scripts/                     # 构建脚本（6 个，见下方说明）
 ├── src/
 │   ├── app_demo/ → data/.../app_demo  # SDK app_demo 挂载（核心应用）
 │   │   └── face_detection/
@@ -49,12 +54,23 @@
 │   ├── ros2_ws/                 # ROS2 工作区（后续集成）
 │   └── stm32_akm_driver/       # STM32 AKM 控制板文档
 ├── third_party/
-│   └── ultralytics/             # YOLOv8 训练框架
+│   └── ultralytics/             # YOLOv8 训练框架（⚠ gitignored）
 ├── tools/
 │   ├── aurora/                  # Aurora 拍照工具（SC132GS 摄像头采集）
 │   └── yolov8/                  # 标注、划分、训练脚本
-└── WHEELTEC_C50X_2025.12.26/    # WHEELTEC 小车 STM32 固件源码（Keil工程）
+└── WHEELTEC_C50X_2025.12.26/    # WHEELTEC 小车 STM32 固件（⚠ gitignored）
 ```
+
+### scripts/ 目录说明
+
+| 脚本 | 用途 |
+|------|------|
+| `build_complete_evb.sh` | ⭐ 主构建：完整 EVB（SDK + 应用 + zImage），支持 `--app-only` 快速重编 |
+| `build_incremental.sh` | 仅重编指定应用，不打包 zImage（调试用） |
+| `bootstrap.sh` | 新成员一键初始化开发环境 |
+| `build_docker.sh` | 构建 Docker 编译容器 |
+| `build_ros2_ws.sh` | 编译 ROS2 工作区 |
+| `install_ros2_jazzy.sh` | 容器内安装 ROS2 Jazzy |
 
 ## 技术架构
 
@@ -122,22 +138,23 @@ docker compose -f docker/docker-compose.yml up -d
 ### 2. 生成完整 EVB 镜像
 
 ```powershell
-# 快速编译方式（推荐）— 跳过 ROS2，仅编译 SDK + Demo（约 20 分钟）
+# ① 完整构建（首次或 SDK 基础库变更时）— 约 30-40 分钟
 docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --skip-ros"
 
-# 或：完整编译（含 SDK + Demo + ROS2，约 40 分钟）
-docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh"
-
-# 或：增量编译（仅更新 Demo，快速迭代）
-docker exec A1_Builder bash -lc "bash /app/scripts/build_incremental.sh sdk ssne_ai_demo"
+# ② 快速重编 Demo + zImage（代码迭代时使用，约 5-10 分钟）
+docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --app-only"
 ```
+
+产物自动写入 `output/evb/<时间戳>/`，包含：
+- `ssne_ai_demo` — ARM ELF 应用二进制
+- `zImage.smartsens-m1-evb` — 完整内核镜像（已内嵌最新应用，用于烧录）
 
 ### 3. 烧录到主板
 
 ```powershell
-# 使用 Aurora 伴侣工具烧录
+# 使用 Aurora 伴侣工具烧录（zImage 路径用最新时间戳目录）
 cd tools/aurora
-.\launch.ps1 --flash ..\output\evb\zImage.smartsens-m1-evb
+.\launch.ps1 --flash ..\output\evb\<时间戳>\zImage.smartsens-m1-evb
 ```
 
 ### 4. 板端验证
@@ -172,88 +189,108 @@ aurora_companion.py 提供双 Tab 界面：
 - **摄像头采集**：实时预览、拍照、缩略图画廊
 - **底盘调试**：串口连接、运动控制（WASD 键盘）、遥测显示、帧日志
 
-## 同伴拉取更新步骤
+## 协作与代码同步
 
-> 适用于同一项目的开发功能良拉取其他小伙䯅的最新代码。
+### Git 追踪范围速查
 
-### 第一步：确认本地工作区干净
+理解哪些文件在 git 里、哪些被忽略，是避免协作冲突的基础。
+
+| 路径 | Git 状态 | 说明 |
+|------|----------|------|
+| `src/`, `data/A1_SDK_SC132GS/`, `docs/`, `tools/`, `scripts/`, `docker/` | ✅ 已追踪 | 源码、脚本、文档；`git pull` 可自动更新 |
+| `models/*.onnx`, `models/*.m1model` | ✅ 已追踪 | 模型文件随源码一起提交 |
+| `output/` | ❌ gitignored | 编译产物（EVB 固件、日志），**需本地构建生成** |
+| `third_party/ultralytics/` | ❌ gitignored | 训练框架，需手动克隆或用 `bootstrap.sh` 初始化 |
+| `WHEELTEC_C50X_2025.12.26/` | ❌ gitignored | 硬件厂商固件，不进入版本库 |
+| `src/ros2_ws/build/`, `src/ros2_ws/install/` | ❌ gitignored | ROS2 编译缓存，需本地编译生成 |
+| `data/yolov8_dataset/raw/` | ❌ gitignored | 原始训练图片（体积大），需另行传输 |
+
+> **快速判断某文件是否被追踪**：
+> ```powershell
+> git ls-files --error-unmatch <文件路径>
+> # 有输出 = 已追踪；报错 "did not match" = gitignored 或未添加
+> ```
+
+---
+
+### 拉取最新代码（标准流程）
 
 ```powershell
-# 查看未提交的本地改动
-
+# 1. 检查本地是否有未提交的修改
 git status
-```
 
-如果有未提交的修改，先处理：
+# 2. 有修改时先暂存
+git stash          # 暂存（pull 后可用 git stash pop 恢复）
+# 或提交到本地
+git add . && git commit -m "WIP: 保存本地进度"
 
-```powershell
-# 方案 A：暂存修改（拉取后可恢复）
-git stash
-
-# 方案 B：直接提交
-git add .
-git commit -m "WIP: 保存本地进度"
-```
-
-### 第二步：获取远端最新代码
-
-```powershell
-# 拉取 main 分支的最新提交
+# 3. 拉取远端最新
 git fetch origin
 
-# 切换到 main 分支
+# 4a. 在 main 分支：快进合并
 git checkout main
-
-# 快进合并
 git merge --ff-only origin/main
-# 若报错可改用： git pull origin main
-```
 
-### 第三步：将自己的工作分支同步到最新 main
-
-```powershell
-# 切回自己的工作分支
-git checkout <你的分支名>
-
-# 将 main 的最新提交变基（rebase）到自己分支
+# 4b. 在工作分支：变基到最新 main
+git checkout <你的分支>
 git rebase origin/main
-
-# 若 rebase 期间出现冲突：
-#   1. 按照提示手动解决冲突文件
-#   2. git add <冲突文件>
-#   3. git rebase --continue
-#   放弃 rebase： git rebase --abort
 ```
 
-> 如果不想修改历史，也可用 `git merge origin/main` 代替 rebase。
+---
 
-### 第四步：恢复暗存（如果执行了方案 A）
+### 强制用远端代码覆盖本地修改
 
-```powershell
-git stash pop
-# 若出现冲突手动解决后再提交
-```
-
-### 第五步：确认更新成功
+> **适用于**：本地改乱了某些被追踪的文件，想完全还原到远端版本。
 
 ```powershell
-# 查看提交日志，确认已包含同伴的最新提交
-git log --oneline -10
+# 丢弃指定文件的本地修改（还原到最近一次提交）
+git restore <文件路径>
 
-# 重新构建 Docker 镜像（如果 Dockerfile 已变更）
-docker build -f docker/Dockerfile -t a1-sdk-builder:latest .
+# 丢弃所有未提交的本地修改（危险！不可恢复）
+git restore .
 
-# 增量编译验证
-docker exec A1_Builder bash -lc "bash /app/scripts/build_incremental.sh sdk ssne_ai_demo"
-```
-
-### 快速正常流程（无冲突时）
-
-```powershell
+# 强制同步到远端分支（包括 origin/main 上没有的本地提交也会被覆盖）
 git fetch origin
-git rebase origin/main      # 在自己的分支上执行
-git log --oneline -5        # 确认历史
+git reset --hard origin/main    # 慎用：会丢失所有本地提交
+
+# 只重置某个子目录下的文件
+git checkout origin/main -- src/app_demo/
 ```
+
+> ⚠ `git reset --hard` 和 `git restore .` 只影响 **已追踪的文件**，不会删除 gitignored 文件（如 `output/`）。
+
+---
+
+### gitignored 文件的处理
+
+由于 `output/` 完全被忽略，协作者拉取代码后**不会自动获得 EVB 固件**，必须自行构建：
+
+```powershell
+# 首次或 SDK 基础库变更后（约 30-40 分钟）
+docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --skip-ros"
+
+# 只改了应用代码（ssne_ai_demo），快速重编 + 打包 zImage（约 5-10 分钟）
+docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --app-only"
+```
+
+产物位于 `output/evb/<时间戳>/`：
+- `ssne_ai_demo` — 应用二进制
+- `zImage.smartsens-m1-evb` — **完整内核镜像**，可直接烧录到 A1 EVB
+
+> `models/` 中的 `.onnx` 和 `.m1model` 文件**已纳入 git**，`git pull` 会自动更新，无需手动处理。
+
+---
+
+### 常见协作陷阱
+
+| 场景 | 现象 | 解决方法 |
+|------|------|----------|
+| 拉取后 `output/evb/` 没有新固件 | `output/` 在 gitignore，pull 不影响它 | 运行 `build_complete_evb.sh --app-only` |
+| 本地有 `output/evb/` 旧固件，想清空 | git 不会清理 gitignored 文件 | 手动 `Remove-Item output\evb\* -Recurse` |
+| 拉取后发现 `.gitignore` 本身被修改 | 新规则只对未追踪文件生效 | 已被追踪的文件需 `git rm --cached <路径>` 取消追踪 |
+| `third_party/ultralytics/` 缺失 | gitignored，不在仓库中 | 运行 `bash scripts/bootstrap.sh` 初始化 |
+| rebase 时出现冲突 | 本地和远端修改了同一文件 | 解决后 `git add <文件>` + `git rebase --continue` |
+| 误删已追踪的文件想恢复 | 文件被删除但未提交 | `git restore <文件路径>` |
 
 ## 运行时配置
 
