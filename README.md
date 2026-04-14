@@ -6,12 +6,12 @@
 
 | 模块 | 说明 | 状态 |
 |------|------|------|
-| SCRFD 人脸检测 | 灰度图多尺度人脸检测 (SSNE NPU 加速) | ✅ 已完成 |
+| SCRFD 人脸检测 | 灰度图多尺度人脸检测 (SSNE NPU 加速)（已被YOLOv8替代） | ⏸ 已弃用 |
 | OSD 硬件叠加 | DMA 硬件加速检测框渲染 | ✅ 已完成 |
 | 底盘控制 | A1 GPIO UART → STM32 WHEELTEC C50X 协议 | ✅ 已完成 |
 | Aurora 拍照工具 | SC132GS 摄像头采集 + 训练集制作 + **STM32 底盘调试 UI** | ✅ 已完成 |
 | RPLidar 激光雷达 | 360° 点云采集与避障 | ⏸ 暂时禁用 |
-| YOLOv8 目标检测 | 基于 NPU 的多类别检测 | ⏸ 暂时禁用 |
+| YOLOv8 目标检测 | 1280×720 → 640×360缩放 → NPU推理，4类别，head6切分+CPU后处理 | ✅ 已完成 |
 | ROS2 底盘控制 | UART 底盘驱动 + 导航 + SLAM | ⏸ 后续集成 |
 
 ## 仓库结构
@@ -30,15 +30,16 @@
 │   │   └── face_detection/
 │   │       └── ssne_ai_demo/
 │   │           ├── demo_face.cpp      #   入口（主循环：采图→检测→底盘控制→OSD）
-│   │           ├── project_paths.hpp  #   全局配置（模型路径、阈值、波特率等）
+│   │           ├── project_paths.hpp  #   全局配置（模型路径、YOLOv8常量、阈值、波特率等）
 │   │           ├── include/           #   头文件
 │   │           │   ├── chassis_controller.hpp # WHEELTEC 协议控制器
-│   │           │   ├── common.hpp             # SCRFD/OSD 类型定义
+│   │           │   ├── common.hpp             # YOLOV8/SCRFD 类型定义
 │   │           │   ├── osd-device.hpp         # VISUALIZER OSD 绘制类
 │   │           │   └── utils.hpp              # NMS / 排序工具
 │   │           ├── src/               #   源文件
 │   │           │   ├── chassis_controller.cpp # GPIO UART 底盘通信
-│   │           │   ├── scrfd_gray.cpp         # SCRFD 人脸检测 + 后处理
+│   │           │   ├── yolov8_gray.cpp        # YOLOv8 head6 + DFL decode + NMS
+│   │           │   ├── scrfd_gray.cpp         # SCRFD 人脸检测（保留备用）
 │   │           │   ├── pipeline_image.cpp     # 全分辨率采集 1280×720（无裁剪）
 │   │           │   ├── osd-device.cpp         # OSD 绘制实现
 │   │           │   └── utils.cpp              # NMS / 排序工具实现

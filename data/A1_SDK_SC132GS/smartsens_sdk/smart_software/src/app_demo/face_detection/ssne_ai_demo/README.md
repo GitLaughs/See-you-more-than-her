@@ -13,7 +13,8 @@ SC132GS 摄像头采集 **1280×720 全分辨率** 灰度图，通过硬件 ISP 
 | 传感器输出 | 1280×720 Y8 | 无裁剪，全分辨率 |
 | 推理输入 | 640×360 Y8 | RunAiPreprocessPipe 硬件缩放 |
 | 比例因子 | w=2.0, h=2.0 | Postprocess 坐标映射回 1280×720 |
-| 人脸置信度阈值 | 0.4 | SCRFD |
+| 目标置信度阈值 | 0.4 | YOLOv8 (`DET_CONF_THRESH`) |
+| NMS IoU 阈值 | 0.45 | YOLOv8 (`DET_NMS_THRESH`) |
 | 底盘前进速度 | 100 mm/s | 检测到人脸时 |
 | UART 波特率 | 115200 | A1 PIN0(TX) → STM32 UART3(PB11) |
 
@@ -26,19 +27,21 @@ ssne_ai_demo/
 ├── demo_face.cpp                  # 主程序：初始化 + 主循环（采图→检测→底盘控制→OSD）
 ├── project_paths.hpp              # 全局常量（模型路径、阈值、UART 配置等）
 ├── include/
-│   ├── common.hpp                # IMAGEPROCESSOR / SCRFDGRAY / FaceDetectionResult
+|│   ├── common.hpp                # IMAGEPROCESSOR / YOLOV8 / SCRFDGRAY / FaceDetectionResult
 │   ├── utils.hpp                 # NMS、归并排序、VISUALIZER 类声明
 │   ├── osd-device.hpp            # VISUALIZER OSD 绘制接口
 │   └── chassis_controller.hpp   # ChassisController / ChassisState（WHEELTEC 11字节协议）
 ├── src/
 │   ├── pipeline_image.cpp        # IMAGEPROCESSOR：全分辨率 1280×720 采集（无裁剪）
-│   ├── scrfd_gray.cpp            # SCRFDGRAY：SSNE 推理 + DFL 解码 + NMS
+│   ├── yolov8_gray.cpp           # YOLOV8：SSNE 推理 + DFL decode + NMS
+│   ├── scrfd_gray.cpp            # SCRFDGRAY：人脸检测旧实现（保留备用）
 │   ├── osd-device.cpp            # VISUALIZER：OSD 硬件叠加检测框
 │   ├── utils.cpp                 # NMS / 归并排序实现
 │   └── chassis_controller.cpp   # ChassisController：GPIO UART 底盘通信实现
 ├── app_assets/
 │   ├── models/
-│   │   └── face_640x480.m1model  # SCRFD 推理模型（当前板端模型文件）
+│   │   ├── best_yolov8_640x360.m1model  # YOLOv8 head6 推理模型（当前板端模型文件）
+│   │   └── face_640x480.m1model        # SCRFD 人脸检测模型（备用）
 │   └── colorLUT.sscl             # OSD 颜色查找表
 ├── cmake_config/
 │   └── Paths.cmake               # SDK 库路径（BASE_DIR / EXPORT_LIB_M1_SDK_ROOT_PATH）
@@ -62,12 +65,12 @@ OnlineSetOutputImage(kPipeline0, SSNE_Y_8, 1280, 720)
 IMAGEPROCESSOR::GetImage()
       │ img_sensor (1280×720 Y8 tensor)
       ▼
-SCRFDGRAY::Predict(img_sensor, det_result, 0.4f)
+YOLOV8::Predict(img_sensor, det_result, 0.4f)
       │ RunAiPreprocessPipe(pipe_offline, img_sensor, model_input_640x360)
       │   ← 硬件 ISP 缩放 1280×720 → 640×360
-      │ ssne_inference(model_input_640x360)
-      │ Postprocess: w_scale=2.0, h_scale=2.0
-      │   ← 坐标直接映射回 1280×720 空间
+      │ ssne_inference(model_input_640x360) → ssne_getoutput(×6)
+      │ DecodeHeadOutputs: DFL softmax + sigmoid + bbox decode
+      │ NMS + 坐标×w_scale/h_scale 映射回 1280×720 空间
       ▼
 FaceDetectionResult (boxes in 1280×720 coords)
       │
