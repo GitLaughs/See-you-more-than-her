@@ -1,14 +1,4 @@
 {
-  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv39\\Scripts\\python.exe",
-  "python.pythonPath": "${workspaceFolder}\\.venv39\\Scripts\\python.exe",
-  "python.terminal.activateEnvironment": true,
-  "http.proxy": "http://127.0.0.1:7897",
-  "terminal.integrated.env.windows": {
-    "HTTP_PROXY": "http://127.0.0.1:7897",
-    "HTTPS_PROXY": "http://127.0.0.1:7897",
-    "ALL_PROXY": "socks5://127.0.0.1:7897"
-  }
-}
     // Ignore markdownlint rule MD060 (table column style) workspace-wide
     "markdownlint.config": {
         "MD060": false
