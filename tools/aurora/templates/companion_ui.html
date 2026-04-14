@@ -95,6 +95,40 @@ body{
 .preview-wrap img{width:100%;display:block;}
 .preview-chip{position:absolute;top:8px;left:8px;background:rgba(13,17,23,.75);backdrop-filter:blur(4px);border:1px solid var(--border);border-radius:5px;padding:2px 8px;font-size:.7em;font-family:monospace;color:var(--green);}
 .preview-fps{position:absolute;top:8px;right:8px;background:rgba(13,17,23,.75);backdrop-filter:blur(4px);border:1px solid var(--border);border-radius:5px;padding:2px 8px;font-size:.7em;font-family:monospace;color:var(--muted);}
+
+/* 摄像头加载遮罩 */
+.stream-loading{
+  position:absolute;inset:0;
+  background:rgba(6,18,26,.80);
+  display:none;align-items:center;justify-content:center;
+  flex-direction:column;gap:10px;
+  font-size:.92em;color:var(--muted);
+}
+.stream-loading.visible{display:flex;}
+.spin-ring{
+  width:36px;height:36px;border-radius:50%;
+  border:3px solid var(--border);
+  border-top-color:var(--blue);
+  animation:spinr .8s linear infinite;
+}
+@keyframes spinr{to{transform:rotate(360deg);}}
+
+/* 流模式 TAB 按钮（预览/检测切换） */
+.stream-tab{
+  height:26px;padding:0 10px;border:1px solid var(--border);border-radius:5px;
+  background:transparent;color:var(--muted);font-size:.76em;font-weight:600;
+  cursor:pointer;transition:all .12s;
+}
+.stream-tab:hover{background:var(--surface2);color:var(--text);}
+.stream-tab.active{background:var(--blue);color:#fff;border-color:var(--blue);}
+
+/* YOLOv8 检测信息面板 */
+.det-panel{padding:12px 14px;font-size:.79em;}
+.det-panel table{width:100%;border-collapse:collapse;}
+.det-panel td{padding:3px 0;}
+.det-panel td:first-child{color:var(--muted);width:80px;}
+.det-badge{display:inline-block;background:rgba(47,182,255,.12);border:1px solid rgba(47,182,255,.35);color:var(--blue);border-radius:4px;padding:1px 6px;font-family:monospace;font-size:.85em;}
+.det-warn{margin-top:8px;color:var(--red);font-size:.78em;}
 .sidebar{display:flex;flex-direction:column;gap:10px;}
 .counter-box{text-align:center;padding:16px 0 8px;}
 .counter-num{font-size:3em;font-weight:800;line-height:1;background:linear-gradient(135deg,var(--blue),var(--teal));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
@@ -317,13 +351,37 @@ select option{background:var(--surface);}
       <div class="card">
         <div class="card-head">
           <span>实时预览</span>
-          <span style="color:var(--green);font-size:.9em">采集 1280 × 720 · 推理 640 × 360</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="stream-tab active" id="tab-stream-preview" onclick="switchStreamTab('preview')">📡 预览</button>
+            <button class="stream-tab" id="tab-stream-detect" onclick="switchStreamTab('detect')">🔍 YOLOv8</button>
+            <span id="streamResLabel" style="color:var(--green);font-size:.9em">采集 1280 × 720 · 推理 640 × 360</span>
+          </div>
         </div>
         <div class="preview-wrap">
           <img id="stream" src="/video_feed" alt="camera"
-               onload="setCamOnline(true)" onerror="setCamOnline(false)">
+               onload="onStreamLoad()" onerror="onStreamError()">
           <div class="preview-chip">SC132GS · Gray</div>
           <div class="preview-fps" id="fpsChip">— fps</div>
+          <div class="stream-loading" id="streamLoading">
+            <div class="spin-ring"></div>
+            <span id="streamLoadingMsg">摄像头初始化中…</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- YOLOv8 检测信息面板（仅检测模式显示） -->
+      <div class="card" id="detInfoPanel" style="display:none;">
+        <div class="card-head">YOLOv8 检测信息</div>
+        <div class="det-panel">
+          <table>
+            <tr><td>模型</td><td><span class="det-badge" id="detModelName">best_head6.onnx</span></td></tr>
+            <tr><td>输入尺寸</td><td>640 × 640 (letterbox)</td></tr>
+            <tr><td>类别数</td><td id="detNumCls">4</td></tr>
+            <tr><td>置信度</td><td id="detConf">≥ 0.40</td></tr>
+            <tr><td>NMS IoU</td><td>0.45</td></tr>
+            <tr><td>运行时</td><td id="detRuntime">—</td></tr>
+          </table>
+          <div id="detWarn" class="det-warn" style="display:none;"></div>
         </div>
       </div>
 
@@ -735,6 +793,68 @@ let moveTimer    = null;
 let currentDir   = null;
 let chsConnected = false;
 let statusPollTimer = null;
+let currentStreamTab = 'preview';  // 'preview' | 'detect'
+let _streamLoadingTimer = null;
+
+// ── Stream loading overlay ──────────────────────────────────────────────────
+function showStreamLoading(msg) {
+  const el = document.getElementById('streamLoading');
+  const msgEl = document.getElementById('streamLoadingMsg');
+  if (msgEl) msgEl.textContent = msg || '摄像头初始化中…';
+  el.classList.add('visible');
+  // 超时保护 8s 自动隐藏，避免一直转圈
+  clearTimeout(_streamLoadingTimer);
+  _streamLoadingTimer = setTimeout(hideStreamLoading, 8000);
+}
+
+function hideStreamLoading() {
+  clearTimeout(_streamLoadingTimer);
+  document.getElementById('streamLoading').classList.remove('visible');
+}
+
+function onStreamLoad() {
+  hideStreamLoading();
+  setCamOnline(true);
+}
+
+function onStreamError() {
+  hideStreamLoading();
+  setCamOnline(false);
+}
+
+// ── Stream tab switch (preview / YOLOv8 detect) ─────────────────────────────
+function switchStreamTab(tab) {
+  currentStreamTab = tab;
+  const img = document.getElementById('stream');
+  document.getElementById('tab-stream-preview').classList.toggle('active', tab === 'preview');
+  document.getElementById('tab-stream-detect').classList.toggle('active', tab === 'detect');
+  document.getElementById('detInfoPanel').style.display = tab === 'detect' ? '' : 'none';
+  showStreamLoading(tab === 'detect' ? 'YOLOv8 推理中，首次加载模型请稍候…' : '切换视频流…');
+  img.src = (tab === 'detect' ? '/detect_feed' : '/video_feed') + '?' + Date.now();
+  if (tab === 'detect') loadDetectStatus();
+}
+
+function loadDetectStatus() {
+  fetch('/detect_status').then(r => r.json()).then(d => {
+    const warn = document.getElementById('detWarn');
+    const rt = document.getElementById('detRuntime');
+    document.getElementById('detModelName').textContent = d.model_name || 'best_head6.onnx';
+    document.getElementById('detNumCls').textContent = d.num_classes;
+    document.getElementById('detConf').textContent = '≥ ' + d.conf_threshold.toFixed(2);
+    if (!d.ort_available) {
+      warn.textContent = '⚠ onnxruntime 未安装，请运行: pip install onnxruntime';
+      warn.style.display = '';
+      rt.textContent = '不可用';
+    } else if (!d.model_exists) {
+      warn.textContent = '⚠ 模型文件不存在: ' + d.model_path;
+      warn.style.display = '';
+      rt.textContent = '不可用';
+    } else {
+      warn.style.display = 'none';
+      rt.textContent = d.model_loaded ? 'onnxruntime (已加载)' : 'onnxruntime (首帧时懒加载)';
+    }
+  }).catch(() => {});
+}
 
 // ── Tab switching ───────────────────────────────────────────────────────────
 function switchTab(tab) {
@@ -775,14 +895,18 @@ function refreshCam() {
   const btn = document.getElementById('camRefreshBtn');
   btn.disabled = true;
   document.getElementById('camRefIcon').style.animation = 'blink .5s linear infinite';
+  showStreamLoading('正在重新连接摄像头…');
   fetch('/refresh_camera', {method:'POST'}).then(r=>r.json()).then(d=>{
     if (d.success) {
       const img = document.getElementById('stream');
-      img.src = '/video_feed?' + Date.now();
-      setCamOnline(true);
+      const feedUrl = (currentStreamTab === 'detect' ? '/detect_feed' : '/video_feed') + '?' + Date.now();
+      img.src = feedUrl;
       toast('✓ 摄像头已刷新', 'ok');
-    } else { toast('✗ ' + d.error, 'err'); }
-  }).catch(e=>toast('✗ '+e,'err'))
+    } else {
+      hideStreamLoading();
+      toast('✗ ' + d.error, 'err');
+    }
+  }).catch(e => { hideStreamLoading(); toast('✗ '+e,'err'); })
   .finally(()=>{
     btn.disabled = false;
     document.getElementById('camRefIcon').style.animation = '';
@@ -812,6 +936,7 @@ function switchCamera() {
   if (Number.isNaN(device)) { toast('设备号无效', 'err'); return; }
 
   sel.disabled = true;
+  showStreamLoading('切换摄像头中，请稍候…');
   fetch('/switch_camera', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -819,13 +944,15 @@ function switchCamera() {
   }).then(r=>r.json()).then(d=>{
     if (d.success) {
       const img = document.getElementById('stream');
-      img.src = '/video_feed?' + Date.now();
+      const feedUrl = (currentStreamTab === 'detect' ? '/detect_feed' : '/video_feed') + '?' + Date.now();
+      img.src = feedUrl;
       toast('✓ 已切换摄像头设备 ' + device, 'ok');
       loadCameraDevices();
     } else {
+      hideStreamLoading();
       toast('✗ ' + d.error, 'err');
     }
-  }).catch(e=>toast('✗ '+e,'err'))
+  }).catch(e=>{ hideStreamLoading(); toast('✗ '+e,'err'); })
   .finally(()=>{ sel.disabled = false; });
 }
 
