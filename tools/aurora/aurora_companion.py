@@ -27,8 +27,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
-import concurrent.futures
-
 import cv2
 import numpy as np
 from flask import Flask, Response, jsonify, render_template, request
@@ -235,10 +233,13 @@ def probe_camera_device(device_id: int) -> dict:
 
 
 def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
-    """并行探测所有摄像头设备，避免串行扫描带来的长启动延迟。"""
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_scan) as ex:
-        results = list(ex.map(probe_camera_device, range(max_scan)))
-    return [r for r in results if r["opened"]]
+    """串行探测摄像头设备（避免并行 DirectShow 调用干扰驱动状态）。"""
+    devices = []
+    for i in range(max_scan):
+        info = probe_camera_device(i)
+        if info["opened"]:
+            devices.append(info)
+    return devices
 
 
 def choose_camera_device(requested_device: int) -> Tuple[int, list]:
@@ -260,34 +261,46 @@ def choose_camera_device(requested_device: int) -> Tuple[int, list]:
     return candidates_sorted[0]["id"], candidates_sorted
 
 
-def _try_open(device_id: int) -> Optional[cv2.VideoCapture]:
-    """打开摄像头，与 aurora_capture.py 保持一致：设置 FOURCC + CONVERT_RGB=0。"""
+def open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
+    """打开 A1 开发板摄像头（与 aurora_capture.py 完全一致）。
+
+    关键：显式设置 FOURCC 为 GREY/Y800 以正确解析灰度格式，
+    否则 OpenCV 会按默认 YUV/RGB 解析，同时禁用 CONVERT_RGB。
+    """
     cap = _open_raw_camera(device_id)
     if not cap.isOpened():
-        return None
+        raise RuntimeError(f"无法打开摄像头设备 {device_id}")
 
-    # 尝试设置灰度 FOURCC（SC132GS 灰度源优先）
+    # 尝试设置 Y800/GREY 灰度格式（避免被解析为错误的比例和灰度）
     grey_fourccs = [
         cv2.VideoWriter_fourcc(*"Y800"),
         cv2.VideoWriter_fourcc(*"GREY"),
         cv2.VideoWriter_fourcc(*"Y8  "),
+        cv2.VideoWriter_fourcc(*"Y16 "),
     ]
+    format_set = False
     for fourcc in grey_fourccs:
         cap.set(cv2.CAP_PROP_FOURCC, fourcc)
         if int(cap.get(cv2.CAP_PROP_FOURCC)) == fourcc:
             fourcc_str = "".join([chr((fourcc >> (8 * i)) & 0xFF) for i in range(4)])
             print(f"[INFO] 摄像头格式设置为: {fourcc_str}")
+            format_set = True
             break
+    if not format_set:
+        print("[WARN] 无法设置灰度 FOURCC，将在读取后转换为灰度")
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
-    # 关键：禁用自动 RGB 格式转换，使 cap.read() 在任何 Flask worker 线程中均可稳定返回帧
+    # 关键：禁用自动 RGB 格式转换（保持原始灰度）
     cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
 
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"[INFO] 摄像头已连接: {w}×{h} (设备 {device_id})")
+    fps_actual = cap.get(cv2.CAP_PROP_FPS)
+    print(f"[INFO] 摄像头已打开: {w}×{h} @ {fps_actual:.1f}fps (设备 {device_id})")
+    if w != CAMERA_WIDTH or h != CAMERA_HEIGHT:
+        print(f"[WARN] 实际分辨率 {w}×{h} 与预期 {CAMERA_WIDTH}×{CAMERA_HEIGHT} 不匹配")
     return cap
 
 
@@ -533,14 +546,15 @@ def generate_frames():
                 _consecutive_failures = 0
                 _fail_streak = 0
                 print("[INFO] 视频流中断，自动尝试重连摄像头...")
-                new_cap = _try_open(device_id_global)
-                with camera_lock:
-                    if camera:
-                        camera.release()
-                    camera = new_cap
-                if new_cap:
+                try:
+                    with camera_lock:
+                        if camera:
+                            camera.release()
+                        camera = open_camera(device_id_global)
                     camera_connected = True
                     print("[INFO] 摄像头自动重连成功")
+                except Exception as e:
+                    print(f"[WARN] 自动重连失败: {e}")
             blk = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH, 3), dtype=np.uint8)
             cv2.putText(blk, "No Signal - Reconnecting...",
                         (CAMERA_WIDTH // 2 - 190, CAMERA_HEIGHT // 2 - 10),
@@ -672,11 +686,15 @@ def do_capture():
 @app.route("/refresh_camera", methods=["POST"])
 def refresh_camera():
     global camera, _fail_streak, _consecutive_failures, camera_connected
-    with camera_lock:
-        if camera:
-            camera.release()
-        camera = _try_open(device_id_global)
-        ok = camera is not None and camera.isOpened()
+    try:
+        with camera_lock:
+            if camera:
+                camera.release()
+            camera = open_camera(device_id_global)
+            ok = camera is not None and camera.isOpened()
+    except Exception as e:
+        ok = False
+        print(f"[WARN] 摄像头刷新异常: {e}")
     _fail_streak = 0
     _consecutive_failures = 0
     camera_connected = ok
@@ -724,7 +742,7 @@ def switch_camera():
         with camera_lock:
             if camera:
                 camera.release()
-            camera = _try_open(new_device)
+            camera = open_camera(new_device)
             ok = camera is not None and camera.isOpened()
         if not ok:
             raise RuntimeError("目标摄像头无法打开")
@@ -793,9 +811,11 @@ def main():
 
     print(f"[INFO] 正在连接摄像头 (设备 {selected_device})...")
     save_preferred_device(selected_device)
-    camera = _try_open(selected_device)
-    if camera is None:
-        print("[WARN] 摄像头未连接，工具仍可启动，请连接后点击「刷新摄像头」")
+    try:
+        camera = open_camera(selected_device)
+    except Exception as e:
+        print(f"[WARN] 摄像头打开失败: {e}，工具仍可启动，请连接后点击「刷新摄像头」")
+        camera = None
 
     print(f"[INFO] Aurora Companion 已启动: http://localhost:{args.port}")
     print(f"[INFO] 快捷键: 1=1280×720  2=640×360  R=刷新摄像头")

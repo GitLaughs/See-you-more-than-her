@@ -247,6 +247,35 @@ header {
 }
 .ext-tab.active { background: rgba(47,182,255,.12); border-color: var(--blue); color: var(--blue); }
 
+/* Camera selector */
+.cam-select-wrap {
+  display: flex; align-items: center; gap: 6px;
+}
+.cam-select {
+  background: rgba(17,36,54,.9);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: .8em;
+  padding: 4px 8px;
+  max-width: 190px;
+  cursor: pointer;
+  outline: none;
+}
+.cam-select:focus { border-color: var(--blue); }
+.btn-sm {
+  padding: 4px 12px;
+  border: none; border-radius: 6px;
+  font-size: .78em; font-weight: 600;
+  cursor: pointer;
+  background: rgba(47,182,255,.18);
+  color: var(--blue);
+  border: 1px solid rgba(47,182,255,.3);
+  transition: opacity .15s;
+}
+.btn-sm:hover { opacity: .8; }
+.btn-sm:disabled { opacity: .4; cursor: not-allowed; }
+
 /* Scrollbar */
 .side-panel::-webkit-scrollbar { width: 4px; }
 .side-panel::-webkit-scrollbar-track { background: transparent; }
@@ -300,6 +329,15 @@ header {
     <div id="fps-badge">-- FPS</div>
 
     <div class="spacer"></div>
+
+    <!-- Camera selector -->
+    <div class="cam-select-wrap">
+      <select class="cam-select" id="cam-select" title="选择摄像头设备">
+        <option value="">扫描中...</option>
+      </select>
+      <button class="btn-sm" id="btn-switch-cam">切换</button>
+      <button class="btn-sm" id="btn-scan-cam" title="重新扫描">⟳</button>
+    </div>
 
     <button class="btn-ghost" id="btn-fullscreen" title="全屏">⛶ Fullscreen</button>
     <button class="btn" id="btn-reconnect">Reconnect</button>
@@ -471,6 +509,67 @@ header {
   ph.style.display = 'none';
   draw();
 })();
+
+
+// ── Camera selector ─────────────────────────────────────────────────────
+async function loadCameraDevices() {
+  const sel = document.getElementById('cam-select');
+  const scanBtn = document.getElementById('btn-scan-cam');
+  scanBtn.disabled = true;
+  sel.innerHTML = '<option value="">扫描中...</option>';
+  try {
+    const r = await fetch('/camera_devices');
+    const data = await r.json();
+    sel.innerHTML = '';
+    if (!data.devices || data.devices.length === 0) {
+      sel.innerHTML = '<option value="">未找到设备</option>';
+    } else {
+      data.devices.forEach(d => {
+        const op = document.createElement('option');
+        op.value = d.id;
+        op.textContent = d.label;
+        if (d.id === data.current_device) op.selected = true;
+        sel.appendChild(op);
+      });
+    }
+  } catch (_) {
+    sel.innerHTML = '<option value="">扫描失败</option>';
+  }
+  scanBtn.disabled = false;
+}
+
+document.getElementById('btn-switch-cam').addEventListener('click', async function() {
+  const sel = document.getElementById('cam-select');
+  const device = Number(sel.value);
+  if (isNaN(device) || sel.value === '') return;
+  this.disabled = true;
+  this.textContent = '切换中…';
+  try {
+    const r = await fetch('/switch_camera', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({device}),
+    });
+    const data = await r.json();
+    if (data.success) {
+      // 重新加载视频流
+      const img = document.getElementById('stream-img');
+      img.src = '/stream?' + Date.now();
+      pollStatus();
+    } else {
+      alert('切换失败: ' + data.error);
+    }
+  } catch (e) {
+    alert('网络错误: ' + e);
+  }
+  this.disabled = false;
+  this.textContent = '切换';
+});
+
+document.getElementById('btn-scan-cam').addEventListener('click', loadCameraDevices);
+
+// 初始加载设备列表
+loadCameraDevices();
 
 
 // ── 状态轮询 ────────────────────────────────────────────────────────────

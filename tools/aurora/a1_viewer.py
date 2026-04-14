@@ -25,11 +25,12 @@ from typing import Optional
 
 import cv2
 import numpy as np
-from flask import Flask, Response, jsonify, render_template
+from flask import Flask, Response, jsonify, render_template, request
 
 # ─── 摄像头参数 ───────────────────────────────────────────────────────────────
 CAMERA_WIDTH  = 1280
 CAMERA_HEIGHT = 720
+MAX_DEVICE_SCAN = 5
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
 
 app = Flask(__name__, template_folder="templates")
@@ -85,11 +86,18 @@ def _open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
         cv2.VideoWriter_fourcc(*"Y800"),
         cv2.VideoWriter_fourcc(*"GREY"),
         cv2.VideoWriter_fourcc(*"Y8  "),
+        cv2.VideoWriter_fourcc(*"Y16 "),
     ]
+    format_set = False
     for fourcc in grey_fourccs:
         cap.set(cv2.CAP_PROP_FOURCC, fourcc)
         if int(cap.get(cv2.CAP_PROP_FOURCC)) == fourcc:
+            fourcc_str = "".join([chr((fourcc >> (8 * i)) & 0xFF) for i in range(4)])
+            print(f"[INFO] A1 摄像头格式: {fourcc_str}")
+            format_set = True
             break
+    if not format_set:
+        print("[WARN] 无法设置灰度 FOURCC，将在读取后转换")
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
@@ -100,6 +108,53 @@ def _open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"[INFO] A1 摄像头已连接: {w}×{h} (设备 {device_id})")
     return cap
+
+
+# ─── 摄像头探测 ───────────────────────────────────────────────────────────────
+
+def _probe_device(device_id: int) -> dict:
+    """快速探测设备是否可用，返回基本信息。串行调用，不干扰 DirectShow。"""
+    with _suppress_c_stderr():
+        cap = cv2.VideoCapture(
+            device_id,
+            cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_V4L2,
+        )
+    if not cap.isOpened():
+        return {"id": device_id, "opened": False, "label": f"设备 {device_id} (不可用)"}
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    ret, frame = cap.read()
+    cap.release()
+    if not ret or frame is None:
+        return {"id": device_id, "opened": False, "label": f"设备 {device_id} ({w}×{h}, 无帧)"}
+    fh, fw = frame.shape[:2]
+    has_content = float(np.std(frame.astype(np.float32))) > 3.0
+    is_gray = (len(frame.shape) == 2) or (
+        frame.shape[2] >= 3 and
+        np.array_equal(frame[:,:,0], frame[:,:,1]) and
+        np.array_equal(frame[:,:,1], frame[:,:,2])
+    )
+    tag = ("Gray" if is_gray else "Color") + (" ✓" if has_content else " ?")
+    return {
+        "id": device_id,
+        "opened": True,
+        "width": fw, "height": fh,
+        "is_gray": is_gray,
+        "has_content": has_content,
+        "label": f"设备 {device_id} ({fw}×{fh} {tag})",
+    }
+
+
+def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
+    """串行扫描可用设备，避免并行 DirectShow 调用的驱动干扰。"""
+    devices = []
+    for i in range(max_scan):
+        info = _probe_device(i)
+        if info["opened"]:
+            devices.append(info)
+    return devices
 
 
 # ─── 专用抓帧线程 ─────────────────────────────────────────────────────────────
@@ -228,6 +283,48 @@ def reconnect():
     camera_connected = ok
     _consecutive_failures = 0
     return jsonify({"success": ok, "connected": ok})
+
+
+@app.route("/camera_devices")
+def camera_devices():
+    devices = list_camera_devices()
+    return jsonify({
+        "current_device": device_id_global,
+        "devices": [{"id": d["id"], "label": d["label"]} for d in devices],
+    })
+
+
+@app.route("/switch_camera", methods=["POST"])
+def switch_camera():
+    global camera, device_id_global, camera_connected, _consecutive_failures
+    data = request.get_json(silent=True) or {}
+    if "device" not in data:
+        return jsonify({"success": False, "error": "缺少 device 参数"})
+    try:
+        new_device = int(data["device"])
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "device 必须是整数"})
+    try:
+        with camera_lock:
+            if camera:
+                camera.release()
+            camera = _open_camera(new_device)
+            ok = camera is not None and camera.isOpened()
+        if not ok:
+            raise RuntimeError("设备无法打开")
+        device_id_global = new_device
+        camera_connected = True
+        _consecutive_failures = 0
+        # 保存偏好
+        try:
+            PREFERRED_DEVICE_FILE.write_text(str(new_device), encoding="utf-8")
+        except Exception:
+            pass
+        print(f"[INFO] 已切换到摄像头设备 {new_device}")
+        return jsonify({"success": True, "device": new_device})
+    except Exception as e:
+        camera_connected = False
+        return jsonify({"success": False, "error": str(e)})
 
 
 # ─── 数据推送扩展占位 ─────────────────────────────────────────────────────────
