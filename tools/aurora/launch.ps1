@@ -31,6 +31,23 @@ if (-not (Test-Path "aurora_companion.py")) {
     Write-Error "aurora_companion.py not found in $ScriptDir"
 }
 
+# 查找 Python（优先 .venv39，确保 onnxruntime 等依赖可用）
+$PythonCandidates = @(
+    (Resolve-Path "..\..\\.venv39\Scripts\python.exe" -ErrorAction SilentlyContinue),
+    (Resolve-Path "..\..\.venv39\Scripts\python.exe"  -ErrorAction SilentlyContinue),
+    "python"
+) | Where-Object { $_ }
+
+$Python = $null
+foreach ($c in $PythonCandidates) {
+    try {
+        $ver = & $c --version 2>&1
+        if ($ver -match "Python 3") { $Python = $c; break }
+    } catch {}
+}
+if (-not $Python) { $Python = "python" }
+Write-Host "[INFO] Python: $Python" -ForegroundColor DarkGray
+
 $captureArgs = @("aurora_companion.py", "--device", $Device, "--port", $Port)
 if ($Output -ne "") {
     $captureArgs += @("--output", $Output)
@@ -95,9 +112,9 @@ if (-not $NoBrowser) {
 }
 
 if ($ShowDriverLogs) {
-    python @captureArgs
+    & $Python @captureArgs
 }
 else {
     # 摄像头驱动会持续向 stderr 打印噪声日志，默认隐藏以免淹没启动信息
-    python @captureArgs 2>$null
+    & $Python @captureArgs 2>$null
 }
