@@ -74,17 +74,14 @@ camera_connected = False
 _fail_streak = 0
 _orientation_warned = False
 
-# ─── 专用抓帧状态（capture thread → MJPEG generator）───────────────────────────
-_latest_frame: Optional[np.ndarray] = None   # 抓帧线程写入，generator 只读
+# ─── 专用抓帧线程全局状态 ──────────────────────────────────────────────────────
+# 抓帧线程写入，Flask MJPEG generator 只读。DirectShow 要求 cap.read()
+# 必须在创建 VideoCapture 的同一 OS 线程内调用。
+_latest_frame: Optional[np.ndarray] = None
 _frame_lock = threading.Lock()
 _capture_running = False
 _capture_thread: Optional[threading.Thread] = None
 
-# ─── 专用抓帧状态（capture thread → MJPEG generator）───────────────────────────
-_latest_frame: Optional[np.ndarray] = None   # 抓帧线程写入，generator 只读
-_frame_lock = threading.Lock()
-_capture_running = False
-_capture_thread: Optional[threading.Thread] = None
 MAX_DEVICE_SCAN = 5
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
 
@@ -268,8 +265,14 @@ def choose_camera_device(requested_device: int) -> Tuple[int, list]:
     candidates_sorted = sorted(candidates, key=lambda x: (x["score"], x["id"]), reverse=True)
     return candidates_sorted[0]["id"], candidates_sorted
 
-只设分辨率，不强设 FOURCC / FPS / BUFFERSIZE
-    # 部分驱动对这些额外属性处理有 bug，宁可使用驱动默认值
+
+def _try_open(device_id: int) -> Optional[cv2.VideoCapture]:
+    cap = _open_raw_camera(device_id)
+    if not cap.isOpened():
+        return None
+
+    # 只设分辨率，不强设 FOURCC / FPS / BUFFERSIZE
+    # 部分 DirectShow 驱动对额外属性设置有 bug，安全起见不设
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
 
@@ -281,28 +284,32 @@ def choose_camera_device(requested_device: int) -> Tuple[int, list]:
 
 # ─── 专用抓帧线程 ─────────────────────────────────────────────────────────────
 
-def _capture_thread_func() -> None:
-    """后台专用线程：持续在同一线程内调用 cap.read()，绕开 DirectShow
-    要求 cap.read() 必须在创建 VideoCapture 的线程中调用的限制。
-    Flask MJPEG generator 只读 _latest_frame，永远不直接调用 cap.read()。
+def _capture_thread_func(device_id: int) -> None:
+    """DirectShow 安全抓帧线程。
+
+    关键：VideoCapture 的**创建**和所有**读帧**都在同一个 OS 线程内完成。
+    Flask MJPEG generator 运行在另一个 worker 线程，只读 _latest_frame，
+    永远不直接调用 cap.read()。
     """
-    global _latest_frame, camera_connected, _fail_streak
+    global _latest_frame, camera, camera_connected, _fail_streak
+    # 在本线程内创建 VideoCapture（满足 DirectShow 同线程要求）
+    cap = _try_open(device_id)
+    with camera_lock:
+        camera = cap
+    if cap is None:
+        camera_connected = False
+        print(f"[ERROR] 抓帧线程：无法打开设备 {device_id}")
+        return
+    camera_connected = True
     consec_fail = 0
     while _capture_running:
-        with camera_lock:
-            cap = camera
-        if cap is None:
-            camera_connected = False
-            time.sleep(0.05)
-            continue
         ret, frame = cap.read()
         if ret and frame is not None:
-            # 竖屏纠正
             fh, fw = frame.shape[:2]
-            if fh > fw:
+            if fh > fw:   # 竖屏纠正
                 frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
             with _frame_lock:
-                _latest_frame = frame      # 原始帧（BGR 或 GRAY，图像原样存储）
+                _latest_frame = frame   # 存储原始帧（BGR 或 GRAY）
             camera_connected = True
             consec_fail = 0
             _fail_streak = 0
@@ -312,14 +319,22 @@ def _capture_thread_func() -> None:
             if consec_fail >= 5:
                 camera_connected = False
             time.sleep(0.03)
+    cap.release()
+    with camera_lock:
+        camera = None
 
 
-def _start_capture_thread() -> None:
+def _start_capture_thread(device_id: int) -> None:
     global _capture_running, _capture_thread, _latest_frame
     _stop_capture_thread()
     _latest_frame = None
     _capture_running = True
-    _capture_thread = threading.Thread(target=_capture_thread_func, daemon=True, name="CaptureThread")
+    _capture_thread = threading.Thread(
+        target=_capture_thread_func,
+        args=(device_id,),
+        daemon=True,
+        name=f"CaptureThread-{device_id}",
+    )
     _capture_thread.start()
 
 
@@ -327,63 +342,7 @@ def _stop_capture_thread() -> None:
     global _capture_running, _capture_thread
     _capture_running = False
     if _capture_thread and _capture_thread.is_alive():
-        _capture_thread.join(timeout=1.0)
-    _capture_thread = None
-    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"[INFO] 摄像头已连接: {w}×{h} (设备 {device_id})")
-    return cap
-
-
-# ─── 专用抓帧线程 ─────────────────────────────────────────────────────────────
-
-def _capture_thread_func() -> None:
-    """后台专用线程：持续在同一线程内调用 cap.read()，绕开 DirectShow
-    要求 cap.read() 必须在创建 VideoCapture 的线程中调用的限制。
-    Flask MJPEG generator 只读 _latest_frame，永远不直接调用 cap.read()。
-    """
-    global _latest_frame, camera_connected, _fail_streak
-    consec_fail = 0
-    while _capture_running:
-        with camera_lock:
-            cap = camera
-        if cap is None:
-            camera_connected = False
-            time.sleep(0.05)
-            continue
-        ret, frame = cap.read()
-        if ret and frame is not None:
-            # 竖屏纠正
-            fh, fw = frame.shape[:2]
-            if fh > fw:
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-            with _frame_lock:
-                _latest_frame = frame      # 原始帧（BGR 或 GRAY，图像原样存储）
-            camera_connected = True
-            consec_fail = 0
-            _fail_streak = 0
-        else:
-            consec_fail += 1
-            _fail_streak = consec_fail
-            if consec_fail >= 5:
-                camera_connected = False
-            time.sleep(0.03)
-
-
-def _start_capture_thread() -> None:
-    global _capture_running, _capture_thread, _latest_frame
-    _stop_capture_thread()
-    _latest_frame = None
-    _capture_running = True
-    _capture_thread = threading.Thread(target=_capture_thread_func, daemon=True, name="CaptureThread")
-    _capture_thread.start()
-
-
-def _stop_capture_thread() -> None:
-    global _capture_running, _capture_thread
-    _capture_running = False
-    if _capture_thread and _capture_thread.is_alive():
-        _capture_thread.join(timeout=1.0)
+        _capture_thread.join(timeout=2.0)
     _capture_thread = None
 
 
@@ -551,8 +510,63 @@ def detect_on_frame(frame_gray: np.ndarray):
     output_names = [o.name for o in sess.get_outputs()]
     outputs = sess.run(output_names, {sess.get_inputs()[0].name: inp})
 
-    """MJPEG 预览流。只读 _latest_frame（由 _capture_thread_func 写入），
-    绝不自己调用 cap.read()，避免 DirectShow 跨线程崩溃。"""
+    # head6 输出顺序：cv3.0 cv3.1 cv3.2 cv2.0 cv2.1 cv2.2
+    cls_outs = outputs[:3]
+    reg_outs = outputs[3:]
+    detections = _decode_yolov8(cls_outs, reg_outs)
+
+    results = []
+    for box, score, cls_id in detections:
+        x1 = max(0.0, (box[0] - pad_x) / scale)
+        y1 = max(0.0, (box[1] - pad_y) / scale)
+        x2 = min(float(w), (box[2] - pad_x) / scale)
+        y2 = min(float(h), (box[3] - pad_y) / scale)
+        results.append((x1, y1, x2, y2, score, cls_id))
+    return results
+
+
+def _save_capture(frame: np.ndarray, fmt: str) -> dict:
+    global capture_count
+    tw, th = CAPTURE_FORMATS[fmt]
+
+    if fmt == "640x360":
+        # 传感器 1280×720 → 中心裁剪 640×360
+        out = crop_center(frame, tw, th)
+    else:
+        out = frame.copy()
+
+    # 确保尺寸正确
+    if out.shape[1] != tw or out.shape[0] != th:
+        out = cv2.resize(out, (tw, th))
+
+    capture_count += 1
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    name = f"capture_{ts}_{capture_count:04d}_{fmt}.png"
+    path = os.path.join(output_dir, name)
+    cv2.imwrite(path, out)
+
+    thumb = cv2.resize(out, (160, 90 if fmt == "640x360" else 80))
+    _, buf = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 72])
+    thumb_b64 = base64.b64encode(buf).decode()
+
+    info = {
+        "filename": name,
+        "format": fmt,
+        "size": f"{tw}×{th}",
+        "thumb": thumb_b64,
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "index": capture_count,
+    }
+    recent_captures.appendleft(info)
+    print(f"[CAPTURE] {path}  ({tw}×{th})")
+    return info
+
+
+# ─── 视频流 ───────────────────────────────────────────────────────────────────
+
+
+def generate_frames():
+    """MJPEG 预览流。只读 _latest_frame，永远不自己调用 cap.read()。"""
     global current_fps, _frame_count, _fps_ts, camera_connected
 
     while True:
@@ -581,62 +595,8 @@ def detect_on_frame(frame_gray: np.ndarray):
             _frame_count = 0
             _fps_ts = now
 
-        # 确保 BGR 三通道（原样输出，不强制灰度）
-        if len(raw.shape) == 2:
-            disp = cv2.cvtColor(raw, cv2.COLOR_GRAY2BGR)
-        else:
-            disp = raw.copy()
-
-        h, w = disp.shape[:2]
-        cx, cy = w // 2, h // 2
-        x1, y1, x2, y2 = cx - 320, cy - 180, cx + 320, cy + 180
-        cv2.rectangle(disp, (x1, y1), (x2, y2), (45, 210, 100), 1)
-        cv2.putText(disp, "640x360 train", (x1 + 6, y1 + 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, (45, 210, 100), 1)res.appendleft(info)
-    print(f"[CAPTURE] {path}  ({tw}×{th})")
-    return info
-
-
-# ─── 视频流 ───────────────────────────────────────────────────────────────────
-
-
-def generate_frames():
-    """MJPEG 预览流。只读 _latest_frame（由 _capture_thread_func 写入），
-    绝不自己调用 cap.read()，避免 Direct只读 _latest_frame，不直接调用 cap.read()。"""
-    while True:
-        with _frame_lock:
-            raw = _latest_frame.copy() if _latest_frame is not None else None
-
-        if raw is None:
-            blk = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH, 3), dtype=np.uint8)
-            cv2.putText(blk, "No Signal", (CAMERA_WIDTH // 2 - 80, CAMERA_HEIGHT // 2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (60, 60, 60), 2)
-            _, buf = cv2.imencode(".jpg", blk, [cv2.IMWRITE_JPEG_QUALITY, 50])
-            yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n")
-            time.sleep(0.5)
-            continue
-
-        # YOLOv8 需要灰度输入
-        frame_gray = raw if len(raw.shape) == 2 else cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY)
-        detections = detect_on_frame(frame_gray)
-        display = raw.copy() if len(raw.shape) == 3 else cv2.cvtColor(rawent-Type: image/jpeg\r\n\r\n"
-                   + buf.tobytes() + b"\r\n")
-            time.sleep(0.1)
-            continue
-
-        camera_connected = True
-        _frame_count += 1
-        now = time.time()
-        if now - _fps_ts >= 1.0:
-            current_fps = _frame_count / (now - _fps_ts)
-            _frame_count = 0
-            _fps_ts = now
-
-        # 确保 BGR 三通道（原样输出，不强制灰度）
-        if len(raw.shape) == 2:
-            disp = cv2.cvtColor(raw, cv2.COLOR_GRAY2BGR)
-        else:
-            disp = raw.copy()
+        # 确保 BGR 三通道显示（不强制灰度，保留 OSD 彩色框）
+        disp = cv2.cvtColor(raw, cv2.COLOR_GRAY2BGR) if len(raw.shape) == 2 else raw.copy()
 
         h, w = disp.shape[:2]
         cx, cy = w // 2, h // 2
@@ -653,7 +613,7 @@ def generate_frames():
 
 
 def _generate_detect_frames():
-    """YOLOv8+OSD 检测视频流（MJPEG）。只读 _latest_frame，不直接调用 cap.read()。"""
+    """YOLOv8+OSD 检测视频流（MJPEG）。只读 _latest_frame。"""
     while True:
         with _frame_lock:
             raw = _latest_frame.copy() if _latest_frame is not None else None
@@ -679,12 +639,11 @@ def _generate_detect_frames():
             label = f"{name} {score:.2f}"
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
             ty = max(int(y1) - 4, th + 4)
-         _frame_lock:
-        raw = _latest_frame.copy() if _latest_frame is not None else None
-    if raw is None:
-        return jsonify({"success": False, "error": "无法获取摄像头画面"})
-    # 统一转灰度保存（训练数据集格式）
-    frame = raw if len(raw.shape) == 2 else cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY
+            cv2.rectangle(display, (int(x1), ty - th - 4), (int(x1) + tw + 4, ty), color, -1)
+            cv2.putText(display, label, (int(x1) + 2, ty - 2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
+        n = len(detections)
         cv2.putText(display, f"Det: {n}  conf>={_DETECT_CONF:.2f}", (8, 28),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 80), 2)
 
@@ -692,17 +651,17 @@ def _generate_detect_frames():
         yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n")
 
 
-# ─── 先停抓帧线程（它持有 cap 引用），再换摄像头，再重启
-    _stop_capture_thread()
-    new_cam = _try_open(device_id_global)
-    ok = new_cam is not None
-    with camera_lock:
-        _old_cam = camera  # noqa: F841 — GC 负责释放，避免并发 release
-        camera = new_cam if ok else None
-    _fail_streak = 0
-    if ok:
-        camera_connected = True
-        _start_capture_thread()ultipart/x-mixed-replace; boundary=frame")
+# ─── Flask 路由 ───────────────────────────────────────────────────────────────
+
+@app.route("/")
+def index():
+    return render_template("companion_ui.html", output_dir=output_dir)
+
+
+@app.route("/video_feed")
+def video_feed():
+    return Response(generate_frames(),
+                    mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.route("/detect_feed")
@@ -735,7 +694,7 @@ def do_capture():
         raw = _latest_frame.copy() if _latest_frame is not None else None
     if raw is None:
         return jsonify({"success": False, "error": "无法获取摄像头画面"})
-    # 统一转灰度保存（训练数据集格式）
+    # 训练数据集统一转灰度保存
     frame = raw if len(raw.shape) == 2 else cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY)
     info = _save_capture(frame, fmt)
     return jsonify({"success": True, **info})
@@ -743,21 +702,17 @@ def do_capture():
 
 @app.route("/refresh_camera", methods=["POST"])
 def refresh_camera():
-    global camera, _fail_streak, camera_connected
-    # 先停抓帧线程（它持有 cap 引用），再换摄像头，再重启
+    global _fail_streak, camera_connected
+    # 先停抓帧线程（它持有并在操作 cap），再重新启动
+    # 新线程会在自己线程内重新创建 VideoCapture
     _stop_capture_thread()
-    new_cam = _try_open(device_id_global)
-    ok = new_cam is not None
-    _stop_capture_thread()
-    with camera_lock:
-        _old_camera = camera  # noqa: F841 — GC 负责释放
-        camera = new_camera
-        device_id_global = new_device
     _fail_streak = 0
-    camera_connected = True
-    _start_capture_thread()刷新成功")
+    _start_capture_thread(device_id_global)
+    # 等待一下让线程尝试开栏
+    time.sleep(1.5)
+    if camera_connected:
+        print("[INFO] 摄像头手动刷新成功")
         return jsonify({"success": True, "message": "摄像头已重新连接"})
-    camera_connected = False
     print("[WARN] 摄像头刷新失败")
     return jsonify({"success": False, "error": "无法连接到摄像头设备"})
 
@@ -795,19 +750,12 @@ def switch_camera():
     except (TypeError, ValueError):
         return jsonify({"success": False, "error": "device 必须是整数"})
 
-    # 在锁外打开新摄像头，避免阻塞视频流生成器（关键修复）
-    new_camera = _try_open(new_device)
-    if new_camera is None:
-        return jsonify({"success": False, "error": "目标摄像头无法打开"})
-
+    # 先停旧抓帧线程，再刷新 device_id_global，再启动新线程
+    # 新线程在自己线程内创建新设备的 VideoCapture
     _stop_capture_thread()
-    with camera_lock:
-        _old_camera = camera  # noqa: F841 — GC 负责释放
-        camera = new_camera
-        device_id_global = new_device
+    device_id_global = new_device
     _fail_streak = 0
-    camera_connected = True
-    _start_capture_thread()
+    _start_capture_thread(new_device)
     save_preferred_device(new_device)
     print(f"[INFO] 已切换到摄像头设备 {new_device}")
     return jsonify({"success": True, "device": new_device})
@@ -818,7 +766,6 @@ def recent_captures_api():
     return jsonify(list(recent_captures))
 
 
-        _start_capture_thread()   # 启动专用抓帧线程
 @app.route("/status")
 def status():
     with camera_lock:
@@ -865,13 +812,14 @@ def main():
         else:
             print("[WARN] 未探测到可用摄像头，回退到设备 0")
 
-    print(f"[INFO] 正在连接 A1 摄像头 (设备 {selected_device})...")
-    camera = _try_open(selected_device)
-    if camera is None:
+    # 由报帧线程内部创建 VideoCapture，满足 DirectShow 同线程要求
+    print(f"[INFO] 正在启动抓帧线程 (设备 {selected_device})...")
+    save_preferred_device(selected_device)
+    _start_capture_thread(selected_device)
+    # 等待线程开栏
+    time.sleep(1.0)
+    if not camera_connected:
         print("[WARN] 摄像头未连接，工具仍可启动，请连接后点击「刷新摄像头」")
-    else:
-        save_preferred_device(selected_device)
-        _start_capture_thread()   # 启动专用抓帧线程
 
     print(f"[INFO] Aurora Companion 已启动: http://localhost:{args.port}")
     print(f"[INFO] 快捷键: 1=1280×720  2=640×360  R=刷新摄像头")
