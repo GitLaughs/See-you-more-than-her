@@ -263,14 +263,24 @@ def _try_open(device_id: int) -> Optional[cv2.VideoCapture]:
     if not cap.isOpened():
         return None
 
+    # 仅在摄像头支持时才强制灰度 FOURCC，否则保持驱动默认值
+    # 若不支持（如 NoY8 设备），不要强设 FOURCC 以免 DirectShow 管线崩溃
+    # 部分驱动在 cap 已开启后调用 set(FOURCC) 会抛 C++ 异常，需捕获
     for s in ("Y800", "GREY", "Y8  "):
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*s))
+        try:
+            fourcc = cv2.VideoWriter_fourcc(*s)
+            cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+            if int(cap.get(cv2.CAP_PROP_FOURCC)) == fourcc:
+                break   # 成功接受则停止，避免用无效 FOURCC 破坏流
+        except Exception:
+            break       # 驱动抛异常说明不支持 FOURCC 切换，直接跳过
+    # 注意：不设置 CAP_PROP_CONVERT_RGB=0，让 OpenCV / DirectShow 正常解码
+    # 设置 0 会禁用 BGR 转换，在不支持 Y8 的设备上导致管线几帧后崩溃
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS,          CAMERA_FPS)
-    cap.set(cv2.CAP_PROP_CONVERT_RGB,  0)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE,   1)   # 减少缓冲，降低切换后首帧延迟
+    cap.set(cv2.CAP_PROP_BUFFERSIZE,   2)   # 給驱动留 2 帧缓冲，避免 1 帧时掉帧
 
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -528,10 +538,10 @@ def generate_frames():
                     global camera, camera_connected, _reconnect_in_progress
                     new_cap = _try_open(device_id_global)
                     with camera_lock:
-                        old = camera
-                        camera = new_cap
-                    if old:
-                        old.release()
+                        old = camera   # noqa: F841 — 延迟 GC 回收，避免在 generate_frames
+                        camera = new_cap  # 仍持有 old 引用时就调用 old.release() 造成崩溃
+                    # 不立即 old.release()：generate_frames 可能当前迭代仍在 cap.read(old) 中
+                    # Python GC 会在所有引用消失后自动调用 VideoCapture.__del__ -> release()
                     if new_cap:
                         print("[INFO] 摄像头自动重连成功")
                         camera_connected = True
