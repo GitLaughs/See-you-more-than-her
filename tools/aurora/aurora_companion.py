@@ -72,7 +72,6 @@ _fps_ts = time.time()
 current_fps = 0.0
 camera_connected = False
 _fail_streak = 0
-_last_reconnect = 0.0
 _orientation_warned = False
 MAX_DEVICE_SCAN = 5
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
@@ -263,24 +262,12 @@ def _try_open(device_id: int) -> Optional[cv2.VideoCapture]:
     if not cap.isOpened():
         return None
 
-    # 仅在摄像头支持时才强制灰度 FOURCC，否则保持驱动默认值
-    # 若不支持（如 NoY8 设备），不要强设 FOURCC 以免 DirectShow 管线崩溃
-    # 部分驱动在 cap 已开启后调用 set(FOURCC) 会抛 C++ 异常，需捕获
-    for s in ("Y800", "GREY", "Y8  "):
-        try:
-            fourcc = cv2.VideoWriter_fourcc(*s)
-            cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-            if int(cap.get(cv2.CAP_PROP_FOURCC)) == fourcc:
-                break   # 成功接受则停止，避免用无效 FOURCC 破坏流
-        except Exception:
-            break       # 驱动抛异常说明不支持 FOURCC 切换，直接跳过
-    # 注意：不设置 CAP_PROP_CONVERT_RGB=0，让 OpenCV / DirectShow 正常解码
-    # 设置 0 会禁用 BGR 转换，在不支持 Y8 的设备上导致管线几帧后崩溃
-
+    # 不强设 FOURCC：对 Color/NoY8 设备设置 Y800 会无声损坏 DirectShow 管线
+    # _read_gray 会在读帧后统一做 BGR→GRAY 转换
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS,          CAMERA_FPS)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE,   2)   # 給驱动留 2 帧缓冲，避免 1 帧时掉帧
+    cap.set(cv2.CAP_PROP_BUFFERSIZE,   2)
 
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -506,15 +493,9 @@ def _save_capture(frame: np.ndarray, fmt: str) -> dict:
 
 # ─── 视频流 ───────────────────────────────────────────────────────────────────
 
-_reconnect_in_progress = False  # 防止重入
-
 
 def generate_frames():
-    global camera, current_fps, _frame_count, _fps_ts
-    global camera_connected, _fail_streak, _last_reconnect, _reconnect_in_progress
-
-    FAIL_THRESH      = 10
-    RECONNECT_GAP    = 3.0
+    global current_fps, _frame_count, _fps_ts, camera_connected, _fail_streak
 
     while True:
         with camera_lock:
@@ -525,41 +506,18 @@ def generate_frames():
         if frame is None:
             camera_connected = False
             _fail_streak += 1
-            now = time.time()
-            if (_fail_streak >= FAIL_THRESH
-                    and now - _last_reconnect > RECONNECT_GAP
-                    and not _reconnect_in_progress):
-                _last_reconnect = now
-                _fail_streak = 0
-                _reconnect_in_progress = True
-                print("[INFO] 自动重连摄像头（后台线程）...")
-
-                def _bg_reconnect():
-                    global camera, camera_connected, _reconnect_in_progress
-                    new_cap = _try_open(device_id_global)
-                    with camera_lock:
-                        old = camera   # noqa: F841 — 延迟 GC 回收，避免在 generate_frames
-                        camera = new_cap  # 仍持有 old 引用时就调用 old.release() 造成崩溃
-                    # 不立即 old.release()：generate_frames 可能当前迭代仍在 cap.read(old) 中
-                    # Python GC 会在所有引用消失后自动调用 VideoCapture.__del__ -> release()
-                    if new_cap:
-                        print("[INFO] 摄像头自动重连成功")
-                        camera_connected = True
-                    _reconnect_in_progress = False
-
-                threading.Thread(target=_bg_reconnect, daemon=True).start()
-
-            # 占位黑帧
-            blk = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH), dtype=np.uint8)
-            msg = "Reconnecting..." if _reconnect_in_progress else "No Signal  —  Reconnecting..."
-            cv2.putText(blk, msg,
-                        (CAMERA_WIDTH // 2 - 200, CAMERA_HEIGHT // 2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (60, 60, 60), 2)
-            disp = cv2.cvtColor(blk, cv2.COLOR_GRAY2BGR)
-            _, buf = cv2.imencode(".jpg", disp, [cv2.IMWRITE_JPEG_QUALITY, 50])
+            # 不自动重连，保持稳定，等待用户点击「刷新摄像头」
+            blk = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH, 3), dtype=np.uint8)
+            cv2.putText(blk, "No Signal",
+                        (CAMERA_WIDTH // 2 - 90, CAMERA_HEIGHT // 2 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (80, 80, 80), 2)
+            cv2.putText(blk, "Click [Refresh Camera] to reconnect",
+                        (CAMERA_WIDTH // 2 - 220, CAMERA_HEIGHT // 2 + 36),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (60, 60, 60), 1)
+            _, buf = cv2.imencode(".jpg", blk, [cv2.IMWRITE_JPEG_QUALITY, 50])
             yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
                    + buf.tobytes() + b"\r\n")
-            time.sleep(0.1)
+            time.sleep(0.5)
             continue
 
         camera_connected = True
@@ -681,19 +639,21 @@ def do_capture():
 
 @app.route("/refresh_camera", methods=["POST"])
 def refresh_camera():
-    global camera, _fail_streak
+    global camera, _fail_streak, camera_connected
     # 在锁外打开新摄像头，避免阻塞视频流生成器
     new_cam = _try_open(device_id_global)
     ok = new_cam is not None
     with camera_lock:
-        old_cam = camera
+        # 不立即 release 旧摄像头：generate_frames 可能仍在 cap.read() 中
+        # 让 Python GC 在旧引用归零后自动释放
+        _old_cam = camera  # noqa: F841
         camera = new_cam if ok else None
-    if old_cam:
-        old_cam.release()
     _fail_streak = 0
     if ok:
+        camera_connected = True
         print("[INFO] 摄像头手动刷新成功")
         return jsonify({"success": True, "message": "摄像头已重新连接"})
+    camera_connected = False
     print("[WARN] 摄像头刷新失败")
     return jsonify({"success": False, "error": "无法连接到摄像头设备"})
 
@@ -737,11 +697,10 @@ def switch_camera():
         return jsonify({"success": False, "error": "目标摄像头无法打开"})
 
     with camera_lock:
-        old_camera = camera
+        # 不立即 release 旧摄像头，防止 generate_frames 仍在使用时并发崩溃
+        _old_camera = camera  # noqa: F841
         camera = new_camera
         device_id_global = new_device
-    if old_camera:
-        old_camera.release()
 
     _fail_streak = 0
     camera_connected = True
