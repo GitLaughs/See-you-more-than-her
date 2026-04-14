@@ -286,14 +286,16 @@ def open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
             print(f"[INFO] 摄像头格式设置为: {fourcc_str}")
             format_set = True
             break
-    if not format_set:
-        print("[WARN] 无法设置灰度 FOURCC，将在读取后转换为灰度")
+    if format_set:
+        # A1 灰度传感器：禁用自动 RGB 格式转换（保持原始灰度字节流）
+        cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
+    else:
+        # 普通彩色摄像头：保持默认 RGB 转换，_read_gray() 读取后再转换为灰度
+        print("[INFO] 非 A1 灰度摄像头，以彩色模式读取后转为灰度")
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
-    # 关键：禁用自动 RGB 格式转换（保持原始灰度）
-    cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
 
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))

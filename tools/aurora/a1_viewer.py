@@ -96,17 +96,20 @@ def _open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
             print(f"[INFO] A1 摄像头格式: {fourcc_str}")
             format_set = True
             break
-    if not format_set:
-        print("[WARN] 无法设置灰度 FOURCC，将在读取后转换")
+    if format_set:
+        # A1 灰度传感器：禁用自动 RGB 转换，保持原始灰度字节流
+        cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
+    else:
+        # 普通彩色摄像头：保持默认转换，_read_frame() 直接拿 BGR 帧
+        print("[INFO] 非 A1 灰度摄像头，以彩色模式读取")
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, 30)
-    cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)  # 关键：禁用自动 RGB 转换
 
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"[INFO] A1 摄像头已连接: {w}×{h} (设备 {device_id})")
+    print(f"[INFO] 摄像头已连接: {w}×{h} (设备 {device_id})")
     return cap
 
 
@@ -157,90 +160,77 @@ def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
     return devices
 
 
-# ─── 专用抓帧线程 ─────────────────────────────────────────────────────────────
-# DirectShow 要求 cap.read() 必须在创建 VideoCapture 的同一 OS 线程中调用。
-# 本线程是唯一调用 cap.read() 的地方。Flask MJPEG generator 只读 _latest_frame。
+# ─── 帧读取辅助 ──────────────────────────────────────────────────────────────
 
-def _capture_thread_func(device_id: int) -> None:
-    global _latest_frame, camera, camera_connected, current_fps, _fps_count, _fps_ts
-    cap = _open_camera(device_id)
-    with camera_lock:
-        camera = cap
-    if cap is None:
-        camera_connected = False
-        print(f"[ERROR] 无法打开摄像头设备 {device_id}")
-        return
-    camera_connected = True
-    while _capture_running:
-        ret, frame = cap.read()
-        if ret and frame is not None:
-            fh, fw = frame.shape[:2]
-            if fh > fw:
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-            with _frame_lock:
-                _latest_frame = frame
-            camera_connected = True
-            # FPS 计算
-            _fps_count += 1
-            now = time.time()
-            if now - _fps_ts >= 1.0:
-                current_fps = _fps_count / (now - _fps_ts)
-                _fps_count  = 0
-                _fps_ts     = now
-        else:
-            camera_connected = False
-            time.sleep(0.05)
-    cap.release()
-    with camera_lock:
-        camera = None
-
-
-def _start_capture_thread(device_id: int) -> None:
-    global _capture_running, _capture_thread, _latest_frame
-    _stop_capture_thread()
-    _latest_frame    = None
-    _capture_running = True
-    _capture_thread  = threading.Thread(
-        target=_capture_thread_func,
-        args=(device_id,),
-        daemon=True,
-        name=f"A1CaptureThread-{device_id}",
-    )
-    _capture_thread.start()
-
-
-def _stop_capture_thread() -> None:
-    global _capture_running, _capture_thread
-    _capture_running = False
-    if _capture_thread and _capture_thread.is_alive():
-        _capture_thread.join(timeout=2.0)
-    _capture_thread = None
+def _read_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
+    """读一帧，自动纠正竖屏方向。返回 BGR 三通道帧，或 None。"""
+    ret, frame = cap.read()
+    if not ret or frame is None:
+        return None
+    # 灰度帧 → BGR（MJPEG 需要三通道）
+    if len(frame.shape) == 2:
+        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+    # 单通道情况
+    elif frame.shape[2] == 1:
+        frame = cv2.cvtColor(frame[:, :, 0], cv2.COLOR_GRAY2BGR)
+    fh, fw = frame.shape[:2]
+    if fh > fw:  # 竖屏 → 旋转
+        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    return frame
 
 
 # ─── MJPEG 生成器 ─────────────────────────────────────────────────────────────
 
 def _generate_stream():
-    """原样转发 A1 帧（OSD 已由板端硬件烧录），不做任何推理。"""
-    while True:
-        with _frame_lock:
-            raw = _latest_frame.copy() if _latest_frame is not None else None
+    """直接 cap.read() 推帧，兼容 A1 灰度源和普通彩色摄像头，内置自动重连。"""
+    global camera, camera_connected, current_fps, _fps_count, _fps_ts
+    global _consecutive_failures, _last_reconnect_time
+    FAIL_THRESHOLD = 10
+    RECONNECT_INTERVAL = 3.0
 
-        if raw is None:
+    while True:
+        with camera_lock:
+            cap = camera
+        frame = _read_frame(cap) if cap else None
+
+        if frame is None:
+            camera_connected = False
+            _consecutive_failures += 1
+            now = time.time()
+            if (_consecutive_failures >= FAIL_THRESHOLD
+                    and (now - _last_reconnect_time) > RECONNECT_INTERVAL):
+                _last_reconnect_time = now
+                _consecutive_failures = 0
+                print("[INFO] 尝试自动重连摄像头...")
+                with camera_lock:
+                    if camera:
+                        camera.release()
+                    camera = _open_camera(device_id_global)
+                    if camera:
+                        camera_connected = True
+                        print("[INFO] 摄像头重连成功")
             blk = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH, 3), dtype=np.uint8)
-            cv2.putText(blk, "Waiting for A1 board...",
+            cv2.putText(blk, "Waiting for camera...",
                         (CAMERA_WIDTH // 2 - 190, CAMERA_HEIGHT // 2 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.1, (60, 140, 200), 2)
-            cv2.putText(blk, "Connect A1 via USB and press Reconnect",
-                        (CAMERA_WIDTH // 2 - 250, CAMERA_HEIGHT // 2 + 40),
+            cv2.putText(blk, "Connect camera or press Reconnect",
+                        (CAMERA_WIDTH // 2 - 230, CAMERA_HEIGHT // 2 + 40),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.65, (60, 60, 80), 1)
             _, buf = cv2.imencode(".jpg", blk, [cv2.IMWRITE_JPEG_QUALITY, 50])
             yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
                    + buf.tobytes() + b"\r\n")
-            time.sleep(0.2)
+            time.sleep(0.1)
             continue
 
-        # BGR → 确保三通道（A1 输出已是彩色）
-        frame = raw if len(raw.shape) == 3 else cv2.cvtColor(raw, cv2.COLOR_GRAY2BGR)
+        _consecutive_failures = 0
+        camera_connected = True
+        _fps_count += 1
+        now = time.time()
+        if now - _fps_ts >= 1.0:
+            current_fps = _fps_count / (now - _fps_ts)
+            _fps_count  = 0
+            _fps_ts     = now
+
         _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
         yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
                + buf.tobytes() + b"\r\n")
@@ -381,9 +371,11 @@ def main():
             device_id_global = 0
 
     print(f"[INFO] A1 Viewer 启动，设备 {device_id_global}，端口 {args.port}")
-    camera = _open_camera(device_id_global)
+    global camera
+    with camera_lock:
+        camera = _open_camera(device_id_global)
     if camera is None:
-        print("[WARN] 摄像头未就绪，请连接 A1 后点击页面中的 Reconnect")
+        print("[WARN] 摄像头未就绪，请连接后点击页面中的 Reconnect")
     print(f"[INFO] 打开浏览器访问: http://localhost:{args.port}")
     app.run(host=args.host, port=args.port, debug=False, threaded=True)
 
