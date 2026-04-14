@@ -40,10 +40,8 @@ camera_lock = threading.Lock()
 device_id_global: int = 0
 camera_connected: bool = False
 
-_latest_frame: Optional[np.ndarray] = None
-_frame_lock = threading.Lock()
-_capture_running: bool = False
-_capture_thread: Optional[threading.Thread] = None
+_consecutive_failures: int = 0
+_last_reconnect_time: float = 0.0
 
 _fps_count  = 0
 _fps_ts     = time.time()
@@ -81,8 +79,23 @@ def _open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
             cap = cv2.VideoCapture(device_id)
     if not cap.isOpened():
         return None
+
+    # 尝试设置灰度 FOURCC（A1 SC132GS 灰度源优先）
+    grey_fourccs = [
+        cv2.VideoWriter_fourcc(*"Y800"),
+        cv2.VideoWriter_fourcc(*"GREY"),
+        cv2.VideoWriter_fourcc(*"Y8  "),
+    ]
+    for fourcc in grey_fourccs:
+        cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+        if int(cap.get(cv2.CAP_PROP_FOURCC)) == fourcc:
+            break
+
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+    cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)  # 关键：禁用自动 RGB 转换
+
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"[INFO] A1 摄像头已连接: {w}×{h} (设备 {device_id})")
@@ -205,12 +218,16 @@ def status():
 
 @app.route("/reconnect", methods=["POST"])
 def reconnect():
-    """停止并重新启动抓帧线程（在线程内重新打开摄像头）。"""
-    _stop_capture_thread()
-    time.sleep(0.3)
-    _start_capture_thread(device_id_global)
-    time.sleep(1.5)
-    return jsonify({"success": camera_connected, "connected": camera_connected})
+    """停止并重新打开摄像头（与 aurora_companion.refresh_camera 保持一致）。"""
+    global camera, camera_connected, _consecutive_failures
+    with camera_lock:
+        if camera:
+            camera.release()
+        camera = _open_camera(device_id_global)
+        ok = camera is not None and camera.isOpened()
+    camera_connected = ok
+    _consecutive_failures = 0
+    return jsonify({"success": ok, "connected": ok})
 
 
 # ─── 数据推送扩展占位 ─────────────────────────────────────────────────────────
@@ -267,9 +284,8 @@ def main():
             device_id_global = 0
 
     print(f"[INFO] A1 Viewer 启动，设备 {device_id_global}，端口 {args.port}")
-    _start_capture_thread(device_id_global)
-    time.sleep(1.0)
-    if not camera_connected:
+    camera = _open_camera(device_id_global)
+    if camera is None:
         print("[WARN] 摄像头未就绪，请连接 A1 后点击页面中的 Reconnect")
     print(f"[INFO] 打开浏览器访问: http://localhost:{args.port}")
     app.run(host=args.host, port=args.port, debug=False, threaded=True)
