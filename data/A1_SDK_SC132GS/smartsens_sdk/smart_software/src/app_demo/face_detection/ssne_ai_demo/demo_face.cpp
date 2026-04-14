@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include "include/utils.hpp"
 #include "include/chassis_controller.hpp"
+#include "project_paths.hpp"
 
 using namespace std;
 
@@ -71,9 +72,9 @@ int main() {
     int img_height = 720;   // 输入图像高度
     
     // 模型配置参数
-    // 推理输入: 640×360（由 RunAiPreprocessPipe 从 1280×720 缩放，废弃旧裁剪方案）
-    array<int, 2> det_shape = {640, 360};  // 检测模型输入尺寸 (16:9)
-    string path_det = "/app_demo/app_assets/models/face_640x360.m1model";  // 人脸检测模型路径
+    // 推理输入: 640×360（由 RunAiPreprocessPipe 从 1280×720 缩放, 16:9 无裁剪）
+    array<int, 2> det_shape = {cfg::DET_WIDTH, cfg::DET_HEIGHT};  // 640×360
+    string path_det = cfg::MODEL_PATH;  // YOLOv8 head6 模型路径
     
     /******************************************************************************************
      * 2. 系统初始化
@@ -93,11 +94,13 @@ int main() {
     IMAGEPROCESSOR processor;
     processor.Initialize(&img_shape);  // 初始化图像处理器（全分辨率 1280×720）
     
-    // 人脸检测模型初始化
-    SCRFDGRAY detector;
-    int box_len = det_shape[0] * det_shape[1] / 512 * 21;  // 计算最大检测框数量
-    // in_img_shape 传入原图 1280×720，使检测器坐标系与显示分辨率一致（Postprocess 中 scale=2.0）
-    detector.Initialize(path_det, &img_shape, &det_shape, false, box_len);  // 初始化检测器
+    // YOLOv8 目标检测器初始化
+    YOLOV8 detector;
+    detector.nms_threshold = cfg::DET_NMS_THRESH;
+    detector.keep_top_k    = cfg::DET_KEEP_TOP_K;
+    detector.top_k         = cfg::DET_TOP_K;
+    // in_img_shape 传入原图 1280×720，使 Postprocess 坐标系与显示分辨率一致（scale=2.0）
+    detector.Initialize(path_det, &img_shape, &det_shape);  // 初始化检测器
     
     // 人脸检测结果初始化
     FaceDetectionResult* det_result = new FaceDetectionResult;
@@ -134,8 +137,8 @@ int main() {
         // 从sensor获取图像（裁剪图）
         processor.GetImage(&img_sensor);
         
-        // 人脸检测模型推理（置信度阈值0.4）
-        detector.Predict(&img_sensor, det_result, 0.4f);
+        // 目标检测模型推理（YOLOv8, 置信度阈值来自 cfg::DET_CONF_THRESH）
+        detector.Predict(&img_sensor, det_result, cfg::DET_CONF_THRESH);
         
         /**********************************************************************************
          * 3.1 判断是否有检测到人脸
@@ -167,8 +170,9 @@ int main() {
             /**********************************************************************************
              * 3.4 底盘控制：检测到人脸 → 以 100 mm/s 前进
              **********************************************************************************/
-            printf("[DRIVE] 检测到人脸 %zu 个，直行 100 mm/s\n", det_result->boxes.size());
-            if (chassis_ok) chassis.SendVelocity(100, 0, 0);
+            printf("[DRIVE] 检测到目标 %zu 个，直行 %d mm/s\n",
+                   det_result->boxes.size(), cfg::VX_FORWARD);
+            if (chassis_ok) chassis.SendVelocity(cfg::VX_FORWARD, 0, 0);
         }
         else {
             // 未检测到人脸，清除OSD上的检测框并停车
