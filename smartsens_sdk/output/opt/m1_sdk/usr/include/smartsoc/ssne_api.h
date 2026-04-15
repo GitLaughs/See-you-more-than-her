@@ -515,7 +515,10 @@ int OnlineSetFrameDrop(PipelineIdType pipeline_id, uint8_t gated_frames, uint8_t
  * @brief 设置在线管道的输出图像参数
  * @details 为指定管道配置输出图像数据类型和尺寸
  * @param pipeline_id 管道标识符（kPipeline0或kPipeline1）
- * @param dtype 输出数据类型：SSNE_UINT8 (0)、SSNE_INT8 (1) 或 SSNE_FLOAT32 (2)
+ * @param dtype 输出数据类型：1 (SSNE_YUV422_20)	YUV422 20bit
+ * @param dtype 输出数据类型：2 (SSNE_YUV422_16)	YUV422 16bit
+ * @param dtype 输出数据类型：3 (SSNE_Y_10)	灰度 10bit
+ * @param dtype 输出数据类型：4 (SSNE_Y_8)	灰度 8bit
  * @param width 输出图像宽度（像素）
  * @param height 输出图像高度（像素）
  * @return 成功返回SSNE_ERRCODE_NO_ERROR (0)，失败返回错误码
