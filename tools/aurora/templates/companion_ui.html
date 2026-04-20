@@ -395,7 +395,8 @@ select option{background:var(--surface);}
         <div class="card-head">YOLOv8 检测信息</div>
         <div class="det-panel">
           <table>
-            <tr><td>模型</td><td><span class="det-badge" id="detModelName">best_a1_formal_head6.onnx</span></td></tr>
+            <tr><td>模型</td><td><span class="det-badge" id="detModelName">best_a1_formal.onnx</span></td></tr>
+            <tr><td>格式</td><td id="detModelMode">标准输出</td></tr>
             <tr><td>输入尺寸</td><td>640 × 640 (letterbox)</td></tr>
             <tr><td>类别数</td><td id="detNumCls">4</td></tr>
             <tr><td>置信度</td><td id="detConf">≥ 0.40</td></tr>
@@ -450,6 +451,18 @@ select option{background:var(--surface);}
             <button class="source-chip" type="button" data-source="auto" onclick="setCameraSource('auto')">自动识别</button>
           </div>
           <div id="cameraSourceHint" class="source-desc">当前将优先选择 <b>Windows 纯预览</b>，预览保持原图不叠加框；YOLOv8 仅在本地 Windows 侧运行。</div>
+          <div style="font-size:.72em;color:var(--muted);margin-top:10px;margin-bottom:6px;">ONNX 模型</div>
+          <div class="form-row" style="margin-bottom:6px;">
+            <label>模型</label>
+            <select id="modelSelect">
+              <option value="">加载中...</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="loadDetectModels()">⟳ 列表</button>
+            <button class="btn btn-blue" style="flex:1;justify-content:center;" onclick="switchDetectModel()">🧠 切换</button>
+          </div>
+          <div id="modelHint" class="source-desc" style="margin-top:6px;">切换后会立即影响 Windows 侧 YOLOv8 检测流。</div>
           <div class="form-row" style="margin-bottom:6px;">
             <label>设备</label>
             <select id="cameraSelect">
@@ -830,6 +843,8 @@ let statusPollTimer = null;
 let currentStreamTab = 'preview';  // 'preview' | 'detect'
 let selectedCameraSource = 'windows';
 let cameraDevicesCache = [];
+let detectModelCache = [];
+let selectedDetectModel = '';
 let _streamLoadingTimer = null;
 
 const CAMERA_SOURCE_TITLES = {
@@ -842,6 +857,11 @@ const CAMERA_SOURCE_DESCRIPTIONS = {
   windows: '预览保持原图，不叠加检测框；YOLOv8 只在 Windows 本地运行。',
   a1: '预览对应 A1 板端输入/OSD 画面，适合查看板侧检测结果。',
   auto: '根据当前设备特性自动匹配 Windows 纯预览或 A1 板端源。',
+};
+
+const DETECT_MODEL_MODE_TITLES = {
+  standard: '标准输出',
+  head6: 'Head6 输出',
 };
 
 // ── Stream loading overlay ──────────────────────────────────────────────────
@@ -930,6 +950,125 @@ function updateStreamSummary() {
   }
 }
 
+function updateModelHint() {
+  const hint = document.getElementById('modelHint');
+  if (!hint) return;
+  const select = document.getElementById('modelSelect');
+  const current = (select && select.value) || selectedDetectModel;
+  const model = detectModelCache.find(item => item.name === current);
+  if (!model) {
+    hint.textContent = '切换后会立即影响 Windows 侧 YOLOv8 检测流。';
+    return;
+  }
+  hint.textContent = `当前选择：${model.name} · ${DETECT_MODEL_MODE_TITLES[model.mode] || model.mode}。切换后会立即生效。`;
+}
+
+function syncDetectModelSelect(modelName) {
+  const sel = document.getElementById('modelSelect');
+  if (!sel) return;
+  if (modelName) sel.value = modelName;
+  selectedDetectModel = sel.value || selectedDetectModel;
+  updateModelHint();
+}
+
+function renderDetectModelOptions(models, currentModel) {
+  const sel = document.getElementById('modelSelect');
+  if (!sel) return;
+  if (!models.length) {
+    sel.innerHTML = '<option value="">— 无可用模型 —</option>';
+    selectedDetectModel = '';
+    updateModelHint();
+    return;
+  }
+  sel.innerHTML = models.map(model => {
+    const suffix = DETECT_MODEL_MODE_TITLES[model.mode] || model.mode || '';
+    return `<option value="${model.name}" ${model.selected ? 'selected' : ''}>${model.label} · ${suffix}</option>`;
+  }).join('');
+  if (currentModel) sel.value = currentModel;
+  selectedDetectModel = sel.value || currentModel || '';
+  updateModelHint();
+}
+
+function loadDetectModels() {
+  const sel = document.getElementById('modelSelect');
+  if (sel) sel.disabled = true;
+  return fetch('/detect_models')
+    .then(r => r.json())
+    .then(d => {
+      detectModelCache = d.models || [];
+      selectedDetectModel = d.current_model || selectedDetectModel;
+      renderDetectModelOptions(detectModelCache, selectedDetectModel);
+      const rt = document.getElementById('detRuntime');
+      const mode = d.current_mode || '';
+      if (rt && mode) rt.textContent = `onnxruntime (${DETECT_MODEL_MODE_TITLES[mode] || mode})`;
+    })
+    .catch(() => {})
+    .finally(() => {
+      if (sel) sel.disabled = false;
+    });
+}
+
+function loadDetectStatus() {
+  fetch('/detect_status').then(r => r.json()).then(d => {
+    const warn = document.getElementById('detWarn');
+    const rt = document.getElementById('detRuntime');
+    const modelName = d.model_name || 'best_a1_formal.onnx';
+    const modelMode = d.model_mode || 'standard';
+    document.getElementById('detModelName').textContent = modelName;
+    document.getElementById('detModelMode').textContent = DETECT_MODEL_MODE_TITLES[modelMode] || modelMode;
+    document.getElementById('detNumCls').textContent = d.num_classes;
+    document.getElementById('detConf').textContent = '≥ ' + d.conf_threshold.toFixed(2);
+    syncDetectModelSelect(modelName);
+    if (!d.ort_available) {
+      warn.textContent = '⚠ onnxruntime 未安装，请运行: pip install onnxruntime';
+      warn.style.display = '';
+      rt.textContent = '不可用';
+    } else if (!d.model_exists) {
+      warn.textContent = '⚠ 模型文件不存在: ' + d.model_path;
+      warn.style.display = '';
+      rt.textContent = '不可用';
+    } else {
+      warn.style.display = 'none';
+      rt.textContent = d.model_loaded ? `onnxruntime (${DETECT_MODEL_MODE_TITLES[modelMode] || modelMode} · 已加载)` : `onnxruntime (${DETECT_MODEL_MODE_TITLES[modelMode] || modelMode} · 首帧时懒加载)`;
+    }
+  }).catch(() => {});
+}
+
+function switchDetectModel() {
+  const sel = document.getElementById('modelSelect');
+  if (!sel || !sel.value) {
+    toast('请选择 ONNX 模型', 'err');
+    return;
+  }
+  sel.disabled = true;
+  showStreamLoading('正在切换 ONNX 模型…');
+  fetch('/switch_detect_model', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({model_name: sel.value})
+  }).then(r => r.json()).then(d => {
+    if (d.success) {
+      hideStreamLoading();
+      detectModelCache = d.models || detectModelCache;
+      selectedDetectModel = d.model_name || sel.value;
+      renderDetectModelOptions(detectModelCache, selectedDetectModel);
+      toast('✓ 已切换模型: ' + d.model_name, 'ok');
+      loadDetectStatus();
+      if (currentStreamTab === 'detect') {
+        document.getElementById('stream').src = '/detect_feed?' + Date.now();
+      }
+    } else {
+      hideStreamLoading();
+      toast('✗ ' + d.error, 'err');
+    }
+  }).catch(e => {
+    hideStreamLoading();
+    toast('✗ ' + e, 'err');
+  }).finally(() => {
+    sel.disabled = false;
+  });
+}
+
 function setCameraSource(source, autoSwitch = true) {
   selectedCameraSource = ['windows', 'a1', 'auto'].includes(source) ? source : 'auto';
   syncSourceButtons();
@@ -958,28 +1097,6 @@ function switchStreamTab(tab) {
   if (tab === 'detect') loadDetectStatus();
 }
 
-function loadDetectStatus() {
-  fetch('/detect_status').then(r => r.json()).then(d => {
-    const warn = document.getElementById('detWarn');
-    const rt = document.getElementById('detRuntime');
-    document.getElementById('detModelName').textContent = d.model_name || 'best_a1_formal_head6.onnx';
-    document.getElementById('detNumCls').textContent = d.num_classes;
-    document.getElementById('detConf').textContent = '≥ ' + d.conf_threshold.toFixed(2);
-    if (!d.ort_available) {
-      warn.textContent = '⚠ onnxruntime 未安装，请运行: pip install onnxruntime';
-      warn.style.display = '';
-      rt.textContent = '不可用';
-    } else if (!d.model_exists) {
-      warn.textContent = '⚠ 模型文件不存在: ' + d.model_path;
-      warn.style.display = '';
-      rt.textContent = '不可用';
-    } else {
-      warn.style.display = 'none';
-      rt.textContent = d.model_loaded ? 'onnxruntime (已加载)' : 'onnxruntime (首帧时懒加载)';
-    }
-  }).catch(() => {});
-}
-
 // ── Tab switching ───────────────────────────────────────────────────────────
 function switchTab(tab) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -992,7 +1109,10 @@ function switchTab(tab) {
   }
   pageEl.classList.add('active');
   tabEl.classList.add('active');
-  if (tab === 'camera') loadCameraDevices();
+  if (tab === 'camera') {
+    loadCameraDevices();
+    loadDetectModels();
+  }
   if (tab === 'chassis' || tab === 'stm32') refreshPorts();
 }
 
@@ -1431,6 +1551,12 @@ setInterval(() => {
       updateSourceHint();
       updateStreamSummary();
     }
+    if (d.model_name) {
+      selectedDetectModel = d.model_name;
+      document.getElementById('detModelName').textContent = d.model_name;
+      document.getElementById('detModelMode').textContent = DETECT_MODEL_MODE_TITLES[d.model_mode] || d.model_mode || '—';
+      syncDetectModelSelect(d.model_name);
+    }
     setCamOnline(d.connected);
     document.getElementById('fpsChip').textContent = d.fps != null ? d.fps.toFixed(1)+' fps' : '— fps';
   }).catch(()=>{});
@@ -1478,6 +1604,7 @@ function toast(msg, type = 'ok') {
 refreshPorts();
 fetchGallery();
 loadCameraDevices();
+loadDetectModels();
 </script>
 </body>
 </html>

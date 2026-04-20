@@ -29,7 +29,7 @@ tools/aurora/
 ## 当前界面能力
 
 - Windows 纯预览：原始摄像头输入，不叠检测框
-- Windows 本地 YOLOv8：ONNX 推理 + OSD 叠框
+- Windows 本地 YOLOv8：ONNX 推理 + OSD 叠框，支持在页面内切换标准输出和 head6 模型
 - A1 板端预览：用于查看板端输出的带框/OSD 画面
 - 串口扫描：刷新底盘串口列表并提示新增端口
 - 联通测试：A1 ↔ STM32 发送零速度测试帧并读取遥测

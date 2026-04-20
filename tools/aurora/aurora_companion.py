@@ -86,7 +86,16 @@ SOURCE_LABELS = {
 }
 
 # ─── YOLOv8 检测器（PC 端 ONNX 推理）────────────────────────────────────────
-_DETECT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "best_a1_formal_head6.onnx"
+MODEL_ROOT = Path(__file__).parent.parent.parent / "models"
+_DETECT_MODEL_PATH = MODEL_ROOT / "best_a1_formal.onnx"
+_DETECT_MODEL_MODE = "standard"
+_DETECT_MODEL_PRESETS = (
+    ("best_a1_formal.onnx", "Windows 参考模型"),
+    ("best.onnx", "Windows 备用模型"),
+    ("best_a1_formal_head6.onnx", "A1 head6 模型"),
+    ("best_head6.onnx", "head6 备用模型"),
+)
+_DETECT_MODEL_PREF_FILE = Path(__file__).with_name(".a1_detect_model")
 _DETECT_CONF = 0.4
 _DETECT_NMS = 0.45
 _DETECT_NUM_CLASSES = 4
@@ -390,6 +399,94 @@ def _read_gray(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
     return _frame_to_gray(frame)
 
 
+def _detect_model_mode_from_path(model_path: Path) -> str:
+    return "head6" if "head6" in model_path.stem.lower() else "standard"
+
+
+def _read_detect_model_preference() -> Optional[str]:
+    try:
+        if not _DETECT_MODEL_PREF_FILE.exists():
+            return None
+        text = _DETECT_MODEL_PREF_FILE.read_text(encoding="utf-8").strip()
+        return text or None
+    except Exception:
+        return None
+
+
+def _write_detect_model_preference(model_name: str) -> None:
+    try:
+        _DETECT_MODEL_PREF_FILE.write_text(model_name, encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _resolve_detect_model_path(model_name: str) -> Optional[Path]:
+    if not model_name:
+        return None
+    candidate = MODEL_ROOT / Path(model_name).name
+    return candidate if candidate.exists() else None
+
+
+def _list_detect_models() -> list:
+    current_name = _DETECT_MODEL_PATH.name
+    items = []
+    for filename, label in _DETECT_MODEL_PRESETS:
+        path = MODEL_ROOT / filename
+        if not path.exists():
+            continue
+        items.append({
+            "name": path.name,
+            "label": label,
+            "path": str(path),
+            "mode": _detect_model_mode_from_path(path),
+            "selected": path.name == current_name,
+        })
+    if not items and _DETECT_MODEL_PATH.exists():
+        items.append({
+            "name": _DETECT_MODEL_PATH.name,
+            "label": _DETECT_MODEL_PATH.name,
+            "path": str(_DETECT_MODEL_PATH),
+            "mode": _detect_model_mode_from_path(_DETECT_MODEL_PATH),
+            "selected": True,
+        })
+    return items
+
+
+def set_detect_model_path(model_path: Path, persist: bool = True) -> dict:
+    global _DETECT_MODEL_PATH, _DETECT_MODEL_MODE, _ort_session
+
+    resolved = Path(model_path)
+    if not resolved.is_absolute():
+        resolved = MODEL_ROOT / resolved.name
+    resolved = resolved.resolve()
+    if not resolved.exists():
+        raise FileNotFoundError(f"ONNX 模型不存在: {resolved}")
+
+    _DETECT_MODEL_PATH = resolved
+    _DETECT_MODEL_MODE = _detect_model_mode_from_path(resolved)
+    with _ort_session_lock:
+        _ort_session = None
+    if persist:
+        _write_detect_model_preference(resolved.name)
+    return {
+        "model_name": resolved.name,
+        "model_path": str(resolved),
+        "model_mode": _DETECT_MODEL_MODE,
+    }
+
+
+def _initial_detect_model_path() -> Path:
+    preferred_name = _read_detect_model_preference()
+    if preferred_name:
+        resolved = _resolve_detect_model_path(preferred_name)
+        if resolved is not None:
+            return resolved
+    return _DETECT_MODEL_PATH
+
+
+set_detect_model_path(_initial_detect_model_path(), persist=False)
+
+
 def crop_center(img: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
     """从图像中心裁剪到目标尺寸"""
     h, w = img.shape[:2]
@@ -404,7 +501,7 @@ def crop_center(img: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
 
 def _load_ort_session():
     """懒加载 ONNX 推理会话（线程安全）。"""
-    global _ort_session
+    global _ort_session, _DETECT_MODEL_MODE
     if not _ORT_AVAILABLE:
         return None
     if not _DETECT_MODEL_PATH.exists():
@@ -421,7 +518,9 @@ def _load_ort_session():
                     sess_options=opts,
                     providers=["CPUExecutionProvider"],
                 )
-                print(f"[INFO] YOLOv8 ONNX 模型已加载: {_DETECT_MODEL_PATH.name}")
+                outputs = _ort_session.get_outputs()
+                _DETECT_MODEL_MODE = "head6" if len(outputs) > 1 else "standard"
+                print(f"[INFO] YOLOv8 ONNX 模型已加载: {_DETECT_MODEL_PATH.name} ({_DETECT_MODEL_MODE})")
             except Exception as e:
                 print(f"[ERROR] 加载 ONNX 失败: {e}")
                 return None
@@ -442,8 +541,43 @@ def _letterbox(img_gray: np.ndarray, target: int = 640):
     return canvas, scale, pad_x, pad_y
 
 
-def _decode_yolov8(cls_outs, reg_outs,
-                   conf_thr=_DETECT_CONF, nms_thr=_DETECT_NMS):
+def _sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-x))
+
+
+def _nms_boxes(boxes, scores, cls_ids, nms_thr=_DETECT_NMS, top_k=_DETECT_TOP_K):
+    if not len(boxes):
+        return []
+    order = np.argsort(scores)[::-1][:200]
+    suppressed = np.zeros(len(order), dtype=bool)
+    keep = []
+    for i, idx in enumerate(order):
+        if suppressed[i]:
+            continue
+        keep.append(idx)
+        if len(keep) >= top_k:
+            break
+        b1 = boxes[idx]
+        for j in range(i + 1, len(order)):
+            if suppressed[j]:
+                continue
+            jdx = order[j]
+            if cls_ids[idx] != cls_ids[jdx]:
+                continue
+            b2 = boxes[jdx]
+            ix1, iy1 = max(b1[0], b2[0]), max(b1[1], b2[1])
+            ix2, iy2 = min(b1[2], b2[2]), min(b1[3], b2[3])
+            inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+            a1 = max(0, b1[2] - b1[0]) * max(0, b1[3] - b1[1])
+            a2 = max(0, b2[2] - b2[0]) * max(0, b2[3] - b2[1])
+            union = a1 + a2 - inter
+            if union > 0 and inter / union > nms_thr:
+                suppressed[j] = True
+    return keep
+
+
+def _decode_yolov8_head6(cls_outs, reg_outs,
+                         conf_thr=_DETECT_CONF, nms_thr=_DETECT_NMS):
     """head6 模型后处理：DFL decode + NMS。返回 [(box, score, cls_id)]。"""
     strides = [8, 16, 32]
     bins_arr = np.arange(_DETECT_REG_BINS, dtype=np.float32)
@@ -482,33 +616,64 @@ def _decode_yolov8(cls_outs, reg_outs,
     scores = np.concatenate(all_scores).astype(np.float32)
     cls_ids = np.concatenate(all_cls).astype(np.int32)
 
-    order = np.argsort(scores)[::-1][:200]
-    suppressed = np.zeros(len(order), dtype=bool)
-    keep = []
-    for i, idx in enumerate(order):
-        if suppressed[i]:
-            continue
-        keep.append(idx)
-        if len(keep) >= _DETECT_TOP_K:
-            break
-        b1 = boxes[idx]
-        for j in range(i + 1, len(order)):
-            if suppressed[j]:
-                continue
-            jdx = order[j]
-            if cls_ids[idx] != cls_ids[jdx]:
-                continue
-            b2 = boxes[jdx]
-            ix1, iy1 = max(b1[0], b2[0]), max(b1[1], b2[1])
-            ix2, iy2 = min(b1[2], b2[2]), min(b1[3], b2[3])
-            inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
-            a1 = (b1[2] - b1[0]) * (b1[3] - b1[1])
-            a2 = (b2[2] - b2[0]) * (b2[3] - b2[1])
-            union = a1 + a2 - inter
-            if union > 0 and inter / union > nms_thr:
-                suppressed[j] = True
+    keep = _nms_boxes(boxes, scores, cls_ids, nms_thr=nms_thr)
 
     return [(boxes[idx], float(scores[idx]), int(cls_ids[idx])) for idx in keep]
+
+
+def _decode_yolov8_standard(output: np.ndarray,
+                            conf_thr=_DETECT_CONF, nms_thr=_DETECT_NMS):
+    """标准 YOLOv8 输出后处理：xywh + class scores。"""
+    pred = np.asarray(output)
+    if pred.ndim != 3:
+        return []
+
+    if pred.shape[1] <= pred.shape[2]:
+        pred = np.transpose(pred[0], (1, 0))
+    else:
+        pred = pred[0]
+
+    if pred.shape[1] < 5:
+        return []
+
+    boxes = pred[:, :4].astype(np.float32)
+    scores = pred[:, 4:].astype(np.float32)
+    if scores.size == 0:
+        return []
+    if float(scores.min()) < 0.0 or float(scores.max()) > 1.0 + 1e-3:
+        scores = _sigmoid(scores)
+
+    best_scores = scores.max(axis=1)
+    cls_ids = scores.argmax(axis=1).astype(np.int32)
+    mask = best_scores >= conf_thr
+    if not np.any(mask):
+        return []
+
+    boxes = boxes[mask]
+    best_scores = best_scores[mask]
+    cls_ids = cls_ids[mask]
+
+    cx = boxes[:, 0]
+    cy = boxes[:, 1]
+    bw = boxes[:, 2]
+    bh = boxes[:, 3]
+    xyxy = np.stack([
+        cx - bw / 2.0,
+        cy - bh / 2.0,
+        cx + bw / 2.0,
+        cy + bh / 2.0,
+    ], axis=1)
+
+    keep = _nms_boxes(xyxy, best_scores, cls_ids, nms_thr=nms_thr)
+    return [(xyxy[idx], float(best_scores[idx]), int(cls_ids[idx])) for idx in keep]
+
+
+def _decode_yolov8_outputs(outputs):
+    if len(outputs) == 1:
+        return _decode_yolov8_standard(outputs[0])
+    if len(outputs) >= 6:
+        return _decode_yolov8_head6(outputs[:3], outputs[3:])
+    return []
 
 
 def detect_on_frame(frame_gray: np.ndarray):
@@ -524,11 +689,7 @@ def detect_on_frame(frame_gray: np.ndarray):
 
     output_names = [o.name for o in sess.get_outputs()]
     outputs = sess.run(output_names, {sess.get_inputs()[0].name: inp})
-
-    # head6 输出顺序：cv3.0 cv3.1 cv3.2 cv2.0 cv2.1 cv2.2
-    cls_outs = outputs[:3]
-    reg_outs = outputs[3:]
-    detections = _decode_yolov8(cls_outs, reg_outs)
+    detections = _decode_yolov8_outputs(outputs)
 
     results = []
     for box, score, cls_id in detections:
@@ -718,6 +879,37 @@ def detect_status():
         "num_classes": _DETECT_NUM_CLASSES,
         "conf_threshold": _DETECT_CONF,
         "model_name": _DETECT_MODEL_PATH.name,
+        "model_mode": _DETECT_MODEL_MODE,
+        "models": _list_detect_models(),
+    })
+
+
+@app.route("/detect_models")
+def detect_models():
+    return jsonify({
+        "current_model": _DETECT_MODEL_PATH.name,
+        "current_path": str(_DETECT_MODEL_PATH),
+        "current_mode": _DETECT_MODEL_MODE,
+        "models": _list_detect_models(),
+    })
+
+
+@app.route("/switch_detect_model", methods=["POST"])
+def switch_detect_model():
+    data = request.get_json(silent=True) or {}
+    model_name = str(data.get("model_name") or data.get("model") or data.get("path") or "").strip()
+    if not model_name:
+        return jsonify({"success": False, "error": "缺少模型名称"})
+
+    resolved = _resolve_detect_model_path(model_name)
+    if resolved is None:
+        return jsonify({"success": False, "error": f"未找到模型: {model_name}"})
+
+    info = set_detect_model_path(resolved, persist=True)
+    return jsonify({
+        "success": True,
+        **info,
+        "models": _list_detect_models(),
     })
 
 
@@ -848,6 +1040,9 @@ def status():
         "device": device_id_global,
         "source": camera_source_global,
         "source_label": _source_label(camera_source_global),
+        "model_name": _DETECT_MODEL_PATH.name,
+        "model_path": str(_DETECT_MODEL_PATH),
+        "model_mode": _DETECT_MODEL_MODE,
     })
 
 

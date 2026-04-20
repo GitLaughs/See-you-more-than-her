@@ -11,7 +11,7 @@ SmartSens A1 + WHEELTEC C50X 的视觉机器人工作区。
 ## 现在能做什么
 
 - A1 侧：SC132GS 全分辨率采集、YOLOv8 人物检测、硬件 OSD 叠框、WHEELTEC 底盘联动
-- Windows 侧：纯摄像头预览、本地 YOLOv8 + OSD、A1 板端预览、串口扫描与底盘调试
+- Windows 侧：纯摄像头预览、本地 YOLOv8 + OSD、ONNX 模型切换、A1 板端预览、串口扫描与底盘调试
 - 构建侧：Docker 中编译 SDK / Demo / ROS2，生成 `output/evb/latest/zImage.smartsens-m1-evb`
 - 烧录侧：使用 `Aurora-2.0.0-ciciec.14\Aurora.exe` 进行 A1 EVB 图形化烧录
 
@@ -34,7 +34,7 @@ Aurora-2.0.0-ciciec.14/         Aurora.exe 烧录工具
 2. 运行 `scripts/build_complete_evb.sh` 或 `--app-only` 生成产物。
 3. 使用 `Aurora-2.0.0-ciciec.14\Aurora.exe` 打开 `output/evb/latest/zImage.smartsens-m1-evb` 并完成烧录。
 4. 在板端运行 `/app_demo/scripts/run.sh` 验证 Demo。
-5. 在 Windows 侧运行 `tools/aurora/launch.ps1` 做预览、串口与底盘联调。
+5. 在 Windows 侧运行 `tools/aurora/launch.ps1` 做预览、模型切换、串口与底盘联调。
 
 ## 文档索引
 
