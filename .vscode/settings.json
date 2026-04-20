@@ -5,13 +5,14 @@
 
   // ── Markdown：关闭全部报错/警告 ─────────────────────────────────────────
   "markdownlint.config": {
-    "MD060": false
+    "default": false
   },
+  "markdownlint.severityForError": "Ignore",
+  "markdownlint.severityForWarning": "Ignore",
   "markdown.validate.enabled": false,
   "markdown.validate.fileLinks.enabled": false,
   "markdown.validate.fragmentLinks.enabled": false,
   "markdown.validate.referenceLinks.enabled": false,
-  "markdownlint.enabled": false,
 
   // ── Editor (Markdown) ────────────────────────────────────────────────────
   "[markdown]": {
