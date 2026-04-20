@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 """
-YOLOv8 ONNX 模型裁剪工具 — 移除 Detect Head 后的后处理部分
+YOLOv8 ONNX 模型裁剪工具 — 移除 Detect Head 后的后处理部分。
 
-原始模型: models/best.onnx
-  - 输入: images [1, 3, 640, 640]
-  - 输出: output0 [1, 8, 8400]  (4 bbox + 4 classes, 含完整后处理)
-
-裁剪后模型: models/best_head6.onnx
-  - 输入: images [1, 3, 640, 640]
-  - 输出: 6 个 Detect Head 原始输出，移除 DFL decode / bbox decode / stride 缩放
+默认会把 models/best.onnx 裁成 models/best_head6.onnx。也可以通过命令行
+显式指定输入/输出文件，用于裁剪其它同结构 YOLOv8 模型。
 
 部署预处理说明:
   A1 开发板输入流为 1280×720 灰度图，预处理流程:
@@ -17,7 +12,10 @@ YOLOv8 ONNX 模型裁剪工具 — 移除 Detect Head 后的后处理部分
 
 用法:
     python split_head6.py
+    python split_head6.py --input models/best_a1_formal.onnx --output models/best_a1_formal_head6.onnx
 """
+
+import argparse
 
 import onnx
 from onnx.utils import extract_model
@@ -44,41 +42,52 @@ OUTPUT_NAMES = [
 ]
 
 
+def _parse_args():
+    parser = argparse.ArgumentParser(description="裁剪 YOLOv8 ONNX 为 6 个 Detect Head 输出")
+    parser.add_argument("--input", default=INPUT_MODEL, help="输入 ONNX 模型路径")
+    parser.add_argument("--output", default=OUTPUT_MODEL, help="输出 head6 ONNX 模型路径")
+    return parser.parse_args()
+
+
 def main():
-    print(f"[split_head6] 输入模型: {INPUT_MODEL}")
+  args = _parse_args()
+  input_model = args.input
+  output_model = args.output
 
-    model = onnx.load(INPUT_MODEL)
-    inp = model.graph.input[0]
+  print(f"[split_head6] 输入模型: {input_model}")
+
+  model = onnx.load(input_model)
+  inp = model.graph.input[0]
+  shape = [
+    d.dim_value if d.dim_value > 0 else d.dim_param
+    for d in inp.type.tensor_type.shape.dim
+  ]
+  print(f"[split_head6] 原始输入形状: {shape}")
+
+  extract_model(
+    input_model,
+    output_model,
+    input_names=INPUT_NAMES,
+    output_names=OUTPUT_NAMES,
+  )
+
+  # 验证输出
+  out_model = onnx.load(output_model)
+  print(f"[split_head6] 裁剪完成: {output_model}")
+  print("[split_head6] 输出节点:")
+  for out in out_model.graph.output:
     shape = [
-        d.dim_value if d.dim_value > 0 else d.dim_param
-        for d in inp.type.tensor_type.shape.dim
+      d.dim_value if d.dim_value > 0 else d.dim_param
+      for d in out.type.tensor_type.shape.dim
     ]
-    print(f"[split_head6] 原始输入形状: {shape}")
+    print(f"  {out.name}: {shape}")
 
-    extract_model(
-        INPUT_MODEL,
-        OUTPUT_MODEL,
-        input_names=INPUT_NAMES,
-        output_names=OUTPUT_NAMES,
-    )
-
-    # 验证输出
-    out_model = onnx.load(OUTPUT_MODEL)
-    print(f"[split_head6] 裁剪完成: {OUTPUT_MODEL}")
-    print("[split_head6] 输出节点:")
-    for out in out_model.graph.output:
-        shape = [
-            d.dim_value if d.dim_value > 0 else d.dim_param
-            for d in out.type.tensor_type.shape.dim
-        ]
-        print(f"  {out.name}: {shape}")
-
-    print()
-    print("部署预处理配置:")
-    print("  传感器输出: 1280×720 灰度图")
-    print("  resize  →  640×360 (保持 16:9 宽高比)")
-    print("  letterbox → 640×640 (上下各补零 140px)")
-    print("  模型输入:   640×640")
+  print()
+  print("部署预处理配置:")
+  print("  传感器输出: 1280×720 灰度图")
+  print("  resize  →  640×360 (保持 16:9 宽高比)")
+  print("  letterbox → 640×640 (上下各补零 140px)")
+  print("  模型输入:   640×640")
 
 
 if __name__ == "__main__":

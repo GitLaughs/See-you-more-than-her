@@ -36,8 +36,10 @@ inline const std::string MODEL_PATH =
     "/app_demo/app_assets/models/best_yolov8_640x360.m1model";
 
 // ─── YOLOv8 模型参数 ─────────────────────────────────────────────────────────
-// 模型训练类别数 (与 dataset.yaml 保持一致)
+// 模型训练类别数 (与导出的 best_a1_formal.onnx 语义保持一致)
 constexpr int  YOLO_NUM_CLASSES = 4;
+// 主控制逻辑只对 person 类别做前进触发
+constexpr int  TARGET_CLASS_PERSON = 0;
 // DFL 回归 bins 数量
 constexpr int  YOLO_REG_BINS    = 16;
 // YOLOv8 三个 FPN 尺度的步长

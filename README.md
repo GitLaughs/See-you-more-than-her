@@ -152,9 +152,8 @@ docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --app-o
 ### 3. 烧录到主板
 
 ```powershell
-# 使用 Aurora 伴侣工具烧录（zImage 路径用最新时间戳目录）
-cd tools/aurora
-.\launch.ps1 --flash ..\output\evb\<时间戳>\zImage.smartsens-m1-evb
+# 使用 burn_tool 烧录（launch.ps1 仅用于 Windows 测试）
+docker exec A1_Builder bash -lc "cd /app/data/A1_SDK_SC132GS/smartsens_sdk && ./tools/burn_tool/x86_linux/burn_tool -f /app/output/evb/<时间戳>/zImage.smartsens-m1-evb"
 ```
 
 ### 4. 板端验证

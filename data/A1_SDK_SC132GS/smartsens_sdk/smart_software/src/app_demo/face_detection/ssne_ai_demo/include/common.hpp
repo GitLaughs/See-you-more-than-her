@@ -14,7 +14,7 @@
 #include <math.h>
 #include "smartsoc/ssne_api.h"
 
-/*! @brief 人脸检测结果的结构体定义。
+/*! @brief 检测结果的结构体定义。
  */
 struct FaceDetectionResult {
   /** \brief All the detected object boxes for an input image.
@@ -40,10 +40,10 @@ struct FaceDetectionResult {
 
   FaceDetectionResult() { landmarks_per_face = 0; }
   FaceDetectionResult(const FaceDetectionResult& res);
-  // 清空FaceDetectionResult内的所有变量
+  // 清空检测结果内的所有变量
   void Clear();
 
-  // 清空FaceDetectionResult，释放内存
+  // 清空检测结果，释放内存
   void Free();
   
   // 提前为结构体保留一定的空间 

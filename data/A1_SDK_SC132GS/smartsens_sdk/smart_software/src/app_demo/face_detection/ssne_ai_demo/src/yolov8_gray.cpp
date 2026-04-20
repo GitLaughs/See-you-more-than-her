@@ -1,6 +1,6 @@
 /*
  * @Filename: yolov8_gray.cpp
- * @Description: YOLOv8 灰度图目标检测器实现 (head6 切分模型, CPU 后处理)
+ * @Description: YOLOv8 灰度图人物检测器实现 (head6 切分模型, CPU 后处理)
  *
  * 处理流程:
  *   SC132GS 1280×720 Y8
@@ -70,6 +70,7 @@ void YOLOV8::DecodeHeadOutputs(
             }
 
             if (best_score < conf_threshold) continue;
+            if (best_cls != cfg::TARGET_CLASS_PERSON) continue;
 
             // ── 2. DFL 解码 4 个边距 (left/top/right/bottom) ────────────
             const int reg_offset = (y * width + x) * kRegChannels;
@@ -199,7 +200,7 @@ void YOLOV8::Predict(ssne_tensor_t* img, FaceDetectionResult* result,
     DecodeHeadOutputs(cls1, reg1,  h1, w1, 16, conf_threshold, boxes, scores_vec, class_ids);
     DecodeHeadOutputs(cls2, reg2,  h2, w2, 32, conf_threshold, boxes, scores_vec, class_ids);
 
-    // ── 5. 填充 FaceDetectionResult (class-agnostic, 复用现有 NMS) ───────
+    // ── 5. 填充检测结果 (person-only, 复用现有 NMS) ─────────────────────
     result->Clear();
     result->Reserve(static_cast<int>(boxes.size()));
     for (size_t i = 0; i < boxes.size(); ++i) {
@@ -220,7 +221,7 @@ void YOLOV8::Predict(ssne_tensor_t* img, FaceDetectionResult* result,
         result->boxes[i][3] *= h_scale;
     }
 
-    printf("[YOLOV8] 检测到 %d 个目标 (conf>=%.2f)\n",
+    printf("[YOLOV8] 检测到 %d 个人物 (conf>=%.2f)\n",
            final_count, conf_threshold);
 }
 

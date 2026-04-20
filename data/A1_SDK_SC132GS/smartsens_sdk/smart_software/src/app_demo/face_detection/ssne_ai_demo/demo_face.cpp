@@ -58,7 +58,7 @@ bool check_exit_flag() {
 }
 
 /**
- * @brief 人脸检测演示程序主函数
+ * @brief 人物检测演示程序主函数
  * @return 执行结果，0表示成功
  */
 int main() {
@@ -102,7 +102,7 @@ int main() {
     // in_img_shape 传入原图 1280×720，使 Postprocess 坐标系与显示分辨率一致（scale=2.0）
     detector.Initialize(path_det, &img_shape, &det_shape);  // 初始化检测器
     
-    // 人脸检测结果初始化
+    // 人物检测结果初始化
     FaceDetectionResult* det_result = new FaceDetectionResult;
     
     // OSD可视化器初始化（用于绘制检测框）
@@ -141,7 +141,7 @@ int main() {
         detector.Predict(&img_sensor, det_result, cfg::DET_CONF_THRESH);
         
         /**********************************************************************************
-         * 3.1 判断是否有检测到人脸
+         * 3.1 判断是否有检测到人物
          **********************************************************************************/
         if (det_result->boxes.size() > 0) {
             /**********************************************************************************
@@ -163,20 +163,20 @@ int main() {
             }
             
             /**********************************************************************************
-             * 3.3 OSD绘图：使用原图坐标在OSD上绘制人脸检测框
+             * 3.3 OSD绘图：使用原图坐标在OSD上绘制人物检测框
              **********************************************************************************/
             visualizer.Draw(boxes_original_coord);
 
             /**********************************************************************************
-             * 3.4 底盘控制：检测到人脸 → 以 100 mm/s 前进
+             * 3.4 底盘控制：检测到人物 → 以 100 mm/s 前进
              **********************************************************************************/
-            printf("[DRIVE] 检测到目标 %zu 个，直行 %d mm/s\n",
+            printf("[DRIVE] 检测到人物 %zu 个，直行 %d mm/s\n",
                    det_result->boxes.size(), cfg::VX_FORWARD);
             if (chassis_ok) chassis.SendVelocity(cfg::VX_FORWARD, 0, 0);
         }
         else {
-            // 未检测到人脸，清除OSD上的检测框并停车
-            cout << "[STOP] 未检测到人脸，停车" << endl;
+            // 未检测到人物，清除OSD上的检测框并停车
+            cout << "[STOP] 未检测到人物，停车" << endl;
             std::vector<std::array<float, 4>> empty_boxes;
             visualizer.Draw(empty_boxes);  // 传入空向量清除显示
             if (chassis_ok) chassis.SendVelocity(0, 0, 0);

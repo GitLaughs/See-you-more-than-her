@@ -11,7 +11,7 @@
 #include <algorithm>
 
 namespace utils {
-  // 人脸检测模型所需的函数
+  // 目标检测模型所需的函数
   /* 合并两段结果 */
   void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high);
   /* 归并排序算法 */

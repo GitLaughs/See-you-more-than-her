@@ -376,7 +376,7 @@ def main():
         camera = _open_camera(device_id_global)
     if camera is None:
         print("[WARN] 摄像头未就绪，请连接后点击页面中的 Reconnect")
-    print(f"[INFO] 打开浏览器访问: http://localhost:{args.port}")
+    print(f"[INFO] 打开浏览器访问: http://127.0.0.1:{args.port}")
     app.run(host=args.host, port=args.port, debug=False, threaded=True)
 
 

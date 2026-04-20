@@ -1,20 +1,16 @@
 {
-    // Ignore markdownlint rule MD060 (table column style) workspace-wide
-    "markdownlint.config": {
-        "MD060": false
-    }
-}
-{
-  "chat.agentSkillsLocations": [
-    "https://github.com/anthropics/skills.git"
-  ],
+  // ── Python 解释器 ────────────────────────────────────────────────────────
+  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv39\\Scripts\\python.exe",
+  "python.terminal.activateEnvironment": true,
 
   // ── Markdown：关闭全部报错/警告 ─────────────────────────────────────────
+  "markdownlint.config": {
+    "MD060": false
+  },
   "markdown.validate.enabled": false,
   "markdown.validate.fileLinks.enabled": false,
   "markdown.validate.fragmentLinks.enabled": false,
   "markdown.validate.referenceLinks.enabled": false,
-  // markdownlint 扩展（如已安装）
   "markdownlint.enabled": false,
 
   // ── Editor (Markdown) ────────────────────────────────────────────────────
