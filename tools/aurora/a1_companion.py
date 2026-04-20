@@ -11,7 +11,7 @@ import sys
 
 import aurora_companion as base
 
-base._DETECT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "best_a1_formal_head6.onnx"
+base.set_detect_model_path(Path(__file__).parent.parent.parent / "models" / "best_a1_formal_head6.onnx", persist=False)
 base._CLASS_NAMES = {0: "person", 1: "forward", 2: "stop", 3: "obstacle_box"}
 
 if not any(arg == "--port" or arg.startswith("--port=") for arg in sys.argv[1:]):

@@ -154,6 +154,7 @@ switch ($Mode) {
         if (-not $ShowDriverLogs) {
             Write-Host "Driver logs: hidden (use -ShowDriverLogs to enable)" -ForegroundColor Yellow
         }
+        Write-Host "Model: best_a1_formal.onnx (switchable in the page)" -ForegroundColor Yellow
         Write-Host ""
 
         if (-not $NoBrowser) {
@@ -170,7 +171,7 @@ switch ($Mode) {
         Write-Host "Starting A1 Companion (camera + OSD + chassis debug)..." -ForegroundColor Green
         Write-Host "Web UI: $browserUrl" -ForegroundColor Yellow
         Write-Host "Browser: auto-open enabled (use -NoBrowser to disable)" -ForegroundColor Yellow
-        Write-Host "Model: best_a1_formal_head6.onnx" -ForegroundColor Yellow
+        Write-Host "Model: best_a1_formal_head6.onnx (switchable in the page)" -ForegroundColor Yellow
         Write-Host ""
 
         if (-not $NoBrowser) {

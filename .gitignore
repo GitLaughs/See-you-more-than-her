@@ -10,8 +10,10 @@ src/ros2_ws/src/wheeltec_robot_urdf/
 tools/aurora/modules/__pycache__/
 tools/aurora/__pycache__/
 tools/aurora/.a1_camera_device
+tools/aurora/.a1_detect_model
 third_party/ultralytics
-data/data
+models
+docs_old
 # Aurora 拍照工具保留在版本控制中: tools/aurora/
 
 # Local editor / IDE
@@ -32,3 +34,4 @@ WHEELTEC_C50X_2025.12.26/
 *.log
 .vscode/settings.json
 .vscode/settings.json
+data/data
