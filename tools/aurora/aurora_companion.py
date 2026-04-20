@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Aurora Companion — A1 开发板摄像头可视化采集伴侣
+Aurora Companion — Windows/A1 摄像头可视化采集伴侣
 
 增强版拍照工具，在 aurora_capture 基础上提供：
   - 精心设计的现代暗色玻璃态 UI
   - 摄像头断联自动检测 + 一键刷新恢复
   - 实时 FPS 及连接状态显示
   - 最近拍摄缩略图画廊 (最多 8 张)
-  - 传感器采集 1280×720 灰度图，训练输出 640×360 (中心裁剪)
+    - Windows 纯预览 / A1 采集源，训练输出 640×360 (中心裁剪)
   - A1↔STM32 底盘通信调试 + 联通性测试
   - 键盘快捷键：1/2/R
 
@@ -61,6 +61,7 @@ except ImportError:
 camera: Optional[cv2.VideoCapture] = None
 camera_lock = threading.Lock()
 device_id_global = 0
+camera_source_global = "auto"
 output_dir: str = ""
 capture_count = 0
 recent_captures: deque = deque(maxlen=8)
@@ -70,12 +71,19 @@ _fps_ts = time.time()
 current_fps = 0.0
 camera_connected = False
 _fail_streak = 0
-_orientation_warned = False
 _consecutive_failures = 0
 _last_reconnect_time = 0.0
 
 MAX_DEVICE_SCAN = 5
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
+CAMERA_SOURCE_WINDOWS = "windows"
+CAMERA_SOURCE_A1 = "a1"
+CAMERA_SOURCE_AUTO = "auto"
+SOURCE_LABELS = {
+    CAMERA_SOURCE_WINDOWS: "Windows 摄像头",
+    CAMERA_SOURCE_A1: "A1 开发板",
+    CAMERA_SOURCE_AUTO: "自动识别",
+}
 
 # ─── YOLOv8 检测器（PC 端 ONNX 推理）────────────────────────────────────────
 _DETECT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "best_a1_formal_head6.onnx"
@@ -120,6 +128,67 @@ def _open_raw_camera(device_id: int) -> cv2.VideoCapture:
     return cap
 
 
+def _source_label(source: str) -> str:
+    return SOURCE_LABELS.get(source, source)
+
+
+def _infer_device_source(info: dict) -> str:
+    if info.get("supports_gray_fourcc") or info.get("is_grayscale"):
+        return CAMERA_SOURCE_A1
+    return CAMERA_SOURCE_WINDOWS
+
+
+def _normalize_frame_for_display(frame: np.ndarray) -> np.ndarray:
+    """统一画面朝向和尺寸，但保留原始通道数。"""
+    if frame is None:
+        return frame
+    if len(frame.shape) >= 2:
+        height, width = frame.shape[:2]
+        if height > width:
+            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        if frame.shape[:2] != (CAMERA_HEIGHT, CAMERA_WIDTH):
+            frame = cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
+    return frame
+
+
+def _frame_to_gray(frame: np.ndarray) -> np.ndarray:
+    if frame is None:
+        return frame
+    if len(frame.shape) == 3:
+        if frame.shape[2] == 1:
+            return frame[:, :, 0]
+        return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    return frame
+
+
+def _configure_camera_for_source(cap: cv2.VideoCapture, source: str) -> bool:
+    """按源类型配置摄像头，返回是否成功锁定灰度格式。"""
+    if source != CAMERA_SOURCE_A1:
+        cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
+        return False
+
+    gray_fourccs = [
+        cv2.VideoWriter_fourcc(*"Y800"),
+        cv2.VideoWriter_fourcc(*"GREY"),
+        cv2.VideoWriter_fourcc(*"Y8  "),
+        cv2.VideoWriter_fourcc(*"Y16 "),
+    ]
+    format_set = False
+    for fourcc in gray_fourccs:
+        cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+        if int(cap.get(cv2.CAP_PROP_FOURCC)) == fourcc:
+            fourcc_str = "".join([chr((fourcc >> (8 * i)) & 0xFF) for i in range(4)])
+            print(f"[INFO] 摄像头格式设置为: {fourcc_str}")
+            format_set = True
+            break
+    if format_set:
+        cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
+    else:
+        cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
+        print("[INFO] A1 源未锁定到灰度格式，将以彩色模式读取后转灰度")
+    return format_set
+
+
 def load_preferred_device() -> Optional[int]:
     try:
         if not PREFERRED_DEVICE_FILE.exists():
@@ -151,6 +220,8 @@ def probe_camera_device(device_id: int) -> dict:
             "is_grayscale": False,
             "has_content": False,
             "supports_gray_fourcc": False,
+            "source": CAMERA_SOURCE_WINDOWS,
+            "source_label": _source_label(CAMERA_SOURCE_WINDOWS),
         }
 
     with _suppress_c_stderr():
@@ -175,6 +246,7 @@ def probe_camera_device(device_id: int) -> dict:
         cap.release()
 
     if not ret or frame is None:
+        source = CAMERA_SOURCE_A1 if supports_gray_fourcc else CAMERA_SOURCE_WINDOWS
         return {
             "id": device_id,
             "opened": False,
@@ -184,6 +256,8 @@ def probe_camera_device(device_id: int) -> dict:
             "is_grayscale": False,
             "has_content": False,
             "supports_gray_fourcc": supports_gray_fourcc,
+            "source": source,
+            "source_label": _source_label(source),
         }
 
     frame_h, frame_w = frame.shape[:2]
@@ -220,6 +294,8 @@ def probe_camera_device(device_id: int) -> dict:
     if frame_w == CAMERA_WIDTH and frame_h == CAMERA_HEIGHT and (not is_grayscale) and (not supports_gray_fourcc):
         score -= 3
 
+    source = _infer_device_source({"supports_gray_fourcc": supports_gray_fourcc, "is_grayscale": is_grayscale})
+
     return {
         "id": device_id,
         "opened": True,
@@ -229,6 +305,8 @@ def probe_camera_device(device_id: int) -> dict:
         "is_grayscale": is_grayscale,
         "has_content": has_content,
         "supports_gray_fourcc": supports_gray_fourcc,
+        "source": source,
+        "source_label": _source_label(source),
     }
 
 
@@ -261,37 +339,20 @@ def choose_camera_device(requested_device: int) -> Tuple[int, list]:
     return candidates_sorted[0]["id"], candidates_sorted
 
 
-def open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
-    """打开 A1 开发板摄像头（与 aurora_capture.py 完全一致）。
-
-    关键：显式设置 FOURCC 为 GREY/Y800 以正确解析灰度格式，
-    否则 OpenCV 会按默认 YUV/RGB 解析，同时禁用 CONVERT_RGB。
-    """
+def open_camera(device_id: int, source: str = CAMERA_SOURCE_AUTO) -> Optional[cv2.VideoCapture]:
+    """打开摄像头，并按源类型配置预览/检测格式。"""
     cap = _open_raw_camera(device_id)
     if not cap.isOpened():
         raise RuntimeError(f"无法打开摄像头设备 {device_id}")
 
-    # 尝试设置 Y800/GREY 灰度格式（避免被解析为错误的比例和灰度）
-    grey_fourccs = [
-        cv2.VideoWriter_fourcc(*"Y800"),
-        cv2.VideoWriter_fourcc(*"GREY"),
-        cv2.VideoWriter_fourcc(*"Y8  "),
-        cv2.VideoWriter_fourcc(*"Y16 "),
-    ]
-    format_set = False
-    for fourcc in grey_fourccs:
-        cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-        if int(cap.get(cv2.CAP_PROP_FOURCC)) == fourcc:
-            fourcc_str = "".join([chr((fourcc >> (8 * i)) & 0xFF) for i in range(4)])
-            print(f"[INFO] 摄像头格式设置为: {fourcc_str}")
-            format_set = True
-            break
-    if format_set:
-        # A1 灰度传感器：禁用自动 RGB 格式转换（保持原始灰度字节流）
-        cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
-    else:
-        # 普通彩色摄像头：保持默认 RGB 转换，_read_gray() 读取后再转换为灰度
-        print("[INFO] 非 A1 灰度摄像头，以彩色模式读取后转为灰度")
+    if source == CAMERA_SOURCE_AUTO:
+        source = camera_source_global if camera_source_global != CAMERA_SOURCE_AUTO else CAMERA_SOURCE_WINDOWS
+
+    format_set = _configure_camera_for_source(cap, source)
+    if source == CAMERA_SOURCE_WINDOWS:
+        print("[INFO] Windows 摄像头以纯图像模式读取")
+    elif source == CAMERA_SOURCE_A1 and not format_set:
+        print("[INFO] A1 摄像头以兼容模式读取")
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
@@ -306,33 +367,27 @@ def open_camera(device_id: int) -> Optional[cv2.VideoCapture]:
     return cap
 
 
-def _read_gray(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
-    global _orientation_warned
-
+def _read_display_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
     ret, frame = cap.read()
-    if not ret:
+    if not ret or frame is None:
         return None
 
-    if len(frame.shape) == 3:
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    corrected = _normalize_frame_for_display(frame)
+    if corrected is None:
+        return None
 
-    src_h, src_w = frame.shape[:2]
-    corrected = frame
+    if len(corrected.shape) == 2:
+        corrected = cv2.cvtColor(corrected, cv2.COLOR_GRAY2BGR)
+    elif corrected.shape[2] == 1:
+        corrected = cv2.cvtColor(corrected[:, :, 0], cv2.COLOR_GRAY2BGR)
+    return corrected
 
-    # 某些旧 EVB/SDK 会返回竖屏缓冲（如 360x1280 / 720x1280），先旋转纠正方向。
-    if src_h > src_w:
-        corrected = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-        if not _orientation_warned:
-            dst_h, dst_w = corrected.shape[:2]
-            print(f"[WARN] 检测到竖屏帧 {src_w}x{src_h}，已自动旋转为 {dst_w}x{dst_h}。建议升级 EVB/SDK 以输出原生 1280x720。")
-            _orientation_warned = True
 
-    dst_h, dst_w = corrected.shape[:2]
-    if dst_h == CAMERA_HEIGHT and dst_w == CAMERA_WIDTH:
-        return corrected
-
-    # 兜底：统一输出为 1280x720，确保前端预览与拍照口径一致。
-    return cv2.resize(corrected, (CAMERA_WIDTH, CAMERA_HEIGHT))
+def _read_gray(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
+    frame = _read_display_frame(cap)
+    if frame is None:
+        return None
+    return _frame_to_gray(frame)
 
 
 def crop_center(img: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
@@ -526,7 +581,7 @@ def _save_capture(frame: np.ndarray, fmt: str) -> dict:
 
 
 def generate_frames():
-    """MJPEG 预览流。直接调用 cap.read()（与 aurora_capture.py 一致），内置自动重连。"""
+    """MJPEG 预览流，只输出摄像头原始画面，不叠加训练框。"""
     global camera, current_fps, _frame_count, _fps_ts, camera_connected
     global _fail_streak, _consecutive_failures, _last_reconnect_time
     RECONNECT_INTERVAL = 3.0
@@ -535,7 +590,7 @@ def generate_frames():
     while True:
         with camera_lock:
             cap = camera
-        frame = _read_gray(cap) if cap else None
+        frame = _read_display_frame(cap) if cap else None
 
         if frame is None:
             camera_connected = False
@@ -552,7 +607,7 @@ def generate_frames():
                     with camera_lock:
                         if camera:
                             camera.release()
-                        camera = open_camera(device_id_global)
+                        camera = open_camera(device_id_global, camera_source_global)
                     camera_connected = True
                     print("[INFO] 摄像头自动重连成功")
                 except Exception as e:
@@ -580,25 +635,14 @@ def generate_frames():
             _frame_count = 0
             _fps_ts = now
 
-        # 转 BGR 三通道显示（不强制灰度，保留 OSD 彩色框）
-        disp = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR) if len(frame.shape) == 2 else frame.copy()
-
-        h, w = disp.shape[:2]
-        cx, cy = w // 2, h // 2
-        x1, y1, x2, y2 = cx - 320, cy - 180, cx + 320, cy + 180
-        cv2.rectangle(disp, (x1, y1), (x2, y2), (45, 210, 100), 1)
-        cv2.putText(disp, "640x360 train", (x1 + 6, y1 + 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, (45, 210, 100), 1)
-        cv2.putText(disp, f"FPS {current_fps:.1f}", (w - 100, 24),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1)
-
-        _, buf = cv2.imencode(".jpg", disp, [cv2.IMWRITE_JPEG_QUALITY, 82])
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
         yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
                + buf.tobytes() + b"\r\n")
 
 
 def _generate_detect_frames():
-    """YOLOv8+OSD 检测视频流（MJPEG）。直接调用 cap.read()。"""
+    """本地 YOLOv8+OSD 检测视频流（MJPEG）。"""
+    global current_fps, _frame_count, _fps_ts
     while True:
         with camera_lock:
             cap = camera
@@ -632,6 +676,13 @@ def _generate_detect_frames():
         n = len(detections)
         cv2.putText(display, f"Det: {n}  conf>={_DETECT_CONF:.2f}", (8, 28),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 80), 2)
+
+        _frame_count += 1
+        now = time.time()
+        if now - _fps_ts >= 1.0:
+            current_fps = _frame_count / (now - _fps_ts)
+            _frame_count = 0
+            _fps_ts = now
 
         _, buf = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 75])
         yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n")
@@ -678,7 +729,7 @@ def do_capture():
         return jsonify({"success": False, "error": f"不支持的格式: {fmt}"})
     with camera_lock:
         cap = camera
-    frame = _read_gray(cap) if cap else None
+    frame = _read_display_frame(cap) if cap else None
     if frame is None:
         return jsonify({"success": False, "error": "无法获取摄像头画面"})
     info = _save_capture(frame, fmt)
@@ -692,7 +743,7 @@ def refresh_camera():
         with camera_lock:
             if camera:
                 camera.release()
-            camera = open_camera(device_id_global)
+            camera = open_camera(device_id_global, camera_source_global)
             ok = camera is not None and camera.isOpened()
     except Exception as e:
         ok = False
@@ -723,13 +774,19 @@ def camera_devices():
             "actual_height": d["actual_height"],
             "is_grayscale": d.get("is_grayscale", False),
             "supports_gray_fourcc": d.get("supports_gray_fourcc", False),
+            "source": d.get("source", CAMERA_SOURCE_WINDOWS),
+            "source_label": d.get("source_label", _source_label(CAMERA_SOURCE_WINDOWS)),
         })
-    return jsonify({"current_device": device_id_global, "devices": items})
+    return jsonify({
+        "current_device": device_id_global,
+        "current_source": camera_source_global,
+        "devices": items,
+    })
 
 
 @app.route("/switch_camera", methods=["POST"])
 def switch_camera():
-    global camera, device_id_global, _fail_streak, _consecutive_failures, camera_connected
+    global camera, device_id_global, camera_source_global, _fail_streak, _consecutive_failures, camera_connected
 
     data = request.get_json(silent=True) or {}
     if "device" not in data:
@@ -740,21 +797,34 @@ def switch_camera():
     except (TypeError, ValueError):
         return jsonify({"success": False, "error": "device 必须是整数"})
 
+    requested_source = str(data.get("source") or CAMERA_SOURCE_AUTO).strip().lower()
+    if requested_source not in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1, CAMERA_SOURCE_AUTO}:
+        requested_source = CAMERA_SOURCE_AUTO
+
     try:
+        if requested_source == CAMERA_SOURCE_AUTO:
+            for info in list_camera_devices():
+                if info["id"] == new_device:
+                    requested_source = info.get("source", CAMERA_SOURCE_WINDOWS)
+                    break
+        if requested_source == CAMERA_SOURCE_AUTO:
+            requested_probe = probe_camera_device(new_device)
+            requested_source = requested_probe.get("source", CAMERA_SOURCE_WINDOWS)
         with camera_lock:
             if camera:
                 camera.release()
-            camera = open_camera(new_device)
+            camera = open_camera(new_device, requested_source)
             ok = camera is not None and camera.isOpened()
         if not ok:
             raise RuntimeError("目标摄像头无法打开")
         device_id_global = new_device
+        camera_source_global = requested_source
         _fail_streak = 0
         _consecutive_failures = 0
         camera_connected = True
         save_preferred_device(new_device)
-        print(f"[INFO] 已切换到摄像头设备 {new_device}")
-        return jsonify({"success": True, "device": new_device})
+        print(f"[INFO] 已切换到摄像头设备 {new_device} ({requested_source})")
+        return jsonify({"success": True, "device": new_device, "source": requested_source})
     except Exception as e:
         camera_connected = False
         return jsonify({"success": False, "error": str(e)})
@@ -775,15 +845,18 @@ def status():
         "fps": round(current_fps, 1),
         "output_dir": output_dir,
         "camera_resolution": f"{CAMERA_WIDTH}x{CAMERA_HEIGHT}",
+        "device": device_id_global,
+        "source": camera_source_global,
+        "source_label": _source_label(camera_source_global),
     })
 
 
 # ─── 入口 ─────────────────────────────────────────────────────────────────────
 
 def main():
-    global camera, output_dir, device_id_global
+    global camera, output_dir, device_id_global, camera_source_global
 
-    parser = argparse.ArgumentParser(description="Aurora Companion — A1 摄像头可视化采集伴侣")
+    parser = argparse.ArgumentParser(description="Aurora Companion — Windows/A1 摄像头可视化采集伴侣")
     parser.add_argument("--device", type=int, default=-1,   help="摄像头设备 ID (默认: -1 自动优先 A1)")
     parser.add_argument("--output", type=str,
                         default="../../data/yolov8_dataset/raw/images",
@@ -799,6 +872,13 @@ def main():
 
     selected_device, candidates = choose_camera_device(args.device)
     device_id_global = selected_device
+    if candidates:
+        selected_info = next((c for c in candidates if c["id"] == selected_device), None)
+        if selected_info is None:
+            selected_info = probe_camera_device(selected_device)
+    else:
+        selected_info = probe_camera_device(selected_device)
+    camera_source_global = selected_info.get("source", CAMERA_SOURCE_WINDOWS)
 
     if args.device < 0:
         if candidates:
@@ -806,15 +886,15 @@ def main():
             for c in candidates:
                 kind = "Gray" if c.get("is_grayscale") else "Color"
                 y8 = "Y8" if c.get("supports_gray_fourcc") else "NoY8"
-                print(f"  - device {c['id']}: {c['actual_width']}x{c['actual_height']} {kind} {y8} score={c['score']}")
-            print(f"[INFO] 自动选择设备: {selected_device}")
+                print(f"  - device {c['id']}: {c['actual_width']}x{c['actual_height']} {kind} {y8} score={c['score']} source={c.get('source', CAMERA_SOURCE_WINDOWS)}")
+            print(f"[INFO] 自动选择设备: {selected_device} source={camera_source_global}")
         else:
             print("[WARN] 未探测到可用摄像头，回退到设备 0")
 
-    print(f"[INFO] 正在连接摄像头 (设备 {selected_device})...")
+    print(f"[INFO] 正在连接摄像头 (设备 {selected_device}, source={camera_source_global})...")
     save_preferred_device(selected_device)
     try:
-        camera = open_camera(selected_device)
+        camera = open_camera(selected_device, camera_source_global)
     except Exception as e:
         print(f"[WARN] 摄像头打开失败: {e}，工具仍可启动，请连接后点击「刷新摄像头」")
         camera = None

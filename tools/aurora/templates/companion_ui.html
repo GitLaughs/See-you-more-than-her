@@ -50,7 +50,7 @@ body{
 }
 .logo{display:flex;align-items:center;gap:9px;padding-right:20px;border-right:1px solid var(--border);}
 .logo-icon{width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,var(--blue),var(--orange));display:flex;align-items:center;justify-content:center;font-size:14px;}
-.logo-text{font-size:1.08em;font-family:'Space Grotesk','Noto Sans SC',sans-serif;font-weight:700;background:linear-gradient(90deg,var(--blue),var(--teal));-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:.02em;}
+.logo-text{font-size:1.08em;font-family:'Space Grotesk','Noto Sans SC',sans-serif;font-weight:700;background:linear-gradient(90deg,var(--blue),var(--teal));background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:.02em;}
 /* Tabs */
 .tabs{display:flex;align-items:center;gap:0;flex:1;padding-left:4px;}
 .tab-btn{
@@ -122,6 +122,24 @@ body{
 .stream-tab:hover{background:var(--surface2);color:var(--text);}
 .stream-tab.active{background:var(--blue);color:#fff;border-color:var(--blue);}
 
+.source-switch{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;}
+.source-chip{
+  border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,.02);
+  color:var(--muted);padding:6px 11px;font-size:.75em;font-weight:700;cursor:pointer;
+  transition:all .14s;
+}
+.source-chip:hover{background:var(--surface2);color:var(--text);}
+.source-chip.active{background:rgba(47,182,255,.18);border-color:rgba(47,182,255,.4);color:var(--blue);}
+.source-desc{font-size:.74em;color:var(--muted);line-height:1.45;margin-top:6px;}
+.source-desc b{color:var(--text);}
+
+.preview-badges{position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:6px;}
+.preview-badge{
+  display:inline-flex;align-items:center;gap:6px;background:rgba(13,17,23,.75);backdrop-filter:blur(4px);
+  border:1px solid var(--border);border-radius:5px;padding:2px 8px;font-size:.7em;font-family:monospace;color:var(--green);
+}
+.preview-badge.secondary{color:var(--muted);}
+
 /* YOLOv8 检测信息面板 */
 .det-panel{padding:12px 14px;font-size:.79em;}
 .det-panel table{width:100%;border-collapse:collapse;}
@@ -131,7 +149,7 @@ body{
 .det-warn{margin-top:8px;color:var(--red);font-size:.78em;}
 .sidebar{display:flex;flex-direction:column;gap:10px;}
 .counter-box{text-align:center;padding:16px 0 8px;}
-.counter-num{font-size:3em;font-weight:800;line-height:1;background:linear-gradient(135deg,var(--blue),var(--teal));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.counter-num{font-size:3em;font-weight:800;line-height:1;background:linear-gradient(135deg,var(--blue),var(--teal));background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
 .counter-lbl{font-size:.7em;color:var(--muted);margin-top:3px;}
 
 /* Gallery */
@@ -354,13 +372,16 @@ select option{background:var(--surface);}
           <div style="display:flex;align-items:center;gap:8px;">
             <button class="stream-tab active" id="tab-stream-preview" onclick="switchStreamTab('preview')">📡 预览</button>
             <button class="stream-tab" id="tab-stream-detect" onclick="switchStreamTab('detect')">🔍 YOLOv8</button>
-            <span id="streamResLabel" style="color:var(--green);font-size:.9em">采集 1280 × 720 · 推理 640 × 360</span>
+            <span id="streamResLabel" style="color:var(--green);font-size:.9em">Windows 纯预览 · 1280 × 720</span>
           </div>
         </div>
         <div class="preview-wrap">
           <img id="stream" src="/video_feed" alt="camera"
                onload="onStreamLoad()" onerror="onStreamError()">
-          <div class="preview-chip">SC132GS · Gray</div>
+          <div class="preview-badges">
+            <div class="preview-badge" id="streamSourceChip">Windows 纯预览</div>
+            <div class="preview-badge secondary" id="streamModeChip">纯图像 · 无框</div>
+          </div>
           <div class="preview-fps" id="fpsChip">— fps</div>
           <div class="stream-loading" id="streamLoading">
             <div class="spin-ring"></div>
@@ -410,7 +431,7 @@ select option{background:var(--surface);}
           </div>
           <button class="btn btn-blue btn-full" onclick="capture('1280x720')" style="margin-bottom:5px;">
             <span class="btn-icon">📷</span>
-            <label>拍照 1280×720<small>原始全分辨率灰度图</small></label>
+            <label>拍照 1280×720<small>当前源的原始画面</small></label>
           </button>
           <button class="btn btn-green btn-full" onclick="capture('640x360')">
             <span class="btn-icon">🏹</span>
@@ -422,6 +443,13 @@ select option{background:var(--surface);}
             <label>刷新摄像头<small>断联后点此恢复</small></label>
           </button>
           <div class="divider"></div>
+          <div style="font-size:.72em;color:var(--muted);margin-bottom:6px;">摄像头源</div>
+          <div class="source-switch" id="cameraSourceSwitch">
+            <button class="source-chip active" type="button" data-source="windows" onclick="setCameraSource('windows')">Windows 纯预览</button>
+            <button class="source-chip" type="button" data-source="a1" onclick="setCameraSource('a1')">A1 板端 OSD</button>
+            <button class="source-chip" type="button" data-source="auto" onclick="setCameraSource('auto')">自动识别</button>
+          </div>
+          <div id="cameraSourceHint" class="source-desc">当前将优先选择 <b>Windows 纯预览</b>，预览保持原图不叠加框；YOLOv8 仅在本地 Windows 侧运行。</div>
           <div class="form-row" style="margin-bottom:6px;">
             <label>设备</label>
             <select id="cameraSelect">
@@ -432,6 +460,7 @@ select option{background:var(--surface);}
             <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="loadCameraDevices()">⟳ 列表</button>
             <button class="btn btn-blue" style="flex:1;justify-content:center;" onclick="switchCamera()">🎥 切换</button>
           </div>
+          <div style="font-size:.72em;color:var(--muted);margin-top:8px;line-height:1.5;">提示：预览是摄像头原始画面，YOLOv8 切换后会在 Windows 本地叠加检测框。</div>
         </div>
       </div>
 
@@ -439,11 +468,11 @@ select option{background:var(--surface);}
         <div class="card-head">设备信息</div>
         <div class="card-body">
           <table class="info-tbl">
-            <tr><td>传感器</td><td>SC132GS (USB-C)</td></tr>
-            <tr><td>原始分辨率</td><td>1280 × 720 灰度 (采集)</td></tr>
+            <tr><td>输入源</td><td>Windows 纯预览 / A1 板端 OSD</td></tr>
+            <tr><td>预览分辨率</td><td>1280 × 720</td></tr>
             <tr><td>推理输入</td><td>640 × 360 (缩放后)</td></tr>
             <tr><td>训练裁剪</td><td>640 × 360 (16:9)</td></tr>
-            <tr><td>输出格式</td><td>PNG 8-bit 灰度</td></tr>
+            <tr><td>输出格式</td><td>PNG / JPEG</td></tr>
             <tr><td>输出目录</td><td>{{ output_dir }}</td></tr>
           </table>
           <div class="hint-row">
@@ -515,6 +544,10 @@ select option{background:var(--surface);}
           <select id="portSelect"></select>
           <button class="btn btn-ghost" style="padding:5px 10px;" onclick="refreshPorts()" title="刷新端口">⟳</button>
         </div>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="refreshPorts()">⟳ 刷新列表</button>
+          <button class="btn btn-blue" style="flex:1;justify-content:center;" onclick="scanNewPorts()">🔍 扫描新串口</button>
+        </div>
         <div class="form-row">
           <label>波特率</label>
           <select id="baudSelect">
@@ -533,6 +566,7 @@ select option{background:var(--surface);}
           </button>
         </div>
         <div id="chsConnMsg" style="font-size:.75em;color:var(--muted);margin-top:8px;"></div>
+        <div id="portScanHint" style="font-size:.74em;color:var(--muted);margin-top:6px;line-height:1.45;"></div>
         <div class="divider"></div>
         <div style="font-size:.75em;color:var(--muted);">
           <div style="margin-bottom:4px;font-weight:600;color:var(--text);">协议参数</div>
@@ -794,7 +828,21 @@ let currentDir   = null;
 let chsConnected = false;
 let statusPollTimer = null;
 let currentStreamTab = 'preview';  // 'preview' | 'detect'
+let selectedCameraSource = 'windows';
+let cameraDevicesCache = [];
 let _streamLoadingTimer = null;
+
+const CAMERA_SOURCE_TITLES = {
+  windows: 'Windows 纯预览',
+  a1: 'A1 板端 OSD',
+  auto: '自动识别',
+};
+
+const CAMERA_SOURCE_DESCRIPTIONS = {
+  windows: '预览保持原图，不叠加检测框；YOLOv8 只在 Windows 本地运行。',
+  a1: '预览对应 A1 板端输入/OSD 画面，适合查看板侧检测结果。',
+  auto: '根据当前设备特性自动匹配 Windows 纯预览或 A1 板端源。',
+};
 
 // ── Stream loading overlay ──────────────────────────────────────────────────
 function showStreamLoading(msg) {
@@ -822,6 +870,81 @@ function onStreamError() {
   setCamOnline(false);
 }
 
+function setCamOnline(ok) {
+  const modeLabel = currentStreamTab === 'detect' ? 'YOLOv8' : '预览';
+  const sourceLabel = CAMERA_SOURCE_TITLES[selectedCameraSource] || selectedCameraSource;
+  document.getElementById('camDot').className = 'dot' + (ok ? '' : ' off');
+  document.getElementById('camStatus').textContent = ok ? (modeLabel + '中 · ' + sourceLabel) : '未连接';
+}
+
+function updateSourceHint() {
+  const hint = document.getElementById('cameraSourceHint');
+  if (!hint) return;
+  const title = CAMERA_SOURCE_TITLES[selectedCameraSource] || selectedCameraSource;
+  const desc = CAMERA_SOURCE_DESCRIPTIONS[selectedCameraSource] || '';
+  hint.innerHTML = '当前将优先选择 <b>' + title + '</b>，' + desc;
+}
+
+function syncSourceButtons() {
+  document.querySelectorAll('.source-chip').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.source === selectedCameraSource);
+  });
+}
+
+function pickBestDeviceForSource(source) {
+  if (!cameraDevicesCache.length) return null;
+  const currentSel = document.getElementById('cameraSelect');
+  const currentValue = currentSel && currentSel.value ? parseInt(currentSel.value, 10) : null;
+  const normalized = source || 'auto';
+  if (normalized === 'auto') return currentValue !== null && !Number.isNaN(currentValue) ? currentValue : cameraDevicesCache[0].id;
+  const match = cameraDevicesCache.find(cam => cam.source === normalized);
+  if (match) return match.id;
+  return currentValue !== null && !Number.isNaN(currentValue) ? currentValue : cameraDevicesCache[0].id;
+}
+
+function updateStreamSummary() {
+  const sourceTitle = CAMERA_SOURCE_TITLES[selectedCameraSource] || selectedCameraSource;
+  const chip = document.getElementById('streamSourceChip');
+  const modeChip = document.getElementById('streamModeChip');
+  const summary = document.getElementById('streamResLabel');
+  if (chip) chip.textContent = currentStreamTab === 'detect'
+    ? '本地 Windows YOLOv8'
+    : sourceTitle;
+  if (modeChip) {
+    modeChip.textContent = currentStreamTab === 'detect'
+      ? '检测框 + OSD 仅在 Windows 本地绘制'
+      : (selectedCameraSource === 'a1'
+          ? 'A1 板端画面 · 带框/OSD'
+          : selectedCameraSource === 'auto'
+            ? '自动识别 · 由设备特性决定'
+            : '纯图像 · 无框');
+  }
+  if (summary) {
+    summary.textContent = currentStreamTab === 'detect'
+      ? 'Windows 本地 ONNX · 640 × 360 推理'
+      : (selectedCameraSource === 'a1'
+          ? 'A1 板端预览 · 1280 × 720 输入'
+          : selectedCameraSource === 'auto'
+            ? '自动识别 · 1280 × 720 输入'
+          : 'Windows 纯预览 · 1280 × 720 输入');
+  }
+}
+
+function setCameraSource(source, autoSwitch = true) {
+  selectedCameraSource = ['windows', 'a1', 'auto'].includes(source) ? source : 'auto';
+  syncSourceButtons();
+  updateSourceHint();
+  updateStreamSummary();
+  const sel = document.getElementById('cameraSelect');
+  const best = pickBestDeviceForSource(selectedCameraSource);
+  if (sel && best !== null) {
+    sel.value = String(best);
+  }
+  if (autoSwitch) {
+    switchCamera();
+  }
+}
+
 // ── Stream tab switch (preview / YOLOv8 detect) ─────────────────────────────
 function switchStreamTab(tab) {
   currentStreamTab = tab;
@@ -829,7 +952,8 @@ function switchStreamTab(tab) {
   document.getElementById('tab-stream-preview').classList.toggle('active', tab === 'preview');
   document.getElementById('tab-stream-detect').classList.toggle('active', tab === 'detect');
   document.getElementById('detInfoPanel').style.display = tab === 'detect' ? '' : 'none';
-  showStreamLoading(tab === 'detect' ? 'YOLOv8 推理中，首次加载模型请稍候…' : '切换视频流…');
+  updateStreamSummary();
+  showStreamLoading(tab === 'detect' ? 'Windows 本地 YOLOv8 推理中，首次加载模型请稍候…' : '切换视频流…');
   img.src = (tab === 'detect' ? '/detect_feed' : '/video_feed') + '?' + Date.now();
   if (tab === 'detect') loadDetectStatus();
 }
@@ -873,11 +997,6 @@ function switchTab(tab) {
 }
 
 // ── Camera ─────────────────────────────────────────────────────────────────
-function setCamOnline(ok) {
-  document.getElementById('camDot').className = 'dot' + (ok ? '' : ' off');
-  document.getElementById('camStatus').textContent = ok ? '预览中' : '未连接';
-}
-
 function capture(fmt) {
   fetch('/capture', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({format:fmt})})
   .then(r => r.json())
@@ -902,6 +1021,8 @@ function refreshCam() {
       const feedUrl = (currentStreamTab === 'detect' ? '/detect_feed' : '/video_feed') + '?' + Date.now();
       img.src = feedUrl;
       toast('✓ 摄像头已刷新', 'ok');
+      loadCameraDevices();
+      updateStreamSummary();
     } else {
       hideStreamLoading();
       toast('✗ ' + d.error, 'err');
@@ -918,14 +1039,26 @@ function loadCameraDevices() {
     const sel = document.getElementById('cameraSelect');
     if (!sel) return;
     const devices = d.devices || [];
+    cameraDevicesCache = devices;
+    const backendSource = d.current_source || '';
+    if (backendSource) selectedCameraSource = backendSource;
     const current = d.current_device;
     if (!devices.length) {
       sel.innerHTML = '<option value="">— 无可用摄像头 —</option>';
+      selectedCameraSource = 'auto';
+      updateSourceHint();
+      syncSourceButtons();
+      updateStreamSummary();
       return;
     }
     sel.innerHTML = devices.map(cam =>
-      `<option value="${cam.id}" ${cam.id===current?'selected':''}>${cam.label}</option>`
+      `<option value="${cam.id}" ${cam.id===current?'selected':''}>${cam.label} · ${cam.source_label || cam.source || 'unknown'}</option>`
     ).join('');
+    const active = devices.find(cam => cam.id === current) || devices[0];
+    if (!backendSource && active && active.source) selectedCameraSource = active.source;
+    syncSourceButtons();
+    updateSourceHint();
+    updateStreamSummary();
   }).catch(()=>{});
 }
 
@@ -940,13 +1073,14 @@ function switchCamera() {
   fetch('/switch_camera', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({device})
+    body:JSON.stringify({device, source:selectedCameraSource})
   }).then(r=>r.json()).then(d=>{
     if (d.success) {
       const img = document.getElementById('stream');
       const feedUrl = (currentStreamTab === 'detect' ? '/detect_feed' : '/video_feed') + '?' + Date.now();
       img.src = feedUrl;
-      toast('✓ 已切换摄像头设备 ' + device, 'ok');
+      selectedCameraSource = d.source || selectedCameraSource;
+      toast('✓ 已切换摄像头设备 ' + device + ' · ' + (CAMERA_SOURCE_TITLES[selectedCameraSource] || selectedCameraSource), 'ok');
       loadCameraDevices();
     } else {
       hideStreamLoading();
@@ -970,14 +1104,54 @@ function fetchGallery() {
 }
 
 // ── Chassis serial ───────────────────────────────────────────────────────────
+let knownChassisPorts = [];
+
+function renderPortOptions(ports, markNew = false) {
+  const sel = document.getElementById('portSelect');
+  if (!sel) return;
+  const cur = sel.value;
+  if (!ports.length) {
+    sel.innerHTML = '<option value="">— 无可用端口 —</option>';
+    document.getElementById('portScanHint').textContent = '未发现可用串口，请检查设备是否已连接。';
+    return;
+  }
+  const previous = new Set(knownChassisPorts);
+  sel.innerHTML = ports.map(p=>{
+    const isNew = markNew && !previous.has(p.port);
+    const suffix = isNew ? ' · 新' : '';
+    return `<option value="${p.port}" ${p.port===cur?'selected':''}>${p.port} — ${p.desc}${suffix}</option>`;
+  }).join('');
+  document.getElementById('portScanHint').textContent = previous.size
+    ? '已更新串口列表，新接入端口会标记为“新”。'
+    : '已加载串口列表，可点击“扫描新串口”检测新加入设备。';
+  knownChassisPorts = ports.map(p => p.port);
+}
+
 function refreshPorts() {
-  fetch('/api/chassis/ports').then(r=>r.json()).then(ports=>{
-    const sel = document.getElementById('portSelect');
-    const cur = sel.value;
-    sel.innerHTML = ports.length
-      ? ports.map(p=>`<option value="${p.port}" ${p.port===cur?'selected':''}>${p.port} — ${p.desc}</option>`).join('')
-      : '<option value="">— 无可用端口 —</option>';
+  return fetch('/api/chassis/ports').then(r=>r.json()).then(ports=>{
+    renderPortOptions(ports || [], false);
   }).catch(()=>{});
+}
+
+function scanNewPorts() {
+  const hint = document.getElementById('portScanHint');
+  if (hint) hint.textContent = '正在扫描新增串口…';
+  return fetch('/api/chassis/ports').then(r=>r.json()).then(ports=>{
+    const nextPorts = (ports || []).map(p => p.port);
+    const prevPorts = new Set(knownChassisPorts);
+    const newPorts = nextPorts.filter(port => !prevPorts.has(port));
+    renderPortOptions(ports || [], true);
+    if (newPorts.length) {
+      toast('发现新串口: ' + newPorts.join(', '), 'info');
+      if (hint) hint.textContent = '发现新串口：' + newPorts.join(', ');
+    } else if (hint) {
+      hint.textContent = '未发现新增串口，当前列表已是最新。';
+      toast('未发现新增串口', 'info');
+    }
+  }).catch(e=>{
+    if (hint) hint.textContent = '串口扫描失败：' + e;
+    toast('✗ ' + e, 'err');
+  });
 }
 
 function connectChassis() {
@@ -1251,6 +1425,12 @@ function updateTelemetry() {
 // ── Status polling ──────────────────────────────────────────────────────────
 setInterval(() => {
   fetch('/status').then(r=>r.json()).then(d=>{
+    if (d.source) {
+      selectedCameraSource = d.source;
+      syncSourceButtons();
+      updateSourceHint();
+      updateStreamSummary();
+    }
     setCamOnline(d.connected);
     document.getElementById('fpsChip').textContent = d.fps != null ? d.fps.toFixed(1)+' fps' : '— fps';
   }).catch(()=>{});
