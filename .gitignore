@@ -13,7 +13,7 @@ tools/aurora/.a1_camera_device
 tools/aurora/.a1_detect_model
 third_party/ultralytics
 models
-docs_old
+Aurora-2.0.0-ciciec.14
 # Aurora 拍照工具保留在版本控制中: tools/aurora/
 
 # Local editor / IDE
