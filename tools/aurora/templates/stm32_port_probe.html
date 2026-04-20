@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>STM32 Port Probe</title>
+<style>
+:root {
+  --bg: #08111a;
+  --bg2: #0d1722;
+  --panel: rgba(15, 27, 38, 0.92);
+  --panel2: rgba(19, 34, 48, 0.92);
+  --line: #234055;
+  --text: #e9f5ff;
+  --muted: #94aec0;
+  --accent: #35b8ff;
+  --accent2: #34d39b;
+  --warn: #f0b84b;
+  --danger: #ff6868;
+  --ok: #3bd48a;
+  --shadow: 0 16px 42px rgba(0, 0, 0, 0.32);
+  --radius: 18px;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body {
+  margin: 0;
+  color: var(--text);
+  background:
+    radial-gradient(1200px 420px at 10% -15%, rgba(53, 184, 255, 0.22), transparent 60%),
+    radial-gradient(900px 360px at 92% 0%, rgba(52, 211, 155, 0.14), transparent 50%),
+    linear-gradient(160deg, #061019 0%, #081521 40%, #071720 100%);
+  font-family: "Segoe UI Variable", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.shell {
+  width: min(1240px, calc(100% - 24px));
+  margin: 0 auto;
+  padding: 18px 0 28px;
+}
+.hero {
+  background: linear-gradient(145deg, rgba(20, 36, 50, 0.96), rgba(10, 20, 29, 0.96));
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  position: relative;
+}
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: auto -120px -120px auto;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(53, 184, 255, 0.20), transparent 70%);
+  pointer-events: none;
+}
+.hero-inner {
+  display: grid;
+  grid-template-columns: 1.35fr 0.9fr;
+  gap: 16px;
+  padding: 24px;
+}
+.eyebrow {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  font-size: 12px;
+  color: var(--accent);
+}
+.title {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 46px);
+  line-height: 1.05;
+  letter-spacing: -.02em;
+}
+.lead {
+  margin: 12px 0 0;
+  color: var(--muted);
+  line-height: 1.72;
+  max-width: 70ch;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-content: start;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(9, 18, 27, 0.75);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1;
+}
+.chip strong { color: var(--accent2); font-weight: 700; }
+.chip.warn strong { color: var(--warn); }
+
+.grid {
+  display: grid;
+  grid-template-columns: 1.02fr 0.98fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+.card {
+  background: linear-gradient(160deg, var(--panel), var(--panel2));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.card-head {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+.card-sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+.card-body { padding: 16px; }
+
+.form {
+  display: grid;
+  gap: 12px;
+}
+.row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+.row label {
+  color: var(--muted);
+  font-size: 13px;
+}
+select, input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(5, 12, 19, 0.78);
+  color: var(--text);
+  padding: 11px 12px;
+  font-size: 14px;
+  outline: none;
+}
+select:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(53, 184, 255, 0.12); }
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.btn {
+  border: 0;
+  border-radius: 12px;
+  padding: 11px 14px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+  transition: transform .12s ease, box-shadow .12s ease, opacity .12s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: linear-gradient(135deg, #1c78ff, #46abff); box-shadow: 0 8px 18px rgba(28, 120, 255, 0.28); }
+.btn-secondary { background: linear-gradient(135deg, #176b84, #2799ae); box-shadow: 0 8px 18px rgba(23, 107, 132, 0.28); }
+.btn-success { background: linear-gradient(135deg, #1b8f63, #37c97d); box-shadow: 0 8px 18px rgba(27, 143, 99, 0.24); }
+.btn-danger { background: linear-gradient(135deg, #b43535, #ff6969); box-shadow: 0 8px 18px rgba(180, 53, 53, 0.26); }
+.btn:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+
+.muted-box {
+  background: rgba(7, 14, 21, 0.68);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  color: var(--muted);
+  line-height: 1.75;
+  font-size: 13px;
+}
+.muted-box strong { color: var(--text); }
+.muted-box code, .mono {
+  font-family: Consolas, Monaco, "Cascadia Mono", monospace;
+}
+.mini-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.mini {
+  background: rgba(7, 14, 21, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+}
+.mini .k { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.mini .v { font-size: 18px; font-weight: 800; line-height: 1.15; }
+.mini .s { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+.summary {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.summary-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(7, 14, 21, 0.7);
+  color: var(--text);
+  font-size: 13px;
+}
+.summary-pill span { color: var(--muted); }
+.summary-pill strong { color: var(--accent2); }
+
+.table-card { margin-top: 14px; }
+.table-wrap { overflow-x: auto; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 980px;
+}
+thead th {
+  text-align: left;
+  font-size: 12px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(8, 17, 26, 0.76);
+}
+tbody td {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(35, 64, 85, 0.6);
+  vertical-align: top;
+  font-size: 13px;
+}
+tbody tr:hover { background: rgba(53, 184, 255, 0.04); }
+.empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 26px 16px;
+}
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.status.ok { color: #052715; background: rgba(59, 212, 138, 0.92); }
+.status.warn { color: #3a2600; background: rgba(240, 184, 75, 0.92); }
+.status.info { color: #06283d; background: rgba(53, 184, 255, 0.92); }
+.status.err { color: #fff; background: rgba(255, 104, 104, 0.92); }
+.status.muted { color: #d7e3ea; background: rgba(147, 170, 184, 0.36); }
+.port-main { font-weight: 800; }
+.port-sub { color: var(--muted); font-size: 12px; margin-top: 4px; line-height: 1.45; }
+.hex {
+  font-family: Consolas, Monaco, "Cascadia Mono", monospace;
+  font-size: 12px;
+  color: #bde6ff;
+  word-break: break-all;
+}
+.telemetry {
+  min-width: 280px;
+  font-family: Consolas, Monaco, "Cascadia Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #d8efff;
+}
+.telemetry .line { display: flex; gap: 8px; flex-wrap: wrap; }
+.telemetry .label { color: var(--muted); min-width: 58px; }
+
+.log {
+  margin-top: 14px;
+  background: rgba(4, 10, 16, 0.84);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px;
+  min-height: 120px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: Consolas, Monaco, "Cascadia Mono", monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #d8ebf7;
+}
+.log .ts { color: var(--muted); }
+.log .good { color: var(--ok); }
+.log .bad { color: var(--danger); }
+.log .warn { color: var(--warn); }
+
+.foot {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.foot code { color: #d6f2ff; }
+
+@media (max-width: 1020px) {
+  .hero-inner, .grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 700px) {
+  .shell { width: min(100% - 16px, 1240px); }
+  .hero-inner { padding: 18px; }
+  .card-body { padding: 14px; }
+  .row { grid-template-columns: 1fr; }
+  .mini-grid { grid-template-columns: 1fr; }
+  .actions { flex-direction: column; }
+  .btn { width: 100%; justify-content: center; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <section class="hero">
+    <div class="hero-inner">
+      <div>
+        <p class="eyebrow">WHEELTEC C50X · STM32 串口端口探测器</p>
+        <h1 class="title">逐个 COM 口发送前进指令，确认哪一个端口会回传 STM32 遥测。</h1>
+        <p class="lead">
+          这个页面会按你在 Windows 上看到的串口列表顺序，给每个端口发送一次低速前进帧，随后自动补一帧停车指令。
+          只要收到了合法的 <code>24</code> 字节遥测帧，就会把该端口标记为“有效回包”。
+        </p>
+      </div>
+      <div class="chips">
+        <div class="chip"><strong>UART3</strong> PB10(TX) / PB11(RX)</div>
+        <div class="chip"><strong>ssne_ai_demo</strong> GPIO_PIN_0 / GPIO_PIN_2</div>
+        <div class="chip warn"><strong>安全</strong> 扫描后自动发送停车帧</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <p class="card-title">扫描控制</p>
+          <div class="card-sub">支持扫描全部端口，或只测试一个选中的端口。</div>
+        </div>
+        <div class="status muted" id="serialState">正在检查串口环境…</div>
+      </div>
+      <div class="card-body">
+        <div class="form">
+          <div class="row">
+            <label for="portSelect">目标端口</label>
+            <select id="portSelect">
+              <option value="">加载中…</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="baudInput">波特率</label>
+            <input id="baudInput" type="number" min="1200" step="1" value="{{ default_baud }}">
+          </div>
+          <div class="row">
+            <label for="vxInput">前进速度</label>
+            <input id="vxInput" type="number" step="1" value="{{ default_vx }}">
+          </div>
+          <div class="row">
+            <label for="readMsInput">等待回包</label>
+            <input id="readMsInput" type="number" min="0" step="1" value="{{ default_read_ms }}">
+          </div>
+          <div class="row">
+            <label for="settleMsInput">稳定等待</label>
+            <input id="settleMsInput" type="number" min="0" step="1" value="{{ default_settle_ms }}">
+          </div>
+          <div class="actions">
+            <button class="btn btn-primary" id="scanAllBtn" type="button">扫描全部端口</button>
+            <button class="btn btn-secondary" id="scanSelectedBtn" type="button">测试选中端口</button>
+            <button class="btn btn-success" id="refreshBtn" type="button">刷新端口列表</button>
+            <button class="btn btn-danger" id="stopBtn" type="button">全体停车</button>
+          </div>
+        </div>
+
+        <div class="summary" id="summaryRow">
+          <div class="summary-pill"><span>状态</span> <strong id="summaryState">未开始</strong></div>
+          <div class="summary-pill"><span>有效回包</span> <strong id="summaryMatched">0</strong></div>
+          <div class="summary-pill"><span>端口总数</span> <strong id="summaryPorts">0</strong></div>
+          <div class="summary-pill"><span>耗时</span> <strong id="summaryTime">0 ms</strong></div>
+        </div>
+
+        <div class="log" id="logBox">等待扫描。建议先把机器人架空或保持低速测试，以免误动作。</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <p class="card-title">协议核对</p>
+          <div class="card-sub">当前脚本使用的帧格式与固件代码保持一致。</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="muted-box">
+          <strong>STM32 侧默认接口：</strong><br>
+          WHEELTEC C50X 源码里，UART3 是 <code>PB10(TX)</code> / <code>PB11(RX)</code>，波特率 <code>115200</code>，8N1。<br><br>
+          <strong>A1 侧声明：</strong><br>
+          <code>ssne_ai_demo</code> 的底盘控制接口使用 <code>GPIO_PIN_0</code> 作为 <code>UART_TX0</code>，<code>GPIO_PIN_2</code> 作为 <code>UART_RX0</code>。<br><br>
+          <strong>帧格式：</strong><br>
+          11 字节控制帧：<code>7B Cmd 00 VxH VxL VyH VyL VzH VzL BCC 7D</code><br>
+          24 字节回传帧：<code>7B ... BCC 7D</code>
+        </div>
+
+        <div class="mini-grid" style="margin-top: 12px;">
+          <div class="mini">
+            <div class="k">推荐起始速度</div>
+            <div class="v">80 mm/s</div>
+            <div class="s">先低速确认链路，再逐步提高。</div>
+          </div>
+          <div class="mini">
+            <div class="k">判定条件</div>
+            <div class="v">24 字节</div>
+            <div class="s">必须同时满足帧头、帧尾和 BCC 校验。</div>
+          </div>
+          <div class="mini">
+            <div class="k">最常见结果</div>
+            <div class="v">COMx</div>
+            <div class="s">Windows 会显示成 COM3 / COM4 之类的名字。</div>
+          </div>
+          <div class="mini">
+            <div class="k">结果优先级</div>
+            <div class="v">绿色</div>
+            <div class="s">优先看“有效回包”行，再看端口描述和 HWID。</div>
+          </div>
+        </div>
+
+        <div class="foot">
+          如果扫描到多个有效端口，说明不止一条串口链路接到了带有相同协议的设备；这时请优先对照线缆和板端接口，
+          再参考硬件资源分配图逐个确认。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card table-card">
+    <div class="card-head">
+      <div>
+        <p class="card-title">扫描结果</p>
+        <div class="card-sub">结果按当前串口枚举顺序展示，扫描完成后会自动附带停车帧。</div>
+      </div>
+      <div class="status info" id="resultBadge">未扫描</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:64px;">序号</th>
+            <th style="width:220px;">端口</th>
+            <th style="width:170px;">状态</th>
+            <th style="width:180px;">发送帧</th>
+            <th style="width:220px;">接收帧 / 预览</th>
+            <th>遥测</th>
+          </tr>
+        </thead>
+        <tbody id="resultBody">
+          <tr><td class="empty" colspan="6">暂无结果，点击“扫描全部端口”开始。</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+const serialState = document.getElementById('serialState');
+const portSelect = document.getElementById('portSelect');
+const baudInput = document.getElementById('baudInput');
+const vxInput = document.getElementById('vxInput');
+const readMsInput = document.getElementById('readMsInput');
+const settleMsInput = document.getElementById('settleMsInput');
+const resultBody = document.getElementById('resultBody');
+const logBox = document.getElementById('logBox');
+const summaryState = document.getElementById('summaryState');
+const summaryMatched = document.getElementById('summaryMatched');
+const summaryPorts = document.getElementById('summaryPorts');
+const summaryTime = document.getElementById('summaryTime');
+const resultBadge = document.getElementById('resultBadge');
+const scanAllBtn = document.getElementById('scanAllBtn');
+const scanSelectedBtn = document.getElementById('scanSelectedBtn');
+const refreshBtn = document.getElementById('refreshBtn');
+const stopBtn = document.getElementById('stopBtn');
+
+const STATUS_META = {
+  matched: { label: '有效回包', cls: 'ok' },
+  raw_response: { label: '收到数据但未成帧', cls: 'warn' },
+  no_response: { label: '无响应', cls: 'muted' },
+  open_failed: { label: '打开失败', cls: 'err' },
+  sent_only: { label: '已发送停车帧', cls: 'info' },
+  pyserial_missing: { label: '缺少 pyserial', cls: 'err' },
+  pending: { label: '等待测试', cls: 'muted' },
+};
+
+function escapeHtml(text) {
+  return String(text ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function appendLog(line, kind = 'info') {
+  const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  const cls = kind === 'good' ? 'good' : kind === 'bad' ? 'bad' : kind === 'warn' ? 'warn' : '';
+  const prefix = cls ? `<span class="${cls}">[${ts}]</span>` : `<span class="ts">[${ts}]</span>`;
+  logBox.innerHTML += `${logBox.textContent ? '\n' : ''}${prefix} ${escapeHtml(line)}`;
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+function setBusy(busy, label) {
+  [scanAllBtn, scanSelectedBtn, refreshBtn, stopBtn].forEach(btn => btn.disabled = busy && btn !== stopBtn);
+  serialState.textContent = label;
+  serialState.className = `status ${busy ? 'warn' : 'muted'}`;
+}
+
+function statusMeta(status) {
+  return STATUS_META[status] || STATUS_META.pending;
+}
+
+function portLabel(port) {
+  const desc = port.description ? ` · ${port.description}` : '';
+  const hwid = port.hwid ? ` · ${port.hwid}` : '';
+  return `${port.port}${desc}${hwid}`;
+}
+
+function telemetryHtml(t) {
+  if (!t) return '<span class="muted">—</span>';
+  const lines = [
+    `<div class="line"><span class="label">time</span><span>${escapeHtml(t.ts || '')}</span></div>`,
+    `<div class="line"><span class="label">flag</span><span>${escapeHtml(t.flag_stop)}</span><span class="label">volt</span><span>${escapeHtml(t.voltage)} V</span></div>`,
+    `<div class="line"><span class="label">vx</span><span>${escapeHtml(t.vx)} mm/s</span><span class="label">vy</span><span>${escapeHtml(t.vy)} mm/s</span><span class="label">vz</span><span>${escapeHtml(t.vz)} mrad/s</span></div>`,
+    `<div class="line"><span class="label">acc</span><span>X ${escapeHtml(t.accel_x)}</span><span>Y ${escapeHtml(t.accel_y)}</span><span>Z ${escapeHtml(t.accel_z)}</span></div>`,
+    `<div class="line"><span class="label">gyro</span><span>X ${escapeHtml(t.gyro_x)}</span><span>Y ${escapeHtml(t.gyro_y)}</span><span>Z ${escapeHtml(t.gyro_z)}</span></div>`,
+  ];
+  return `<div class="telemetry">${lines.join('')}</div>`;
+}
+
+function renderPorts(ports) {
+  portSelect.innerHTML = '';
+  if (!ports.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = '未发现串口';
+    portSelect.appendChild(option);
+    return;
+  }
+  ports.forEach((port, index) => {
+    const option = document.createElement('option');
+    option.value = port.port;
+    option.textContent = portLabel(port);
+    if (index === 0) option.selected = true;
+    portSelect.appendChild(option);
+  });
+}
+
+function renderResults(payload) {
+  const rows = payload.results || [];
+  if (!rows.length) {
+    resultBody.innerHTML = '<tr><td class="empty" colspan="6">没有可显示的扫描结果。</td></tr>';
+  } else {
+    resultBody.innerHTML = rows.map((row, idx) => {
+      const meta = statusMeta(row.status);
+      const tx = escapeHtml(row.tx_hex || '');
+      const rx = escapeHtml(row.rx_hex || '');
+      const port = escapeHtml(row.port || '');
+      const desc = escapeHtml(row.description || '');
+      const hwid = escapeHtml(row.hwid || '');
+      const extra = [desc, hwid].filter(Boolean).join(' · ');
+      const rxText = rx || '<span class="muted">—</span>';
+      return `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>
+            <div class="port-main">${port}</div>
+            <div class="port-sub">${extra || '&nbsp;'}</div>
+          </td>
+          <td><span class="status ${meta.cls}">${meta.label}</span></td>
+          <td class="hex">${tx}</td>
+          <td class="hex">${rxText}</td>
+          <td>${telemetryHtml(row.telemetry)}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  const matched = payload.matched_ports || [];
+  summaryState.textContent = payload.summary || '扫描完成';
+  summaryMatched.textContent = String(matched.length);
+  summaryPorts.textContent = String(rows.length);
+  summaryTime.textContent = `${payload.elapsed_ms ?? 0} ms`;
+  if (payload.mode === 'stop') {
+    resultBadge.textContent = '停车帧已发送';
+    resultBadge.className = 'status info';
+  } else {
+    resultBadge.textContent = matched.length ? `已找到 ${matched.length} 个有效端口` : '未找到有效端口';
+    resultBadge.className = `status ${matched.length ? 'ok' : 'muted'}`;
+  }
+
+  if (matched.length) {
+    appendLog(`命中有效端口: ${matched.join(', ')}`, 'good');
+  } else if (rows.length) {
+    appendLog('本轮未找到有效回包。', 'warn');
+  }
+}
+
+function currentPayload(forceStop = false, selectedOnly = false) {
+  const payload = {
+    baud: Number.parseInt(baudInput.value, 10) || 115200,
+    vx: forceStop ? 0 : (Number.parseInt(vxInput.value, 10) || 0),
+    read_ms: forceStop ? 0 : (Number.parseInt(readMsInput.value, 10) || 0),
+    settle_ms: Number.parseInt(settleMsInput.value, 10) || 0,
+  };
+  const selected = portSelect.value.trim();
+  if (selectedOnly && selected) {
+    payload.port = selected;
+  }
+  return payload;
+}
+
+async function refreshPorts(silent = false) {
+  if (!silent) {
+    serialState.textContent = '正在刷新串口列表…';
+    serialState.className = 'status warn';
+  }
+  const resp = await fetch('/api/ports');
+  const data = await resp.json();
+  if (!data.available) {
+    serialState.textContent = 'pyserial 未安装';
+    serialState.className = 'status err';
+    renderPorts([]);
+    summaryState.textContent = '缺少 pyserial';
+    summaryPorts.textContent = '0';
+    appendLog('未检测到 pyserial，请先安装依赖。', 'bad');
+    return data;
+  }
+
+  renderPorts(data.ports || []);
+  serialState.textContent = data.count ? `已发现 ${data.count} 个串口` : '未发现串口';
+  serialState.className = `status ${data.count ? 'ok' : 'muted'}`;
+  summaryPorts.textContent = String(data.count || 0);
+  appendLog(data.count ? `刷新串口列表完成，共 ${data.count} 个端口。` : '当前没有可用串口。', data.count ? 'good' : 'warn');
+  return data;
+}
+
+async function runScan(forceStop = false, selectedOnly = false) {
+  if (selectedOnly && !portSelect.value.trim()) {
+    appendLog('请先选择一个端口，再测试选中端口。', 'bad');
+    summaryState.textContent = '缺少目标端口';
+    resultBadge.textContent = '未选择端口';
+    resultBadge.className = 'status err';
+    return;
+  }
+
+  setBusy(true, forceStop ? '正在发送停车帧…' : '正在扫描端口…');
+  const payload = currentPayload(forceStop, selectedOnly);
+  try {
+    const resp = await fetch('/api/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (!data.success) {
+      appendLog(data.error || '扫描失败', 'bad');
+      summaryState.textContent = '扫描失败';
+      resultBadge.textContent = '失败';
+      resultBadge.className = 'status err';
+      return;
+    }
+    renderResults(data);
+    appendLog(data.summary, 'good');
+    if (data.tx_hex) {
+      appendLog(`发送帧: ${data.tx_hex}`, 'info');
+    }
+  } catch (err) {
+    appendLog(`请求失败: ${err}`, 'bad');
+    summaryState.textContent = '请求失败';
+    resultBadge.textContent = '失败';
+    resultBadge.className = 'status err';
+  } finally {
+    setBusy(false, '空闲');
+  }
+}
+
+scanAllBtn.addEventListener('click', () => runScan(false, false));
+scanSelectedBtn.addEventListener('click', () => runScan(false, true));
+refreshBtn.addEventListener('click', () => refreshPorts(false));
+stopBtn.addEventListener('click', () => runScan(true, false));
+
+(async function init() {
+  logBox.textContent = '';
+  await refreshPorts(true);
+  appendLog('页面已就绪。先刷新端口，再扫描全部端口或测试选中端口。', 'good');
+  appendLog('安全提示：建议先低速测试，避免机器人在正确端口上突然前进。', 'warn');
+})();
+</script>
+</body>
+</html>

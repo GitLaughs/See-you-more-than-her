@@ -47,7 +47,7 @@ void VISUALIZER::Draw() {
 /**
  * @brief 根据检测框绘制OSD矩形
  * @param boxes 检测框向量，每个元素为[xmin, ymin, xmax, ymax]
- * @description 将所有检测到的人脸框绘制到OSD显示层
+ * @description 将所有检测到的目标框绘制到OSD显示层
  */
 void VISUALIZER::Draw(const std::vector<std::array<float, 4>>& boxes) {
     printf("Drawing %zu detection boxes\n", boxes.size());

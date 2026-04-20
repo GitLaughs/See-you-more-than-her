@@ -8,10 +8,13 @@
 tools/aurora/
 ├── aurora_capture.py      # 基础拍照工具（端口 5000）
 ├── aurora_companion.py    # 增强版伴侣工具（端口 5001，含底盘与联通测试）
+├── a1_companion.py        # A1 专用伴侣入口（默认端口 5803）
+├── stm32_port_probe.py    # Windows 串口端口探测器（逐口发送前进帧，找有效回包）
 ├── chassis_comm.py        # STM32 WHEELTEC C50X 通信后端（Flask Blueprint）
-├── launch.ps1             # 统一入口（默认自动优先 A1 摄像头）
+├── launch.ps1             # 统一 Windows 测试入口（companion / A1 / viewer / probe / capture）
 ├── templates/
-│   └── companion_ui.html  # 三页面前端：摄像头 / A1-STM32 联通测试 / 底盘调试
+│   ├── companion_ui.html   # 三页面前端：摄像头 / A1-STM32 联通测试 / 底盘调试
+│   └── stm32_port_probe.html # 串口端口探测页面
 ├── requirements.txt       # 依赖：opencv, flask, pyserial 等
 └── README.md
 ```
@@ -43,6 +46,21 @@ tools/aurora/
   - 📊 实时遥测（速度、IMU、电压）
   - 🔬 TX/RX 日志与原始帧发送
 
+### a1_companion.py（A1 专用伴侣入口）
+
+- 复用 `aurora_companion.py` 的全部能力，但默认切到 A1 head6 模型与真实类别名
+- 默认端口单独使用 `5803`，便于和旧版伴侣工具同时调试
+- 适合直接查看 A1 开发板回传的视频、OSD 检测框、串口连接信息和 WASD 控制
+
+### launch.ps1（统一测试入口）
+
+- `launch.ps1` 默认启动 `aurora_companion.py`
+- `launch.ps1 -Mode a1` 启动 A1 专用伴侣，默认端口 `5803`
+- `launch.ps1 -Mode viewer` 启动 A1 Viewer，默认端口 `5802`
+- `launch.ps1 -Mode probe` 启动 STM32 串口探测页，默认端口 `5006`
+- `launch.ps1 -Mode capture` 启动基础拍照工具，默认端口 `5000`
+- `launch.ps1` 只负责 Windows 侧测试与联调，不负责 EVB 烧录
+
 ### chassis_comm.py（通信后端）
 
 Flask Blueprint，挂载在 `/api/chassis/`：
@@ -59,6 +77,13 @@ Flask Blueprint，挂载在 `/api/chassis/`：
 | `/tx_log` | GET | 最近 30 条发送帧 |
 | `/rx_log` | GET | 最近 30 条接收帧 |
 | `/raw_send` | POST | 发送原始十六进制帧 |
+
+### stm32_port_probe.py（Windows 串口端口探测器）
+
+- 枚举 Windows 上的 COM 口并逐个测试
+- 向每个端口发送低速前进帧，等待 24 字节遥测回包
+- 扫描结束后自动补停车帧，避免持续前进
+- 适合在接口标签看不到时，快速确认当前硬件连到了哪个串口
 
 ## 使用方法
 
@@ -95,12 +120,19 @@ python aurora_capture.py
 
 # 增强工具（端口 5001）
 python aurora_companion.py
+
+# A1 专用伴侣（端口 5803）
+python a1_companion.py
+
+# 串口端口探测器（端口 5006）
+python stm32_port_probe.py
 ```
 
 ### 4. 打开浏览器
 
-- 基础工具：`http://localhost:5000`
-- 伴侣工具：`http://localhost:5001`
+- 基础工具：`http://127.0.0.1:5000`
+- 伴侣工具：`http://127.0.0.1:5001`
+- A1 专用伴侣：`http://127.0.0.1:5803`
 
 ### 5. 拍照
 

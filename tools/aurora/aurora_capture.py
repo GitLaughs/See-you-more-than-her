@@ -24,6 +24,7 @@ Aurora Capture Tool — A1 开发板摄像头拍照工具
 import argparse
 import contextlib
 import os
+import socket
 import sys
 import threading
 import time
@@ -70,7 +71,7 @@ MAX_DEVICE_SCAN = 4
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
 
 # ─── YOLOv8 检测器（PC 端 ONNX 推理，用于检测 TAB）────────────────────────────
-_DETECT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "best_head6.onnx"
+_DETECT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "best_a1_formal_head6.onnx"
 _DETECT_CONF = 0.4
 _DETECT_NMS = 0.45
 _DETECT_NUM_CLASSES = 4
@@ -78,7 +79,7 @@ _DETECT_REG_BINS = 16
 _DETECT_TOP_K = 30
 _ort_session = None          # lazy-loaded
 _ort_session_lock = threading.Lock()
-_CLASS_NAMES = {0: "class0", 1: "class1", 2: "class2", 3: "class3"}
+_CLASS_NAMES = {0: "person", 1: "forward", 2: "stop", 3: "obstacle_box"}
 _CLASS_COLORS = [(0, 200, 80), (80, 140, 255), (255, 160, 50), (255, 80, 80)]
 
 
@@ -853,7 +854,7 @@ HTML_TEMPLATE = """
                 <div class="card-header">YOLOv8 检测参数</div>
                 <div class="det-info">
                     <table>
-                        <tr><td>模型</td><td><span class="det-badge" id="detModelName">best_head6.onnx</span></td></tr>
+                        <tr><td>模型</td><td><span class="det-badge" id="detModelName">best_a1_formal_head6.onnx</span></td></tr>
                         <tr><td>输入尺寸</td><td>640 × 640 (letterbox)</td></tr>
                         <tr><td>类别数</td><td id="detNumCls">4</td></tr>
                         <tr><td>置信度</td><td id="detConf">≥ 0.40</td></tr>
@@ -1246,6 +1247,20 @@ def detect_status():
     })
 
 
+def _open_browser_when_ready(url: str, host: str, port: int) -> None:
+    def _worker() -> None:
+        deadline = time.monotonic() + 30.0
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection((host, port), timeout=0.25):
+                    break
+            except OSError:
+                time.sleep(0.25)
+        webbrowser.open_new_tab(url)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
 def main():
     global camera, output_dir
 
@@ -1280,13 +1295,8 @@ def main():
     camera = open_camera(selected_device)
     save_preferred_device(selected_device)
 
-    url = f"http://localhost:{args.port}"
-
-    # 1.5 秒后自动打开浏览器（等 Flask 完成绑定）
-    def _open_browser():
-        time.sleep(1.5)
-        webbrowser.open_new_tab(url)
-    threading.Thread(target=_open_browser, daemon=True).start()
+    url = f"http://127.0.0.1:{args.port}"
+    _open_browser_when_ready(url, "127.0.0.1", args.port)
 
     # 突出显示 Web 地址，避免被 Flask/驱动日志淹没
     border = "=" * 54

@@ -30,3 +30,5 @@ WHEELTEC_C50X_2025.12.26/
 *.exe
 *.hex
 *.log
+.vscode/settings.json
+.vscode/settings.json

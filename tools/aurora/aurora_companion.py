@@ -78,7 +78,7 @@ MAX_DEVICE_SCAN = 5
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
 
 # ─── YOLOv8 检测器（PC 端 ONNX 推理）────────────────────────────────────────
-_DETECT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "best_head6.onnx"
+_DETECT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "best_a1_formal_head6.onnx"
 _DETECT_CONF = 0.4
 _DETECT_NMS = 0.45
 _DETECT_NUM_CLASSES = 4
@@ -86,7 +86,7 @@ _DETECT_REG_BINS = 16
 _DETECT_TOP_K = 30
 _ort_session = None
 _ort_session_lock = threading.Lock()
-_CLASS_NAMES = {0: "class0", 1: "class1", 2: "class2", 3: "class3"}
+_CLASS_NAMES = {0: "person", 1: "forward", 2: "stop", 3: "obstacle_box"}
 _CLASS_COLORS = [(0, 200, 80), (80, 140, 255), (255, 160, 50), (255, 80, 80)]
 
 
@@ -819,7 +819,7 @@ def main():
         print(f"[WARN] 摄像头打开失败: {e}，工具仍可启动，请连接后点击「刷新摄像头」")
         camera = None
 
-    print(f"[INFO] Aurora Companion 已启动: http://localhost:{args.port}")
+    print(f"[INFO] Aurora Companion 已启动: http://127.0.0.1:{args.port}")
     print(f"[INFO] 快捷键: 1=1280×720  2=640×360  R=刷新摄像头")
     app.run(host=args.host, port=args.port, debug=False, threaded=True)
 

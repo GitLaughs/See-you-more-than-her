@@ -374,7 +374,7 @@ select option{background:var(--surface);}
         <div class="card-head">YOLOv8 检测信息</div>
         <div class="det-panel">
           <table>
-            <tr><td>模型</td><td><span class="det-badge" id="detModelName">best_head6.onnx</span></td></tr>
+            <tr><td>模型</td><td><span class="det-badge" id="detModelName">best_a1_formal_head6.onnx</span></td></tr>
             <tr><td>输入尺寸</td><td>640 × 640 (letterbox)</td></tr>
             <tr><td>类别数</td><td id="detNumCls">4</td></tr>
             <tr><td>置信度</td><td id="detConf">≥ 0.40</td></tr>
@@ -838,7 +838,7 @@ function loadDetectStatus() {
   fetch('/detect_status').then(r => r.json()).then(d => {
     const warn = document.getElementById('detWarn');
     const rt = document.getElementById('detRuntime');
-    document.getElementById('detModelName').textContent = d.model_name || 'best_head6.onnx';
+    document.getElementById('detModelName').textContent = d.model_name || 'best_a1_formal_head6.onnx';
     document.getElementById('detNumCls').textContent = d.num_classes;
     document.getElementById('detConf').textContent = '≥ ' + d.conf_threshold.toFixed(2);
     if (!d.ort_available) {
