@@ -774,6 +774,9 @@ select option{background:var(--surface);}
           <button class="source-chip active" type="button" id="targetDirectBtn" onclick="setControlTarget('direct')">模块一 · 直连 STM32</button>
           <button class="source-chip" type="button" id="targetRelayBtn" onclick="setControlTarget('relay')">模块二 · A1 Relay</button>
         </div>
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+          <button class="btn btn-ghost" style="padding:5px 10px;" onclick="refreshControlStatuses()">⟳ 刷新状态</button>
+        </div>
         <div class="speed-row">
           <label>线速度</label>
           <input type="range" id="linSpeed" min="50" max="500" value="200" oninput="document.getElementById('linSpeedVal').textContent=this.value">
@@ -787,13 +790,13 @@ select option{background:var(--surface);}
         <div class="joystick-wrap">
           <div class="dpad">
             <div class="dpad-empty"></div>
-            <div class="dpad-btn" id="btn-fwd"  onmousedown="startMove(0)" onmouseup="stopMove()" ontouchstart="startMove(0)" ontouchend="stopMove()">↑</div>
+            <div class="dpad-btn" id="btn-fwd"  onmousedown="startMove(0, 'btn-fwd')" onmouseup="stopMove(0, 'btn-fwd')" onmouseleave="stopMove(0, 'btn-fwd')" ontouchstart="startMove(0, 'btn-fwd')" ontouchend="stopMove(0, 'btn-fwd')" ontouchcancel="stopMove(0, 'btn-fwd')">↑</div>
             <div class="dpad-empty"></div>
-            <div class="dpad-btn" id="btn-left" onmousedown="startMove(3)" onmouseup="stopMove()" ontouchstart="startMove(3)" ontouchend="stopMove()">←</div>
+            <div class="dpad-btn" id="btn-left" onmousedown="startMove(3, 'btn-left')" onmouseup="stopMove(3, 'btn-left')" onmouseleave="stopMove(3, 'btn-left')" ontouchstart="startMove(3, 'btn-left')" ontouchend="stopMove(3, 'btn-left')" ontouchcancel="stopMove(3, 'btn-left')">←</div>
             <div class="dpad-btn stop-center" onclick="emergencyStop()">STOP</div>
-            <div class="dpad-btn" id="btn-right" onmousedown="startMove(2)" onmouseup="stopMove()" ontouchstart="startMove(2)" ontouchend="stopMove()">→</div>
+            <div class="dpad-btn" id="btn-right" onmousedown="startMove(2, 'btn-right')" onmouseup="stopMove(2, 'btn-right')" onmouseleave="stopMove(2, 'btn-right')" ontouchstart="startMove(2, 'btn-right')" ontouchend="stopMove(2, 'btn-right')" ontouchcancel="stopMove(2, 'btn-right')">→</div>
             <div class="dpad-empty"></div>
-            <div class="dpad-btn" id="btn-back"  onmousedown="startMove(1)" onmouseup="stopMove()" ontouchstart="startMove(1)" ontouchend="stopMove()">↓</div>
+            <div class="dpad-btn" id="btn-back"  onmousedown="startMove(1, 'btn-back')" onmouseup="stopMove(1, 'btn-back')" onmouseleave="stopMove(1, 'btn-back')" ontouchstart="startMove(1, 'btn-back')" ontouchend="stopMove(1, 'btn-back')" ontouchcancel="stopMove(1, 'btn-back')">↓</div>
             <div class="dpad-empty"></div>
           </div>
         </div>
@@ -841,7 +844,10 @@ select option{background:var(--surface);}
           <input type="number" id="rosCameraFov" value="60" min="20" max="150" step="1">
         </div>
         <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn btn-ghost" style="flex:1;" onclick="loadRosStatus(false)">⟳ 刷新状态</button>
           <button class="btn btn-ghost" style="flex:1;" onclick="triggerDetectSnapshot(true)">执行快照</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
           <button class="btn btn-blue" style="flex:1;" onclick="testRosForward()">ROS 前进</button>
           <button class="btn btn-red" style="flex:1;" onclick="stopRosMotion()">ROS 停车</button>
         </div>
@@ -931,8 +937,16 @@ select option{background:var(--surface);}
 let captureCount = 0;
 let toastTimer   = null;
 let moveTimer    = null;
-let currentDir   = null;
+const MOVE_DIRECTION_NAMES = ['forward', 'back', 'right', 'left'];
+const MOVE_DIRECTION_BUTTON_IDS = ['btn-fwd', 'btn-back', 'btn-right', 'btn-left'];
+const moveDirectionSources = {
+  forward: new Set(),
+  back: new Set(),
+  right: new Set(),
+  left: new Set(),
+};
 let chsConnected = false;
+let chsPort = null;
 let statusPollTimer = null;
 let currentStreamTab = 'preview';  // 'preview' | 'detect'
 let selectedCameraSource = 'windows';
@@ -1223,6 +1237,7 @@ function switchStreamTab(tab) {
 
 // ── Tab switching ───────────────────────────────────────────────────────────
 function switchTab(tab) {
+  resetMotionState(true);
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   const pageEl = document.getElementById('page-' + tab);
@@ -1238,8 +1253,8 @@ function switchTab(tab) {
     loadDetectModels();
   }
   if (tab === 'chassis' || tab === 'stm32') {
-    setControlTarget(tab === 'stm32' ? 'direct' : 'relay');
     refreshPorts();
+    loadChassisStatus(true);
     loadRelayStatus(true);
     loadRosStatus(true);
   }
@@ -1375,6 +1390,7 @@ function fetchGallery() {
 let knownChassisPorts = [];
 let knownRelayPorts = [];
 let relayConnected = false;
+let relayPort = null;
 let controlTarget = 'direct';
 let relayConfigLoaded = false;
 let rosConfigInitialized = false;
@@ -1425,16 +1441,18 @@ function updateTargetWidgets() {
     const el = document.getElementById(id);
     if (el) el.textContent = label;
   });
-  document.querySelectorAll('.mode-direct-only').forEach(el => {
-    el.style.display = controlTarget === 'direct' ? '' : 'none';
-  });
-  document.querySelectorAll('.mode-relay-only').forEach(el => {
-    el.style.display = controlTarget === 'relay' ? '' : 'none';
-  });
+  const currentPort = controlTarget === 'relay' ? relayPort : chsPort;
+  setChsStatus(targetConnected(), currentPort, controlTarget);
 }
 
 function setControlTarget(target) {
-  controlTarget = target === 'relay' ? 'relay' : 'direct';
+  const nextTarget = target === 'relay' ? 'relay' : 'direct';
+  if (controlTarget === nextTarget) {
+    updateTargetWidgets();
+    return;
+  }
+  resetMotionState(true);
+  controlTarget = nextTarget;
   _lastTxCount = -1;
   _lastRxCount = -1;
   updateTargetWidgets();
@@ -1467,6 +1485,24 @@ function refreshPorts() {
   return apiJson('/api/chassis/ports').then(data => {
     renderPortOptions(normalizePortResponse(data), false);
   }).catch(() => {});
+}
+
+function loadChassisStatus(silent = true) {
+  return apiJson('/api/chassis/status').then(d => {
+    chsConnected = !!d.connected;
+    chsPort = d.port || null;
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const msg = document.getElementById('chsConnMsg');
+    if (connectBtn) connectBtn.disabled = chsConnected;
+    if (disconnectBtn) disconnectBtn.disabled = !chsConnected;
+    if (msg) msg.textContent = chsConnected ? '已连接 ' + (chsPort || '串口') : '';
+    if (controlTarget === 'direct') setChsStatus(chsConnected, chsPort, 'direct');
+    return d;
+  }).catch(e => {
+    if (!silent) toast('✗ ' + e, 'err');
+    return {success: false, error: String(e)};
+  });
 }
 
 function scanNewPorts() {
@@ -1590,6 +1626,7 @@ function loadRelayStatus(silent = true) {
   const baseUrl = document.getElementById('relayUrl').value.trim();
   if (!baseUrl) {
     relayConnected = false;
+    relayPort = null;
     const reach = document.getElementById('relayReachability');
     reach.textContent = '未配置';
     reach.style.color = 'var(--muted)';
@@ -1602,6 +1639,7 @@ function loadRelayStatus(silent = true) {
   }
   return apiJson('/api/relay/status').then(d => {
     relayConnected = !!d.connected;
+    relayPort = d.port || null;
     const reach = document.getElementById('relayReachability');
     if (d.reachable) {
       reach.textContent = '可达';
@@ -1623,6 +1661,7 @@ function loadRelayStatus(silent = true) {
     return d;
   }).catch(e => {
     relayConnected = false;
+    relayPort = null;
     document.getElementById('relayReachability').textContent = '不可达';
     document.getElementById('relayReachability').style.color = 'var(--red)';
     document.getElementById('relayConnMsg').textContent = String(e);
@@ -1646,6 +1685,7 @@ function connectRelay() {
   })).then(d => {
     if (d.success) {
       relayConnected = true;
+      relayPort = d.port || port;
       document.getElementById('relayConnMsg').textContent = '已连接远端 ' + d.port + ' @ ' + d.baud;
       document.getElementById('relayConnectBtn').disabled = true;
       document.getElementById('relayDisconnectBtn').disabled = false;
@@ -1661,6 +1701,7 @@ function connectRelay() {
 function disconnectRelay() {
   apiJson('/api/relay/disconnect', {method: 'POST'}).then(() => {
     relayConnected = false;
+    relayPort = null;
     document.getElementById('relayConnectBtn').disabled = false;
     document.getElementById('relayDisconnectBtn').disabled = true;
     document.getElementById('relayConnMsg').textContent = '远端底盘已断开';
@@ -1669,37 +1710,37 @@ function disconnectRelay() {
   }).catch(() => {});
 }
 
-function startMove(dir) {
-  currentDir = dir;
-  const btnIds = ['btn-fwd', 'btn-back', 'btn-right', 'btn-left'];
-  document.querySelectorAll('.dpad-btn').forEach(b => b.classList.remove('pressed'));
-  document.getElementById(btnIds[dir]).classList.add('pressed');
-  sendCurrentDir();
-  moveTimer = setInterval(sendCurrentDir, 100);
+function motionInputsActive() {
+  return MOVE_DIRECTION_NAMES.some(name => moveDirectionSources[name].size > 0);
 }
 
-function stopMove() {
-  clearInterval(moveTimer);
-  moveTimer = null;
-  document.querySelectorAll('.dpad-btn').forEach(b => b.classList.remove('pressed'));
-  currentDir = null;
-  sendMove(0, 0, 0);
+function syncMotionButtons() {
+  MOVE_DIRECTION_NAMES.forEach((name, index) => {
+    const el = document.getElementById(MOVE_DIRECTION_BUTTON_IDS[index]);
+    if (el) el.classList.toggle('pressed', moveDirectionSources[name].size > 0);
+  });
 }
 
-function sendCurrentDir() {
+function getMotionFrame() {
   const lin = parseInt(document.getElementById('linSpeed').value, 10);
   const ang = parseInt(document.getElementById('angSpeed').value, 10);
-  const dirs = [
-    [lin, 0, 0],
-    [-lin, 0, 0],
-    [0, 0, -ang],
-    [0, 0, ang],
-  ];
-  if (currentDir !== null) sendMove(...dirs[currentDir]);
+  const vx = (moveDirectionSources.forward.size > 0 ? lin : 0) + (moveDirectionSources.back.size > 0 ? -lin : 0);
+  const vz = (moveDirectionSources.left.size > 0 ? ang : 0) + (moveDirectionSources.right.size > 0 ? -ang : 0);
+  return {vx, vy: 0, vz};
 }
 
-function sendMove(vx, vy, vz) {
+function updateMotionTimer() {
+  if (motionInputsActive()) {
+    if (!moveTimer) moveTimer = setInterval(sendCurrentMove, 100);
+  } else if (moveTimer) {
+    clearInterval(moveTimer);
+    moveTimer = null;
+  }
+}
+
+function sendCurrentMove() {
   if (!targetConnected()) return;
+  const {vx, vy, vz} = getMotionFrame();
   apiJson(targetApiBase() + '/move', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -1709,14 +1750,54 @@ function sendMove(vx, vy, vz) {
   }).catch(() => {});
 }
 
-function emergencyStop() {
+function sendStopToTarget(target) {
+  return apiJson(targetApiBase(target) + '/stop', {method: 'POST'}).catch(() => {});
+}
+
+function stopAllMotionOutputs() {
+  sendStopToTarget('direct');
+  sendStopToTarget('relay');
+  stopRosMotion(false);
+}
+
+function resetMotionState(sendStop = true) {
   clearInterval(moveTimer);
   moveTimer = null;
-  document.querySelectorAll('.dpad-btn').forEach(b => b.classList.remove('pressed'));
-  currentDir = null;
-  apiJson(targetApiBase() + '/stop', {method: 'POST'}).then(d => {
-    toast(d.success ? '⬛ 急停' : '✗ ' + d.error, d.success ? 'info' : 'err');
-  }).catch(() => {});
+  MOVE_DIRECTION_NAMES.forEach(name => moveDirectionSources[name].clear());
+  syncMotionButtons();
+  if (sendStop) stopAllMotionOutputs();
+}
+
+function setMotionInput(direction, source, active) {
+  const name = MOVE_DIRECTION_NAMES[direction];
+  const bucket = moveDirectionSources[name];
+  if (!bucket) return;
+  const token = source || name;
+  if (active) {
+    bucket.add(token);
+  } else {
+    bucket.delete(token);
+  }
+  syncMotionButtons();
+  updateMotionTimer();
+  if (motionInputsActive()) {
+    sendCurrentMove();
+  } else {
+    sendStopToTarget(controlTarget);
+  }
+}
+
+function startMove(dir, source = 'pointer') {
+  setMotionInput(dir, source, true);
+}
+
+function stopMove(dir, source = 'pointer') {
+  setMotionInput(dir, source, false);
+}
+
+function emergencyStop() {
+  resetMotionState(true);
+  toast('⬛ 急停', 'info');
 }
 
 function runPingTest(scope = 'chassis') {
@@ -2064,10 +2145,30 @@ function testRosForward() {
   }).catch(e => toast('✗ ' + e, 'err'));
 }
 
-function stopRosMotion() {
+function stopRosMotion(showToast = true) {
   apiJson('/api/ros/stop_motion', {method: 'POST'}).then(d => {
-    toast(d.success ? '已发送 ROS 停车' : ('✗ ' + d.message), d.success ? 'info' : 'err');
-  }).catch(e => toast('✗ ' + e, 'err'));
+    if (showToast) toast(d.success ? '已发送 ROS 停车' : ('✗ ' + d.message), d.success ? 'info' : 'err');
+  }).catch(e => {
+    if (showToast) toast('✗ ' + e, 'err');
+  });
+}
+
+function refreshControlStatuses(showToast = true) {
+  resetMotionState(true);
+  const silent = !showToast;
+  const tasks = [
+    refreshPorts(),
+    loadChassisStatus(silent),
+    loadRelayStatus(silent),
+    loadRelayPorts(true),
+    loadRosStatus(silent),
+  ];
+  return Promise.allSettled(tasks).then(() => {
+    updateTargetWidgets();
+    updateTelemetry();
+    pollLogs();
+    if (showToast) toast('控制状态已刷新', 'info');
+  });
 }
 
 function updateRosSnapshotView(data) {
@@ -2125,12 +2226,12 @@ setInterval(() => {
 
 setInterval(updateTelemetry, 500);
 setInterval(pollLogs, 800);
+setInterval(() => loadChassisStatus(true), 2500);
 setInterval(() => loadRelayStatus(true), 2500);
 setInterval(() => loadRosStatus(true), 2500);
 
 // ── Keyboard shortcuts ──────────────────────────────────────────────────────
 const keyDirMap = {'w':0,'s':1,'d':2,'a':3,'arrowup':0,'arrowdown':1,'arrowright':2,'arrowleft':3};
-const activeKeys = new Set();
 
 document.addEventListener('keydown', e => {
   const tag = document.activeElement.tagName.toLowerCase();
@@ -2140,18 +2241,23 @@ document.addEventListener('keydown', e => {
   if (k === '2') { capture('640x360');  return; }
   if (k === 'r') { refreshCam();        return; }
   if (k === ' ') { e.preventDefault(); emergencyStop(); return; }
-  if (k in keyDirMap && !activeKeys.has(k)) {
-    activeKeys.add(k);
-    startMove(keyDirMap[k]);
+  if (k in keyDirMap) {
+    e.preventDefault();
+    if (!e.repeat) startMove(keyDirMap[k], 'key:' + k);
   }
 });
 
 document.addEventListener('keyup', e => {
   const k = e.key.toLowerCase();
   if (k in keyDirMap) {
-    activeKeys.delete(k);
-    if (activeKeys.size === 0) stopMove();
+    e.preventDefault();
+    stopMove(keyDirMap[k], 'key:' + k);
   }
+});
+
+window.addEventListener('blur', () => resetMotionState(true));
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) resetMotionState(true);
 });
 
 // ── Toast ───────────────────────────────────────────────────────────────────
@@ -2171,6 +2277,7 @@ loadDetectModels();
 updateTargetWidgets();
 loadRelayConfig();
 loadRelayPorts(false);
+loadChassisStatus(true);
 loadRelayStatus(true);
 loadRosStatus(true);
 updateTelemetry();
