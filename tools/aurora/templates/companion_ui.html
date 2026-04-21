@@ -383,7 +383,7 @@ select option{background:var(--surface);}
         </div>
         <div class="preview-wrap">
           <img id="stream" src="/video_feed" alt="camera"
-               onload="onStreamLoad()" onerror="onStreamError()">
+               onload="typeof onStreamLoad === 'function' && onStreamLoad()" onerror="typeof onStreamError === 'function' && onStreamError()">
           <div class="preview-badges">
             <div class="preview-badge" id="streamSourceChip">Windows 纯预览</div>
             <div class="preview-badge secondary" id="streamModeChip">纯图像 · 无框</div>
@@ -726,7 +726,7 @@ select option{background:var(--surface);}
       <div class="card-body">
         <div class="form-row">
           <label>地址</label>
-          <input type="text" id="relayUrl" value="http://127.0.0.1:5803" placeholder="http://A1-IP:5803">
+          <input type="text" id="relayUrl" value="" placeholder="http://A1-IP:5803">
         </div>
         <div class="form-row">
           <label>超时</label>
@@ -1283,7 +1283,9 @@ function refreshCam() {
   });
 }
 
+let _camDeviceRetryTimer = null;
 function loadCameraDevices() {
+  if (_camDeviceRetryTimer) { clearTimeout(_camDeviceRetryTimer); _camDeviceRetryTimer = null; }
   fetch('/camera_devices').then(r=>r.json()).then(d=>{
     const sel = document.getElementById('cameraSelect');
     if (!sel) return;
@@ -1293,6 +1295,12 @@ function loadCameraDevices() {
     if (backendSource) selectedCameraSource = backendSource;
     const current = d.current_device;
     if (!devices.length) {
+      if (d.bootstrapping) {
+        // 后台正在探测摄像头，1 秒后自动重试
+        sel.innerHTML = '<option value="">— 正在探测摄像头… —</option>';
+        _camDeviceRetryTimer = setTimeout(loadCameraDevices, 1000);
+        return;
+      }
       sel.innerHTML = '<option value="">— 无可用摄像头 —</option>';
       selectedCameraSource = 'auto';
       updateSourceHint();
@@ -1308,7 +1316,13 @@ function loadCameraDevices() {
     syncSourceButtons();
     updateSourceHint();
     updateStreamSummary();
-  }).catch(()=>{});
+  }).catch(()=>{
+    // 网络/500 错误时，若仍在探测状态则继续轮询
+    const sel = document.getElementById('cameraSelect');
+    if (sel && sel.options[0] && sel.options[0].text.includes('探测')) {
+      _camDeviceRetryTimer = setTimeout(loadCameraDevices, 1500);
+    }
+  });
 }
 
 function switchCamera() {
@@ -1317,12 +1331,17 @@ function switchCamera() {
   const device = parseInt(sel.value, 10);
   if (Number.isNaN(device)) { toast('设备号无效', 'err'); return; }
 
+  const selectedDevice = cameraDevicesCache.find(cam => cam.id === device);
+  const requestedSource = selectedDevice && selectedDevice.source
+    ? selectedDevice.source
+    : selectedCameraSource;
+
   sel.disabled = true;
   showStreamLoading('切换摄像头中，请稍候…');
   fetch('/switch_camera', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({device, source:selectedCameraSource})
+    body:JSON.stringify({device, source:requestedSource})
   }).then(r=>r.json()).then(d=>{
     if (d.success) {
       const img = document.getElementById('stream');
@@ -1555,6 +1574,11 @@ function saveRelayConfig(showToast = true) {
 }
 
 function loadRelayPorts(markNew = false) {
+  const baseUrl = document.getElementById('relayUrl').value.trim();
+  if (!baseUrl) {
+    document.getElementById('relayPortSelect').innerHTML = '';
+    return Promise.resolve({ports: []});
+  }
   return apiJson('/api/relay/ports').then(d => {
     const ports = normalizePortResponse(d);
     renderRelayPortOptions(ports, markNew);
@@ -1563,6 +1587,19 @@ function loadRelayPorts(markNew = false) {
 }
 
 function loadRelayStatus(silent = true) {
+  const baseUrl = document.getElementById('relayUrl').value.trim();
+  if (!baseUrl) {
+    relayConnected = false;
+    const reach = document.getElementById('relayReachability');
+    reach.textContent = '未配置';
+    reach.style.color = 'var(--muted)';
+    document.getElementById('relayModelName').textContent = '—';
+    document.getElementById('relayConnMsg').textContent = '未配置 A1 Companion 地址';
+    document.getElementById('relayConnectBtn').disabled = true;
+    document.getElementById('relayDisconnectBtn').disabled = true;
+    if (controlTarget === 'relay') setChsStatus(false, null, 'relay');
+    return Promise.resolve({success: false, reachable: false, error: 'A1 Companion 地址未配置'});
+  }
   return apiJson('/api/relay/status').then(d => {
     relayConnected = !!d.connected;
     const reach = document.getElementById('relayReachability');

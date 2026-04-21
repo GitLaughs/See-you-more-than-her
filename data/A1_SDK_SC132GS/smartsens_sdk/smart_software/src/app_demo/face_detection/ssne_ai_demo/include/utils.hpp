@@ -15,6 +15,8 @@ namespace utils {
   void NMS(FaceDetectionResult* result, float iou_threshold, int top_k);
 } // namespace utils
 
+constexpr int DETECTION_LAYER_ID = 0;
+
 class VISUALIZER {
   public:
     void Initialize(std::array<int, 2>& in_img_shape);

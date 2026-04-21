@@ -91,7 +91,7 @@ void OsdDevice::Release(){
     }
 
     if(m_pcolor_lut != nullptr){
-        delete m_pcolor_lut;
+        delete[] m_pcolor_lut;
         m_pcolor_lut = nullptr;
     }
 

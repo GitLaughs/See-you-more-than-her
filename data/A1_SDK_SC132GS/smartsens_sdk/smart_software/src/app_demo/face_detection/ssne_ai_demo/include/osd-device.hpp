@@ -41,14 +41,15 @@ private:
     void GenQrangleBox(std::array<float, 4>& det, int border);
 
 private:
-    handle_t m_osd_handle;
+    handle_t m_osd_handle{};
     std::string m_osd_lut_path = "/app_demo/app_assets/colorLUT.sscl";
     // std::string m_texture_path = "/ai/imgs/test_24.ssbmp";
     uint8_t *m_pcolor_lut = nullptr;
     int m_file_size = 0;
-    int m_height, m_width;
+    int m_height = 0;
+    int m_width = 0;
     
-    fdevice::DMA_BUFFER_ATTR_S m_layer_dma[OSD_LAYER_SIZE];
+    fdevice::DMA_BUFFER_ATTR_S m_layer_dma[OSD_LAYER_SIZE]{};
     fdevice::VERTEXS_S m_qrangle_out={0}, m_qrangle_in={0};
 };
 

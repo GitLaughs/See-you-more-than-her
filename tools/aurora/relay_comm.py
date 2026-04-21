@@ -14,7 +14,7 @@ relay_bp = Blueprint("relay", __name__, url_prefix="/api/relay")
 
 _relay_lock = threading.Lock()
 _relay_state: Dict[str, Any] = {
-    "base_url": os.environ.get("A1_COMPANION_URL", "http://127.0.0.1:5803"),
+    "base_url": os.environ.get("A1_COMPANION_URL", "").strip(),
     "timeout_sec": 2.5,
 }
 
@@ -22,7 +22,7 @@ _relay_state: Dict[str, Any] = {
 def _normalize_base_url(value: str) -> str:
     text = (value or "").strip()
     if not text:
-        raise ValueError("A1 Companion 地址不能为空")
+        return ""
     if not text.startswith("http://") and not text.startswith("https://"):
         text = f"http://{text}"
     return text.rstrip("/")
@@ -46,7 +46,11 @@ def _update_state(base_url: Optional[str] = None,
 def _relay_json(method: str, path: str,
                 payload: Optional[Dict[str, Any]] = None) -> Any:
     state = _snapshot_state()
-    target = f"{state['base_url']}{path}"
+    base_url = (state.get("base_url") or "").strip()
+    if not base_url:
+        raise RuntimeError("A1 Companion 地址未配置")
+
+    target = f"{base_url}{path}"
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     headers = {"Content-Type": "application/json"} if body is not None else {}
     req = urllib.request.Request(target, data=body, headers=headers,
