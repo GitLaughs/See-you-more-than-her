@@ -66,33 +66,38 @@ function Start-BrowserWhenReady {
     )
 
     try {
-        Start-Job -ScriptBlock {
-            param([string]$TargetUrl, [int]$TargetPort)
+        $browserWorker = @'
+$deadline = [DateTime]::UtcNow.AddSeconds(180)
+while ([DateTime]::UtcNow -lt $deadline) {
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $async = $client.BeginConnect("127.0.0.1", __PORT__, $null, $null)
+        if ($async.AsyncWaitHandle.WaitOne(250)) {
+            $client.EndConnect($async)
+            $client.Close()
+            Start-Process "__URL__" | Out-Null
+            exit 0
+        }
+        $client.Close()
+    }
+    catch {
+    }
+    Start-Sleep -Milliseconds 250
+}
+'@
+        $browserWorker = $browserWorker.Replace("__PORT__", [string]$ReadyPort).Replace("__URL__", $Url)
+        $encodedCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($browserWorker))
+        $shell = Get-Command pwsh -ErrorAction SilentlyContinue
+        if (-not $shell) {
+            $shell = Get-Command powershell -ErrorAction SilentlyContinue
+        }
 
-            $deadline = [DateTime]::UtcNow.AddSeconds(30)
-            while ([DateTime]::UtcNow -lt $deadline) {
-                try {
-                    $client = New-Object System.Net.Sockets.TcpClient
-                    $async = $client.BeginConnect("127.0.0.1", $TargetPort, $null, $null)
-                    if ($async.AsyncWaitHandle.WaitOne(250)) {
-                        $client.EndConnect($async)
-                        $client.Close()
-                        Start-Process $TargetUrl | Out-Null
-                        return
-                    }
-                    $client.Close()
-                }
-                catch {
-                }
-                [System.Threading.Thread]::Sleep(250)
-            }
+        if ($shell) {
+            Start-Process -FilePath $shell.Source -WindowStyle Hidden -ArgumentList @("-NoProfile", "-EncodedCommand", $encodedCommand) | Out-Null
+            return
+        }
 
-            try {
-                Start-Process $TargetUrl | Out-Null
-            }
-            catch {
-            }
-        } -ArgumentList $Url, $ReadyPort | Out-Null
+        throw "No PowerShell host found"
     }
     catch {
         Write-Host "[WARN] Unable to open browser automatically. Please open $Url manually." -ForegroundColor DarkYellow
@@ -131,9 +136,9 @@ $browserUrl = "http://127.0.0.1:$resolvedPort"
 
 switch ($Mode) {
     "companion" {
-        $args = @("aurora_companion.py", "--device", $Device, "--port", $resolvedPort)
+        $launchArgs = @("aurora_companion.py", "--device", $Device, "--port", $resolvedPort)
         if ($Output -ne "") {
-            $args += @("--output", $Output)
+            $launchArgs += @("--output", $Output)
         }
 
         Write-Host "=== Aurora Companion ===" -ForegroundColor Cyan
@@ -146,7 +151,7 @@ switch ($Mode) {
         else {
             Write-Host "Camera device: $Device" -ForegroundColor Yellow
         }
-        Write-Host "Capture pipeline: sensor 1280x720 -> training 640x360" -ForegroundColor Yellow
+        Write-Host "Capture pipeline: actual acquisition 1280x720; optional training crop 640x360" -ForegroundColor Yellow
         $tabCamera = -join ([char[]](0x6444, 0x50CF, 0x5934, 0x91C7, 0x96C6))
         $tabLink = -join ([char[]](0x8054, 0x901A, 0x6D4B, 0x8BD5))
         $tabChassis = -join ([char[]](0x5E95, 0x76D8, 0x901A, 0x4FE1, 0x8C03, 0x8BD5))
@@ -162,11 +167,11 @@ switch ($Mode) {
         }
 
         $hideStderr = -not $ShowDriverLogs
-        Invoke-PythonTool -Python $Python -Arguments $args -SuppressStderr:$hideStderr
+        Invoke-PythonTool -Python $Python -Arguments $launchArgs -SuppressStderr:$hideStderr
         break
     }
     "a1" {
-        $args = @("a1_companion.py", "--port", $resolvedPort)
+        $launchArgs = @("a1_companion.py", "--port", $resolvedPort)
         Write-Host "=== A1 Companion ===" -ForegroundColor Cyan
         Write-Host "Starting A1 Companion (camera + OSD + chassis debug)..." -ForegroundColor Green
         Write-Host "Web UI: $browserUrl" -ForegroundColor Yellow
@@ -179,13 +184,13 @@ switch ($Mode) {
         }
 
         $hideStderr = -not $ShowDriverLogs
-        Invoke-PythonTool -Python $Python -Arguments $args -SuppressStderr:$hideStderr
+        Invoke-PythonTool -Python $Python -Arguments $launchArgs -SuppressStderr:$hideStderr
         break
     }
     "viewer" {
-        $args = @("a1_viewer.py", "--port", $resolvedPort)
+        $launchArgs = @("a1_viewer.py", "--port", $resolvedPort)
         if ($Device -ge 0) {
-            $args += @("--device", $Device)
+            $launchArgs += @("--device", $Device)
         }
 
         Write-Host "=== A1 Viewer ===" -ForegroundColor Cyan
@@ -198,11 +203,11 @@ switch ($Mode) {
             Start-BrowserWhenReady -ReadyPort $resolvedPort -Url $browserUrl
         }
 
-        Invoke-PythonTool -Python $Python -Arguments $args
+        Invoke-PythonTool -Python $Python -Arguments $launchArgs
         break
     }
     "probe" {
-        $args = @("stm32_port_probe.py", "--port", $resolvedPort)
+        $launchArgs = @("stm32_port_probe.py", "--port", $resolvedPort)
         Write-Host "=== STM32 Port Probe ===" -ForegroundColor Cyan
         Write-Host "Starting COM port probe page..." -ForegroundColor Green
         Write-Host "Web UI: $browserUrl" -ForegroundColor Yellow
@@ -213,13 +218,13 @@ switch ($Mode) {
             Start-BrowserWhenReady -ReadyPort $resolvedPort -Url $browserUrl
         }
 
-        Invoke-PythonTool -Python $Python -Arguments $args
+        Invoke-PythonTool -Python $Python -Arguments $launchArgs
         break
     }
     "capture" {
-        $args = @("aurora_capture.py", "--device", $Device, "--port", $resolvedPort)
+        $launchArgs = @("aurora_capture.py", "--device", $Device, "--port", $resolvedPort)
         if ($Output -ne "") {
-            $args += @("--output", $Output)
+            $launchArgs += @("--output", $Output)
         }
 
         Write-Host "=== Aurora Capture ===" -ForegroundColor Cyan
@@ -232,7 +237,7 @@ switch ($Mode) {
             Start-BrowserWhenReady -ReadyPort $resolvedPort -Url $browserUrl
         }
 
-        Invoke-PythonTool -Python $Python -Arguments $args -SuppressStderr
+        Invoke-PythonTool -Python $Python -Arguments $launchArgs -SuppressStderr
         break
     }
 }

@@ -6,8 +6,27 @@
 方便和现有 Aurora 伴侣工具并行调试。
 """
 
+import os
 from pathlib import Path
 import sys
+
+
+def _resolve_local_port(argv):
+    for index, argument in enumerate(argv):
+        if argument.startswith("--port="):
+            try:
+                return int(argument.split("=", 1)[1])
+            except ValueError:
+                break
+        if argument == "--port" and index + 1 < len(argv):
+            try:
+                return int(argv[index + 1])
+            except ValueError:
+                break
+    return 5803
+
+
+os.environ.setdefault("A1_COMPANION_URL", f"http://127.0.0.1:{_resolve_local_port(sys.argv[1:])}")
 
 import aurora_companion as base
 
