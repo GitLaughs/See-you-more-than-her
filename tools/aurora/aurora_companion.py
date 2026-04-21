@@ -19,13 +19,14 @@ import argparse
 import base64
 import contextlib
 import os
+import shutil
 import sys
 import threading
 import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -37,6 +38,18 @@ try:
     _ORT_AVAILABLE = True
 except ImportError:
     _ORT_AVAILABLE = False
+
+_THIRD_PARTY_ROOT = Path(__file__).resolve().parents[2] / "third_party"
+if _THIRD_PARTY_ROOT.exists() and str(_THIRD_PARTY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_THIRD_PARTY_ROOT))
+
+try:
+    from ultralytics import YOLO as UltralyticsYOLO
+
+    _ULTRALYTICS_AVAILABLE = True
+except Exception:
+    UltralyticsYOLO = None
+    _ULTRALYTICS_AVAILABLE = False
 
 # ─── 摄像头参数 ───────────────────────────────────────────────────────────────
 # SC132GS 传感器采集为 1280×720 灰度帧
@@ -50,12 +63,27 @@ CAPTURE_FORMATS = {
 }
 
 app = Flask(__name__, template_folder="templates")
+_ros_detection_hook = None
 try:
     from chassis_comm import chassis_bp
     app.register_blueprint(chassis_bp)
     print("[INFO] 底盘通信模块已加载")
 except ImportError:
     print("[WARN] chassis_comm 未找到，底盘功能不可用")
+try:
+    from relay_comm import relay_bp
+    app.register_blueprint(relay_bp)
+    print("[INFO] A1 Relay 模块已加载")
+except ImportError:
+    print("[WARN] relay_comm 未找到，A1 Relay 功能不可用")
+try:
+    from ros_bridge import handle_yolo_detections, ros_bp
+
+    _ros_detection_hook = handle_yolo_detections
+    app.register_blueprint(ros_bp)
+    print("[INFO] ROS 桥接模块已加载")
+except ImportError:
+    print("[WARN] ros_bridge 未找到，ROS 联动功能不可用")
 
 # ─── 全局状态 ─────────────────────────────────────────────────────────────────
 camera: Optional[cv2.VideoCapture] = None
@@ -89,12 +117,7 @@ SOURCE_LABELS = {
 MODEL_ROOT = Path(__file__).parent.parent.parent / "models"
 _DETECT_MODEL_PATH = MODEL_ROOT / "best_a1_formal.onnx"
 _DETECT_MODEL_MODE = "standard"
-_DETECT_MODEL_PRESETS = (
-    ("best_a1_formal.onnx", "Windows 参考模型"),
-    ("best.onnx", "Windows 备用模型"),
-    ("best_a1_formal_head6.onnx", "A1 head6 模型"),
-    ("best_head6.onnx", "head6 备用模型"),
-)
+_SUPPORTED_DETECT_MODEL_SUFFIXES = (".onnx", ".pt")
 _DETECT_MODEL_PREF_FILE = Path(__file__).with_name(".a1_detect_model")
 _DETECT_CONF = 0.4
 _DETECT_NMS = 0.45
@@ -102,9 +125,20 @@ _DETECT_NUM_CLASSES = 4
 _DETECT_REG_BINS = 16
 _DETECT_TOP_K = 30
 _ort_session = None
+_pt_model = None
 _ort_session_lock = threading.Lock()
 _CLASS_NAMES = {0: "person", 1: "forward", 2: "stop", 3: "obstacle_box"}
 _CLASS_COLORS = [(0, 200, 80), (80, 140, 255), (255, 160, 50), (255, 80, 80)]
+_detect_state_lock = threading.Lock()
+_last_detect_snapshot: Dict[str, Any] = {
+    "timestamp": 0.0,
+    "count": 0,
+    "class_counts": {},
+    "items": [],
+    "ros": None,
+    "frame_width": CAMERA_WIDTH,
+    "frame_height": CAMERA_HEIGHT,
+}
 
 
 # ─── 摄像头操作 ───────────────────────────────────────────────────────────────
@@ -377,7 +411,8 @@ def open_camera(device_id: int, source: str = CAMERA_SOURCE_AUTO) -> Optional[cv
 
 
 def _read_display_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
-    ret, frame = cap.read()
+    with camera_lock:
+        ret, frame = cap.read()
     if not ret or frame is None:
         return None
 
@@ -399,7 +434,13 @@ def _read_gray(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
     return _frame_to_gray(frame)
 
 
+def _detect_model_backend_from_path(model_path: Path) -> str:
+    return "pt" if model_path.suffix.lower() == ".pt" else "onnx"
+
+
 def _detect_model_mode_from_path(model_path: Path) -> str:
+    if model_path.suffix.lower() == ".pt":
+        return "standard"
     return "head6" if "head6" in model_path.stem.lower() else "standard"
 
 
@@ -423,23 +464,39 @@ def _write_detect_model_preference(model_name: str) -> None:
 def _resolve_detect_model_path(model_name: str) -> Optional[Path]:
     if not model_name:
         return None
-    candidate = MODEL_ROOT / Path(model_name).name
-    return candidate if candidate.exists() else None
+    candidate = Path(model_name).expanduser()
+    if candidate.exists():
+        return candidate.resolve()
+    candidate = MODEL_ROOT / candidate.name
+    return candidate.resolve() if candidate.exists() else None
 
 
 def _list_detect_models() -> list:
-    current_name = _DETECT_MODEL_PATH.name
+    current_path = _DETECT_MODEL_PATH.resolve() if _DETECT_MODEL_PATH.exists() else _DETECT_MODEL_PATH
     items = []
-    for filename, label in _DETECT_MODEL_PRESETS:
-        path = MODEL_ROOT / filename
-        if not path.exists():
-            continue
+    seen_paths = set()
+    if MODEL_ROOT.exists():
+        for path in sorted(MODEL_ROOT.iterdir(), key=lambda item: item.name.lower()):
+            if not path.is_file() or path.suffix.lower() not in _SUPPORTED_DETECT_MODEL_SUFFIXES:
+                continue
+            resolved = path.resolve()
+            seen_paths.add(resolved)
+            items.append({
+                "name": path.name,
+                "label": path.name,
+                "path": str(path),
+                "mode": _detect_model_mode_from_path(path),
+                "backend": _detect_model_backend_from_path(path),
+                "selected": resolved == current_path,
+            })
+    if current_path.exists() and current_path not in seen_paths and current_path.suffix.lower() in _SUPPORTED_DETECT_MODEL_SUFFIXES:
         items.append({
-            "name": path.name,
-            "label": label,
-            "path": str(path),
-            "mode": _detect_model_mode_from_path(path),
-            "selected": path.name == current_name,
+            "name": current_path.name,
+            "label": current_path.name,
+            "path": str(current_path),
+            "mode": _detect_model_mode_from_path(current_path),
+            "backend": _detect_model_backend_from_path(current_path),
+            "selected": True,
         })
     if not items and _DETECT_MODEL_PATH.exists():
         items.append({
@@ -447,31 +504,39 @@ def _list_detect_models() -> list:
             "label": _DETECT_MODEL_PATH.name,
             "path": str(_DETECT_MODEL_PATH),
             "mode": _detect_model_mode_from_path(_DETECT_MODEL_PATH),
+            "backend": _detect_model_backend_from_path(_DETECT_MODEL_PATH),
             "selected": True,
         })
     return items
 
 
 def set_detect_model_path(model_path: Path, persist: bool = True) -> dict:
-    global _DETECT_MODEL_PATH, _DETECT_MODEL_MODE, _ort_session
+    global _DETECT_MODEL_PATH, _DETECT_MODEL_MODE, _ort_session, _pt_model
 
     resolved = Path(model_path)
     if not resolved.is_absolute():
-        resolved = MODEL_ROOT / resolved.name
+        if resolved.exists():
+            resolved = resolved.resolve()
+        else:
+            resolved = MODEL_ROOT / resolved.name
     resolved = resolved.resolve()
     if not resolved.exists():
-        raise FileNotFoundError(f"ONNX 模型不存在: {resolved}")
+        raise FileNotFoundError(f"模型不存在: {resolved}")
+    if resolved.suffix.lower() not in _SUPPORTED_DETECT_MODEL_SUFFIXES:
+        raise ValueError("仅支持 .onnx / .pt 模型")
 
     _DETECT_MODEL_PATH = resolved
     _DETECT_MODEL_MODE = _detect_model_mode_from_path(resolved)
     with _ort_session_lock:
         _ort_session = None
+        _pt_model = None
     if persist:
-        _write_detect_model_preference(resolved.name)
+        _write_detect_model_preference(str(resolved))
     return {
         "model_name": resolved.name,
         "model_path": str(resolved),
         "model_mode": _DETECT_MODEL_MODE,
+        "model_backend": _detect_model_backend_from_path(resolved),
     }
 
 
@@ -504,6 +569,8 @@ def _load_ort_session():
     global _ort_session, _DETECT_MODEL_MODE
     if not _ORT_AVAILABLE:
         return None
+    if _DETECT_MODEL_PATH.suffix.lower() != ".onnx":
+        return None
     if not _DETECT_MODEL_PATH.exists():
         print(f"[WARN] YOLOv8 ONNX 模型不存在: {_DETECT_MODEL_PATH}")
         return None
@@ -525,6 +592,27 @@ def _load_ort_session():
                 print(f"[ERROR] 加载 ONNX 失败: {e}")
                 return None
     return _ort_session
+
+
+def _load_pt_model():
+    """懒加载 Ultralytics PT 模型（线程安全）。"""
+    global _pt_model
+    if not _ULTRALYTICS_AVAILABLE:
+        return None
+    if _DETECT_MODEL_PATH.suffix.lower() != ".pt":
+        return None
+    if not _DETECT_MODEL_PATH.exists():
+        print(f"[WARN] YOLOv8 PT 模型不存在: {_DETECT_MODEL_PATH}")
+        return None
+    with _ort_session_lock:
+        if _pt_model is None:
+            try:
+                _pt_model = UltralyticsYOLO(str(_DETECT_MODEL_PATH))
+                print(f"[INFO] YOLOv8 PT 模型已加载: {_DETECT_MODEL_PATH.name}")
+            except Exception as e:
+                print(f"[ERROR] 加载 PT 失败: {e}")
+                return None
+    return _pt_model
 
 
 def _letterbox(img_gray: np.ndarray, target: int = 640):
@@ -678,11 +766,45 @@ def _decode_yolov8_outputs(outputs):
 
 def detect_on_frame(frame_gray: np.ndarray):
     """对灰度帧运行 YOLOv8 推理，返回 [(x1,y1,x2,y2,score,cls_id)]（1280×720 坐标系）。"""
+    h, w = frame_gray.shape
+    if _DETECT_MODEL_PATH.suffix.lower() == ".pt":
+        model = _load_pt_model()
+        if model is None:
+            return []
+        frame_bgr = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2BGR)
+        try:
+            results = model.predict(
+                source=frame_bgr,
+                conf=_DETECT_CONF,
+                iou=_DETECT_NMS,
+                imgsz=640,
+                verbose=False,
+                device="cpu",
+                max_det=_DETECT_TOP_K,
+            )
+        except Exception as e:
+            print(f"[ERROR] PT 推理失败: {e}")
+            return []
+
+        if not results:
+            return []
+        result = results[0]
+        boxes = getattr(result, "boxes", None)
+        if boxes is None or len(boxes) == 0:
+            return []
+
+        xyxy = boxes.xyxy.cpu().numpy()
+        scores = boxes.conf.cpu().numpy()
+        cls_ids = boxes.cls.cpu().numpy().astype(np.int32)
+        results_list = []
+        for box, score, cls_id in zip(xyxy, scores, cls_ids):
+            results_list.append((float(box[0]), float(box[1]), float(box[2]), float(box[3]), float(score), int(cls_id)))
+        return results_list
+
     sess = _load_ort_session()
     if sess is None:
         return []
 
-    h, w = frame_gray.shape
     lb, scale, pad_x, pad_y = _letterbox(frame_gray, 640)
     rgb3 = cv2.cvtColor(lb, cv2.COLOR_GRAY2RGB).astype(np.float32) / 255.0
     inp = np.transpose(rgb3, (2, 0, 1))[np.newaxis]
@@ -699,6 +821,48 @@ def detect_on_frame(frame_gray: np.ndarray):
         y2 = min(float(h), (box[3] - pad_y) / scale)
         results.append((x1, y1, x2, y2, score, cls_id))
     return results
+
+
+def _summarize_detections(detections, frame_shape: Tuple[int, int]) -> Dict[str, Any]:
+    class_counts: Dict[str, int] = {}
+    items = []
+    for x1, y1, x2, y2, score, cls_id in detections:
+        name = _CLASS_NAMES.get(int(cls_id), f"cls{int(cls_id)}")
+        class_counts[name] = class_counts.get(name, 0) + 1
+        items.append({
+            "class_id": int(cls_id),
+            "class_name": name,
+            "score": round(float(score), 4),
+            "box": [round(float(x1), 1), round(float(y1), 1), round(float(x2), 1), round(float(y2), 1)],
+        })
+    frame_h, frame_w = frame_shape
+    return {
+        "timestamp": time.time(),
+        "count": len(items),
+        "class_counts": class_counts,
+        "items": items[:12],
+        "frame_width": int(frame_w),
+        "frame_height": int(frame_h),
+    }
+
+
+def _update_detection_runtime(detections, frame_shape: Tuple[int, int]) -> Dict[str, Any]:
+    summary = _summarize_detections(detections, frame_shape)
+    ros_result = None
+    if _ros_detection_hook is not None:
+        try:
+            ros_result = _ros_detection_hook(detections, frame_shape)
+        except Exception as exc:
+            ros_result = {
+                "enabled": True,
+                "action": "error",
+                "reason": str(exc),
+                "dispatched": False,
+            }
+    summary["ros"] = ros_result
+    with _detect_state_lock:
+        _last_detect_snapshot.update(summary)
+        return dict(_last_detect_snapshot)
 
 
 def _save_capture(frame: np.ndarray, fmt: str) -> dict:
@@ -821,6 +985,7 @@ def _generate_detect_frames():
         # YOLOv8 需要灰度输入（_read_gray 已返回灰度帧）
         frame_gray = frame
         detections = detect_on_frame(frame_gray)
+        _update_detection_runtime(detections, frame_gray.shape[:2])
         display = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2BGR)
 
         for (x1, y1, x2, y2, score, cls_id) in detections:
@@ -871,15 +1036,19 @@ def detect_feed():
 @app.route("/detect_status")
 def detect_status():
     model_exists = _DETECT_MODEL_PATH.exists()
+    backend = _detect_model_backend_from_path(_DETECT_MODEL_PATH)
+    model_loaded = _pt_model is not None if backend == "pt" else _ort_session is not None
     return jsonify({
         "ort_available": _ORT_AVAILABLE,
+        "ultralytics_available": _ULTRALYTICS_AVAILABLE,
         "model_exists": model_exists,
         "model_path": str(_DETECT_MODEL_PATH),
-        "model_loaded": _ort_session is not None,
+        "model_loaded": model_loaded,
         "num_classes": _DETECT_NUM_CLASSES,
         "conf_threshold": _DETECT_CONF,
         "model_name": _DETECT_MODEL_PATH.name,
         "model_mode": _DETECT_MODEL_MODE,
+        "model_backend": backend,
         "models": _list_detect_models(),
     })
 
@@ -890,7 +1059,37 @@ def detect_models():
         "current_model": _DETECT_MODEL_PATH.name,
         "current_path": str(_DETECT_MODEL_PATH),
         "current_mode": _DETECT_MODEL_MODE,
+        "current_backend": _detect_model_backend_from_path(_DETECT_MODEL_PATH),
         "models": _list_detect_models(),
+    })
+
+
+@app.route("/api/detect/latest")
+def detect_latest():
+    with _detect_state_lock:
+        snapshot = dict(_last_detect_snapshot)
+    snapshot["model_name"] = _DETECT_MODEL_PATH.name
+    snapshot["model_mode"] = _DETECT_MODEL_MODE
+    snapshot["model_backend"] = _detect_model_backend_from_path(_DETECT_MODEL_PATH)
+    return jsonify(snapshot)
+
+
+@app.route("/api/detect/snapshot", methods=["GET", "POST"])
+def detect_snapshot():
+    with camera_lock:
+        cap = camera
+    frame_gray = _read_gray(cap) if cap else None
+    if frame_gray is None:
+        return jsonify({"success": False, "error": "无法获取摄像头画面"})
+
+    detections = detect_on_frame(frame_gray)
+    snapshot = _update_detection_runtime(detections, frame_gray.shape[:2])
+    return jsonify({
+        "success": True,
+        "model_name": _DETECT_MODEL_PATH.name,
+        "model_mode": _DETECT_MODEL_MODE,
+        "model_backend": _detect_model_backend_from_path(_DETECT_MODEL_PATH),
+        **snapshot,
     })
 
 

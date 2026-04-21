@@ -4,3 +4,4 @@ Pillow
 flask
 pyserial
 onnxruntime
+ultralytics

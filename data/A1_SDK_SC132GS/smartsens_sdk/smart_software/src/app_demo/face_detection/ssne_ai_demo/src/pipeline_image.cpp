@@ -1,10 +1,3 @@
-/*
- * @Filename: pipeline_image.cpp
- * @Author: Hongying He
- * @Email: hongying.he@smartsenstech.com
- * @Date: 2025-12-30 14-57-47
- * @Copyright (c) 2025 SmartSens
- */
 #include "../include/common.hpp"
 #include <iostream>
 #include <unistd.h>
@@ -26,8 +19,7 @@ void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
     format_online = SSNE_Y_8;                    // 图像格式：8位灰度图
     
     // pipe0设置：使用 1280×720 全分辨率输出（不裁剪）
-    // 废弃旧 crop_shape {720,540} / crop_offset_y 370 方案
-    // 新方案：sensor 输出 1280×720，RunAiPreprocessPipe 缩放至 640×360 送推理
+    // sensor 输出 1280×720，RunAiPreprocessPipe 缩放至 640×360 送推理
     OnlineSetCrop(kPipeline0, 0, img_width, 0, img_height);     // 无裁剪: x=0, w=1280, y=0, h=720
     OnlineSetOutputImage(kPipeline0, format_online, img_width, img_height);  // 输出 1280×720
     

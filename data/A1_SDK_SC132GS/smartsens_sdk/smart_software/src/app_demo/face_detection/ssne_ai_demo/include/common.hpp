@@ -1,10 +1,3 @@
-/*
- * @Filename: common.hpp
- * @Author: Hongying He
- * @Email: hongying.he@smartsenstech.com
- * @Date: 2025-12-30 14-57-47
- * @Copyright (c) 2025 SmartSens
- */
 #pragma once
 
 #include <stdio.h>
@@ -32,6 +25,10 @@ struct FaceDetectionResult {
    * of elements is consistent with boxes.size().
    */
   std::vector<float> scores;
+  /** \brief
+   * Category ID for each detection. The number of elements is consistent with boxes.size().
+   */
+  std::vector<int> class_ids;
   /** \brief
    * `landmarks_per_face` indicates the number of face landmarks for each detected face
    * if the model's output contains face landmarks (such as YOLOv5Face, SCRFD, ...)
