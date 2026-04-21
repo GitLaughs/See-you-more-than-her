@@ -1,10 +1,3 @@
-/*
- * @Filename: demo_face.cpp
- * @Author: Hongying He
- * @Email: hongying.he@smartsenstech.com
- * @Date: 2025-12-30 14-57-47
- * @Copyright (c) 2025 SmartSens
- */
 #include <fstream>
 #include <iostream>
 #include <cstring>
@@ -141,7 +134,7 @@ int main() {
         detector.Predict(&img_sensor, det_result, cfg::DET_CONF_THRESH);
         
         /**********************************************************************************
-         * 3.1 判断是否有检测到人物
+         * 3.1 解析检测结果并根据类别决定底盘动作
          **********************************************************************************/
         if (det_result->boxes.size() > 0) {
             /**********************************************************************************
@@ -149,6 +142,13 @@ int main() {
              **********************************************************************************/
             std::vector<std::array<float, 4>> boxes_original_coord;  // 存储转换后的原图坐标
             
+            bool has_forward = false;
+            bool has_stop = false;
+            bool has_obstacle = false;
+            size_t forward_count = 0;
+            size_t stop_count = 0;
+            size_t obstacle_count = 0;
+
             // 遍历所有检测框进行坐标转换
             for (size_t i = 0; i < det_result->boxes.size(); i++) {
                 // 检测器已经通过 w_scale=2.0/h_scale=2.0 将坐标映射到 1280×720 空间
@@ -160,26 +160,52 @@ int main() {
                 
                 // 保存原图坐标用于OSD绘制
                 boxes_original_coord.push_back({x1_orig, y1_orig, x2_orig, y2_orig});
+
+                const int cls_id =
+                    i < det_result->class_ids.size() ? det_result->class_ids[i] : -1;
+                if (cls_id == cfg::TARGET_CLASS_FORWARD) {
+                    has_forward = true;
+                    forward_count++;
+                } else if (cls_id == cfg::TARGET_CLASS_STOP) {
+                    has_stop = true;
+                    stop_count++;
+                } else if (cls_id == cfg::TARGET_CLASS_OBSTACLE_BOX) {
+                    has_obstacle = true;
+                    obstacle_count++;
+                }
             }
             
             /**********************************************************************************
-             * 3.3 OSD绘图：使用原图坐标在OSD上绘制人物检测框
+             * 3.3 OSD绘图：使用原图坐标在OSD上绘制检测框
              **********************************************************************************/
             visualizer.Draw(boxes_original_coord);
 
             /**********************************************************************************
-             * 3.4 底盘控制：检测到人物 → 以 100 mm/s 前进
+             * 3.4 底盘控制优先级：obstacle_box/stop > forward > 默认停车
              **********************************************************************************/
-            printf("[DRIVE] 检测到人物 %zu 个，直行 %d mm/s\n",
-                   det_result->boxes.size(), cfg::VX_FORWARD);
-            if (chassis_ok) chassis.SendVelocity(cfg::VX_FORWARD, 0, 0);
+            if (has_obstacle) {
+                printf("[STOP] 检测到 obstacle_box %zu 个，优先停车等待避障\n",
+                       obstacle_count);
+                if (chassis_ok) chassis.SendVelocity(cfg::VX_STOP, 0, 0);
+            } else if (has_stop) {
+                printf("[STOP] 检测到 stop 手势 %zu 个，停车\n", stop_count);
+                if (chassis_ok) chassis.SendVelocity(cfg::VX_STOP, 0, 0);
+            } else if (has_forward) {
+                printf("[DRIVE] 检测到 forward 手势 %zu 个，直行 %d mm/s\n",
+                       forward_count, cfg::VX_FORWARD);
+                if (chassis_ok) chassis.SendVelocity(cfg::VX_FORWARD, 0, 0);
+            } else {
+                printf("[STOP] 已检测到目标 %zu 个，但未出现 forward 手势，停车\n",
+                       det_result->boxes.size());
+                if (chassis_ok) chassis.SendVelocity(cfg::VX_STOP, 0, 0);
+            }
         }
         else {
-            // 未检测到人物，清除OSD上的检测框并停车
-            cout << "[STOP] 未检测到人物，停车" << endl;
+            // 未检测到目标，清除OSD上的检测框并停车
+            cout << "[STOP] 未检测到目标，停车" << endl;
             std::vector<std::array<float, 4>> empty_boxes;
             visualizer.Draw(empty_boxes);  // 传入空向量清除显示
-            if (chassis_ok) chassis.SendVelocity(0, 0, 0);
+            if (chassis_ok) chassis.SendVelocity(cfg::VX_STOP, 0, 0);
         }
         
         //num_frames += 1;  // 帧计数器递增

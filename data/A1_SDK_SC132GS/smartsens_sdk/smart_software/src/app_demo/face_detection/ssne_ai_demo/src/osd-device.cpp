@@ -1,10 +1,3 @@
-/*
- * @Author: Jingwen Bai
- * @Date: 2024-07-04 11:07:00
- * @Description: osd device
- * @Filename: osd-device.cpp
- */
-
 #include <iostream>
 #include <fstream>
 #include <cstring>
@@ -163,7 +156,7 @@ void OsdDevice::Draw(std::vector<OsdQuadRangle> &quad_rangle, int layer_id){
 }
 
 // draw mode: manual alloc layer
-void OsdDevice::Draw(std::vector<std::array<float, 4>>& boxes, int border, int layer_id, tagQUADRANGLETYPE type, tagALPHATYPE alpha, int color){
+void OsdDevice::Draw(std::vector<std::array<float, 4>>& boxes, int border, int layer_id, fdevice::QUADRANGLETYPE type, fdevice::ALPHATYPE alpha, int color){
     if ((boxes.size() == 0)){
         osd_clean_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
         return;

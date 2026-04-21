@@ -132,6 +132,9 @@ body{
 .source-chip.active{background:rgba(47,182,255,.18);border-color:rgba(47,182,255,.4);color:var(--blue);}
 .source-desc{font-size:.74em;color:var(--muted);line-height:1.45;margin-top:6px;}
 .source-desc b{color:var(--text);}
+.mini-note{font-size:.72em;color:var(--muted);line-height:1.55;}
+.state-line{font-size:.75em;color:var(--muted);line-height:1.7;}
+.state-line b{color:var(--text);font-weight:600;}
 
 .preview-badges{position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:6px;}
 .preview-badge{
@@ -164,17 +167,19 @@ body{
 #page-chassis .workspace{
   display:grid;
   grid-template-columns:300px 1fr 1fr;
-  grid-template-rows:auto auto 1fr;
+  grid-template-rows:auto auto auto auto;
   gap:12px;padding:12px;align-items:start;
 }
 /* column spans */
 .chs-conn  { grid-column:1; grid-row:1; }
 .chs-tele  { grid-column:1; grid-row:2 / span 2; }
 .chs-wiring{ grid-column:2; grid-row:1; }
+.chs-relay { grid-column:3; grid-row:1; }
 .chs-motion{ grid-column:2; grid-row:2; }
-.chs-debug { grid-column:2 / span 2; grid-row:3; }
+.chs-ros   { grid-column:3; grid-row:2; }
+.chs-rawsend{ grid-column:2; grid-row:3; }
+.chs-debug { grid-column:3; grid-row:3; }
 .chs-log   { grid-column:1 / span 3; grid-row:4; }
-.chs-rawsend{ grid-column:3; grid-row:1 / span 2; }
 
 /* ── Buttons ──────────────────────────────────────── */
 .btn{
@@ -260,6 +265,7 @@ select option{background:var(--surface);}
 .speed-row label{font-size:.78em;color:var(--muted);width:70px;flex-shrink:0;}
 .speed-row input[type=range]{flex:1;accent-color:var(--blue);}
 .speed-row .speed-val{font-size:.8em;font-family:monospace;color:var(--text);width:60px;text-align:right;}
+.target-switch{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
 
 /* ── Debug logs ───────────────────────────────────── */
 .log-area{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:.72em;font-family:monospace;max-height:180px;overflow-y:auto;line-height:1.6;}
@@ -317,7 +323,7 @@ select option{background:var(--surface);}
   #page-camera .workspace{grid-template-columns:1fr;}
   #page-stm32 .workspace{grid-template-columns:1fr;}
   #page-chassis .workspace{grid-template-columns:1fr;grid-template-rows:auto;}
-  .chs-conn,.chs-tele,.chs-wiring,.chs-motion,.chs-debug,.chs-rawsend,.chs-log{grid-column:1;grid-row:auto;}
+  .chs-conn,.chs-tele,.chs-wiring,.chs-relay,.chs-motion,.chs-ros,.chs-debug,.chs-rawsend,.chs-log{grid-column:1;grid-row:auto;}
 }
 
 @media (max-width: 820px){
@@ -342,10 +348,10 @@ select option{background:var(--surface);}
       📷 摄像头采集
     </button>
     <button class="tab-btn" onclick="switchTab('stm32')" id="tab-stm32">
-      🔗 A1-STM32 联通测试
+      🔗 电脑直连
     </button>
     <button class="tab-btn" onclick="switchTab('chassis')" id="tab-chassis">
-      🤖 底盘通信调试
+      🤖 经由 A1
     </button>
   </div>
   <div class="topbar-right">
@@ -451,18 +457,19 @@ select option{background:var(--surface);}
             <button class="source-chip" type="button" data-source="auto" onclick="setCameraSource('auto')">自动识别</button>
           </div>
           <div id="cameraSourceHint" class="source-desc">当前将优先选择 <b>Windows 纯预览</b>，预览保持原图不叠加框；YOLOv8 仅在本地 Windows 侧运行。</div>
-          <div style="font-size:.72em;color:var(--muted);margin-top:10px;margin-bottom:6px;">ONNX 模型</div>
+          <div style="font-size:.72em;color:var(--muted);margin-top:10px;margin-bottom:6px;">模型（支持 .onnx / .pt）</div>
           <div class="form-row" style="margin-bottom:6px;">
             <label>模型</label>
-            <select id="modelSelect">
-              <option value="">加载中...</option>
-            </select>
+            <div style="flex:1;display:flex;flex-direction:column;gap:4px;">
+              <input type="text" id="modelSelect" list="modelOptions" placeholder="best_a1_formal.onnx / best.pt">
+              <datalist id="modelOptions"></datalist>
+            </div>
           </div>
           <div style="display:flex;gap:8px;">
             <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="loadDetectModels()">⟳ 列表</button>
             <button class="btn btn-blue" style="flex:1;justify-content:center;" onclick="switchDetectModel()">🧠 切换</button>
           </div>
-          <div id="modelHint" class="source-desc" style="margin-top:6px;">切换后会立即影响 Windows 侧 YOLOv8 检测流。</div>
+          <div id="modelHint" class="source-desc" style="margin-top:6px;">可以直接输入原始文件名或完整路径，切换后会立即影响 Windows 侧 YOLOv8 检测流。</div>
           <div class="form-row" style="margin-bottom:6px;">
             <label>设备</label>
             <select id="cameraSelect">
@@ -505,12 +512,12 @@ select option{background:var(--surface);}
   <div class="workspace">
     <div class="card">
       <div class="stm32-hero">
-        <h2>A1 ↔ STM32 联通性测试中心</h2>
-        <p>用于快速验证 A1 到 STM32 的指令下发链路，以及 STM32 回传遥测链路是否正常。建议先在“底盘通信调试”页完成串口连接，再回到本页执行联通测试。</p>
+        <h2>电脑直连 STM32 联通性测试中心</h2>
+        <p>用于快速验证电脑通过 USB 串口直连 STM32 的指令下发链路，以及 STM32 回传遥测链路是否正常。建议先点击“前往直连调试”完成串口连接，再执行联通测试。</p>
       </div>
       <div class="card-body">
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-          <button class="btn btn-ghost" onclick="switchTab('chassis')">🔧 前往串口连接</button>
+          <button class="btn btn-ghost" onclick="switchTab('chassis'); setControlTarget('direct');">🔧 前往直连调试</button>
           <button class="btn btn-blue" id="pingBtnPage" onclick="runPingTest('page')">🔍 发起联通测试</button>
         </div>
         <pre id="pingResultPage" style="background:var(--surface2);border-radius:8px;padding:10px;font-size:.75em;color:var(--text);font-family:monospace;white-space:pre-wrap;min-height:120px;margin:0;">待执行测试…</pre>
@@ -525,10 +532,10 @@ select option{background:var(--surface);}
         </div>
         <div class="card-body">
           <div class="stm32-steps">
-            <div class="stm32-step"><b>1.</b> A1 与 STM32 使用 3.3V TTL 串口互联，并确保共地。</div>
-            <div class="stm32-step"><b>2.</b> 先在“底盘通信调试”页连接串口（默认 115200）。</div>
-            <div class="stm32-step"><b>3.</b> 回到本页点击“发起联通测试”，发送零速度 11 字节指令帧。</div>
-            <div class="stm32-step"><b>4.</b> 若收到 24 字节遥测，即判定双向链路正常。</div>
+              <div class="stm32-step"><b>1.</b> 电脑 USB 串口直连 STM32 UART3，并确保共地。</div>
+              <div class="stm32-step"><b>2.</b> 点击“前往直连调试”进入串口连接页，选择本地串口（默认 115200）。</div>
+              <div class="stm32-step"><b>3.</b> 回到本页点击“发起联通测试”，发送零速度 11 字节指令帧。</div>
+              <div class="stm32-step"><b>4.</b> 若收到 24 字节遥测，即判定直连链路正常。</div>
           </div>
         </div>
       </div>
@@ -548,9 +555,9 @@ select option{background:var(--surface);}
 <div class="page" id="page-chassis">
   <div class="workspace">
 
-    <!-- ── 串口连接 ── -->
-    <div class="card chs-conn">
-      <div class="card-head">串口连接</div>
+    <!-- ── 模块一：直连 STM32 ── -->
+    <div class="card chs-conn mode-direct-only">
+      <div class="card-head">模块一 · 电脑直连 STM32</div>
       <div class="card-body">
         <div class="form-row">
           <label>端口</label>
@@ -571,12 +578,8 @@ select option{background:var(--surface);}
           </select>
         </div>
         <div style="display:flex;gap:8px;margin-top:6px;">
-          <button class="btn btn-green" id="connectBtn" onclick="connectChassis()" style="flex:1;">
-            🔌 连接
-          </button>
-          <button class="btn btn-red" id="disconnectBtn" onclick="disconnectChassis()" style="flex:1;" disabled>
-            ✕ 断开
-          </button>
+          <button class="btn btn-green" id="connectBtn" onclick="connectChassis()" style="flex:1;">🔌 连接</button>
+          <button class="btn btn-red" id="disconnectBtn" onclick="disconnectChassis()" style="flex:1;" disabled>✕ 断开</button>
         </div>
         <div id="chsConnMsg" style="font-size:.75em;color:var(--muted);margin-top:8px;"></div>
         <div id="portScanHint" style="font-size:.74em;color:var(--muted);margin-top:6px;line-height:1.45;"></div>
@@ -588,6 +591,8 @@ select option{background:var(--surface);}
           <div>遥测帧: <span style="font-family:monospace;color:var(--green);">24</span> 字节 ← STM32</div>
           <div style="margin-top:3px;">校验: <span style="font-family:monospace;color:var(--purple);">XOR(bytes[0..N-2])</span></div>
         </div>
+        <div class="divider"></div>
+        <div class="mini-note">这是 PC 通过 USB 串口直接调试运动模块的链路。若下方 ROS 模块需要占用同一串口，请先断开这里的直连连接。</div>
       </div>
     </div>
 
@@ -595,9 +600,10 @@ select option{background:var(--surface);}
     <div class="card chs-tele">
       <div class="card-head">
         <span>实时遥测</span>
-        <span id="teleTs" style="color:var(--muted);font-size:.85em;">—</span>
+        <span id="teleTargetLabel" style="color:var(--muted);font-size:.85em;">当前目标：电脑直连 STM32</span>
       </div>
       <div class="card-body">
+        <div id="teleTs" class="mini-note" style="margin-bottom:8px;">—</div>
         <div class="tele-grid" style="margin-bottom:8px;">
           <div class="tele-item">
             <div class="tele-label">Vx 线速度</div>
@@ -637,6 +643,8 @@ select option{background:var(--surface);}
           <span style="color:var(--muted);">电机状态:</span>
           <span id="tFlagStop" style="font-weight:700;color:var(--green);">正常 ●</span>
         </div>
+        <div class="divider"></div>
+        <div class="mini-note">此面板跟随当前控制目标切换。选择 A1 Relay 时，这里读取的是远端 A1 Companion 返回的 STM32 遥测。</div>
       </div>
     </div>
 
@@ -692,9 +700,7 @@ select option{background:var(--surface);}
             </tr>
           </tbody>
         </table>
-        <div style="font-size:.72em;color:var(--muted);margin-top:8px;">
-          ⚠️ A1 GPIO UART 为 3.3V TTL 电平；STM32 UART3 同为 3.3V，可直连，<strong style="color:var(--amber);">勿接 5V</strong>
-        </div>
+        <div style="font-size:.72em;color:var(--muted);margin-top:8px;">⚠️ A1 GPIO UART 为 3.3V TTL 电平；STM32 UART3 同为 3.3V，可直连，<strong style="color:var(--amber);">勿接 5V</strong></div>
         <div class="divider"></div>
         <div style="font-size:.75em;color:var(--muted);margin-bottom:4px;font-weight:600;">指令帧结构 (11字节: A1→STM32)</div>
         <div class="proto-frame">
@@ -714,16 +720,60 @@ select option{background:var(--surface);}
       </div>
     </div>
 
+    <!-- ── 模块二：A1 Relay ── -->
+    <div class="card chs-relay mode-relay-only">
+      <div class="card-head">模块二 · 电脑 → A1 Relay → STM32</div>
+      <div class="card-body">
+        <div class="form-row">
+          <label>地址</label>
+          <input type="text" id="relayUrl" value="http://127.0.0.1:5803" placeholder="http://A1-IP:5803">
+        </div>
+        <div class="form-row">
+          <label>超时</label>
+          <input type="number" id="relayTimeout" value="2.5" min="0.5" step="0.5">
+        </div>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="saveRelayConfig()">保存地址</button>
+          <button class="btn btn-blue" style="flex:1;justify-content:center;" onclick="loadRelayStatus(false)">检测 Relay</button>
+        </div>
+        <div class="divider"></div>
+        <div class="form-row">
+          <label>远端口</label>
+          <select id="relayPortSelect"></select>
+          <button class="btn btn-ghost" style="padding:5px 10px;" onclick="loadRelayPorts(true)" title="刷新端口">⟳</button>
+        </div>
+        <div class="form-row">
+          <label>波特率</label>
+          <select id="relayBaudSelect">
+            <option value="115200" selected>115200</option>
+            <option value="9600">9600</option>
+            <option value="57600">57600</option>
+            <option value="230400">230400</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <button class="btn btn-green" id="relayConnectBtn" onclick="connectRelay()" style="flex:1;">连接 Relay</button>
+          <button class="btn btn-red" id="relayDisconnectBtn" onclick="disconnectRelay()" style="flex:1;" disabled>断开</button>
+        </div>
+        <div id="relayConnMsg" style="font-size:.75em;color:var(--muted);margin-top:8px;"></div>
+        <div class="divider"></div>
+        <div class="state-line">Relay 状态：<b id="relayReachability">未检测</b></div>
+        <div class="state-line">远端模型：<b id="relayModelName">—</b></div>
+        <div class="mini-note" style="margin-top:8px;">该模块用于验证 PC 下发到 A1，再由 A1 通过自身串口转发到 STM32 的完整链路。</div>
+      </div>
+    </div>
+
     <!-- ── 运动控制 ── -->
     <div class="card chs-motion">
       <div class="card-head">
         <span>运动控制</span>
-        <span style="font-size:.85em;color:var(--muted);">
-          <kbd class="kbd">W</kbd><kbd class="kbd">A</kbd><kbd class="kbd">S</kbd><kbd class="kbd">D</kbd>
-          <kbd class="kbd">空格=急停</kbd>
-        </span>
+        <span style="font-size:.85em;color:var(--muted);"><kbd class="kbd">W</kbd><kbd class="kbd">A</kbd><kbd class="kbd">S</kbd><kbd class="kbd">D</kbd><kbd class="kbd">空格=急停</kbd></span>
       </div>
       <div class="card-body">
+        <div class="target-switch">
+          <button class="source-chip active" type="button" id="targetDirectBtn" onclick="setControlTarget('direct')">模块一 · 直连 STM32</button>
+          <button class="source-chip" type="button" id="targetRelayBtn" onclick="setControlTarget('relay')">模块二 · A1 Relay</button>
+        </div>
         <div class="speed-row">
           <label>线速度</label>
           <input type="range" id="linSpeed" min="50" max="500" value="200" oninput="document.getElementById('linSpeedVal').textContent=this.value">
@@ -747,9 +797,61 @@ select option{background:var(--surface);}
             <div class="dpad-empty"></div>
           </div>
         </div>
-        <div style="font-size:.72em;color:var(--muted);text-align:center;margin-top:4px;">
-          按住方向键持续运动 · 松开自动停车
+        <div style="font-size:.72em;color:var(--muted);text-align:center;margin-top:4px;"><span id="moveTargetHint">当前控制目标：电脑直连 STM32</span><br>按住方向键持续运动 · 松开自动停车</div>
+      </div>
+    </div>
+
+    <!-- ── ROS 直连调试 ── -->
+    <div class="card chs-ros mode-direct-only">
+      <div class="card-head">ROS 直连调试模块</div>
+      <div class="card-body">
+        <div class="form-row">
+          <label>ROS 串口</label>
+          <input type="text" id="rosPortInput" value="COM7" placeholder="COM7 / /dev/wheeltec_controller">
+          <button class="btn btn-ghost" style="padding:5px 10px;" onclick="useCurrentDirectPortForRos()" title="同步直连串口">同步</button>
         </div>
+        <div class="form-row">
+          <label>波特率</label>
+          <input type="number" id="rosBaudInput" value="115200" min="9600" step="100">
+        </div>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <button class="btn btn-blue" style="flex:1;" onclick="startRosNode('wheeltec_robot_node')">启动底盘节点</button>
+          <button class="btn btn-ghost" style="flex:1;" onclick="stopRosNode('wheeltec_robot_node')">停止</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn btn-amber" style="flex:1;" onclick="startRosNode('multi_avoidance')">启动避障节点</button>
+          <button class="btn btn-ghost" style="flex:1;" onclick="stopRosNode('multi_avoidance')">停止</button>
+        </div>
+        <div class="divider"></div>
+        <div class="form-row" style="align-items:flex-start;">
+          <label style="padding-top:3px;">联动</label>
+          <div style="display:grid;grid-template-columns:1fr;gap:6px;flex:1;font-size:.78em;color:var(--muted);">
+            <label><input type="checkbox" id="rosAutomationEnabled" onchange="applyRosConfig(true)"> 启用 YOLO 快照轮询</label>
+            <label><input type="checkbox" id="rosForwardEnabled" onchange="applyRosConfig(false)" checked> 识别 forward -> ROS 前进</label>
+            <label><input type="checkbox" id="rosStopEnabled" onchange="applyRosConfig(false)" checked> 识别 stop -> ROS 停车</label>
+            <label><input type="checkbox" id="rosObstacleEnabled" onchange="applyRosConfig(false)" checked> 识别 obstacle_box -> multi_avoidance</label>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>前进</label>
+          <input type="number" id="rosForwardLinear" value="0.18" min="0.01" max="1.50" step="0.01">
+        </div>
+        <div class="form-row">
+          <label>视场角</label>
+          <input type="number" id="rosCameraFov" value="60" min="20" max="150" step="1">
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn btn-ghost" style="flex:1;" onclick="triggerDetectSnapshot(true)">执行快照</button>
+          <button class="btn btn-blue" style="flex:1;" onclick="testRosForward()">ROS 前进</button>
+          <button class="btn btn-red" style="flex:1;" onclick="stopRosMotion()">ROS 停车</button>
+        </div>
+        <div id="rosStatusMsg" class="mini-note" style="margin-top:8px;">等待 ROS 状态…</div>
+        <div class="divider"></div>
+        <div class="state-line">底盘节点：<b id="rosChassisState">未运行</b></div>
+        <div class="state-line">避障节点：<b id="rosAvoidState">未运行</b></div>
+        <div class="state-line">视觉动作：<b id="rosActionSummary">idle</b></div>
+        <div class="state-line">最近快照：<b id="rosDetectSummary">尚未执行</b></div>
+        <div class="mini-note" style="margin-top:8px;">这里复用 src/ros2_ws 中的 wheeltec_robot_node 与 multi_avoidance。obstacle_box 会被映射成 object_tracker/current_position 话题输入。</div>
       </div>
     </div>
 
@@ -757,9 +859,9 @@ select option{background:var(--surface);}
     <div class="card chs-rawsend">
       <div class="card-head">原始帧发送</div>
       <div class="card-body">
-        <div style="font-size:.75em;color:var(--muted);margin-bottom:6px;">输入十六进制字节 (空格分隔)，直接发送到串口</div>
-        <textarea id="rawHexInput" class="raw-send-area" style="width:100%;height:72px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;resize:none;"
-          placeholder="7B 00 00 00 C8 00 00 00 00 XX 7D"></textarea>
+        <div class="mini-note" id="rawTargetLabel" style="margin-bottom:8px;">当前目标：电脑直连 STM32</div>
+        <div style="font-size:.75em;color:var(--muted);margin-bottom:6px;">输入十六进制字节 (空格分隔)，直接发送到当前目标模块</div>
+        <textarea id="rawHexInput" class="raw-send-area" style="width:100%;height:72px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;resize:none;" placeholder="7B 00 00 00 C8 00 00 00 00 XX 7D"></textarea>
         <div style="display:flex;gap:7px;margin-top:7px;">
           <button class="btn btn-amber" style="flex:1;" onclick="sendRawFrame()">▶ 发送</button>
           <button class="btn btn-ghost" onclick="buildQuickFrame()">⚡ 填充示例</button>
@@ -777,41 +879,33 @@ select option{background:var(--surface);}
       </div>
     </div>
 
-    <!-- ── A1 ↔ STM32 联通测试 ── -->
+    <!-- ── 链路联通测试 ── -->
     <div class="card chs-debug">
       <div class="card-head">
-        <span>A1 ↔ STM32 联通测试</span>
+        <span>链路联通测试</span>
         <span id="pingBadge" style="font-size:.78em;padding:2px 8px;border-radius:10px;background:var(--surface2);color:var(--muted);">未测试</span>
       </div>
       <div class="card-body">
-        <div style="font-size:.75em;color:var(--muted);margin-bottom:8px;">
-          发送零速度指令帧，最多等待 600ms，验证 A1→STM32 控制链路是否畅通，并检查遥测回传。
-        </div>
+        <div class="mini-note" id="pingTargetLabel" style="margin-bottom:8px;">当前目标：电脑直连 STM32</div>
+        <div style="font-size:.75em;color:var(--muted);margin-bottom:8px;">发送零速度指令帧，最多等待 600ms，验证当前目标链路是否能下发控制并收到 STM32 遥测。</div>
         <div style="display:flex;gap:8px;margin-bottom:8px;">
-          <button class="btn btn-blue" style="flex:1;" id="pingBtn" onclick="runPingTest()">
-            🔍 发起联通测试
-          </button>
+          <button class="btn btn-blue" style="flex:1;" id="pingBtn" onclick="runPingTest()">🔍 发起联通测试</button>
         </div>
         <pre id="pingResult" style="background:var(--surface2);border-radius:6px;padding:8px 10px;font-size:.72em;color:var(--text);font-family:monospace;white-space:pre-wrap;min-height:40px;margin:0;"></pre>
         <div class="divider"></div>
-        <div style="font-size:.72em;color:var(--muted);">
-          ⚠️ 测试前请先完成串口连接 · TX 单向连通也视为部分成功
-        </div>
+        <div style="font-size:.72em;color:var(--muted);">⚠️ 直连模式测试的是 PC→STM32；Relay 模式测试的是 PC→A1→STM32。</div>
       </div>
     </div>
 
     <!-- ── 通信日志 ── -->
-    <div class="card chs-debug">
+    <div class="card chs-log">
       <div class="card-head">
         <span>通信日志</span>
-        <div style="display:flex;gap:6px;">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <span id="logTargetLabel" style="font-size:.75em;color:var(--muted);padding:4px 8px;">当前目标：电脑直连 STM32</span>
           <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75em;" onclick="clearLogs()">清空</button>
-          <label style="font-size:.75em;color:var(--muted);display:flex;align-items:center;gap:4px;">
-            <input type="checkbox" id="autoScroll" checked> 自动滚动
-          </label>
-          <label style="font-size:.75em;color:var(--muted);display:flex;align-items:center;gap:4px;">
-            <input type="checkbox" id="showRxLog" checked> 显示接收
-          </label>
+          <label style="font-size:.75em;color:var(--muted);display:flex;align-items:center;gap:4px;"><input type="checkbox" id="autoScroll" checked> 自动滚动</label>
+          <label style="font-size:.75em;color:var(--muted);display:flex;align-items:center;gap:4px;"><input type="checkbox" id="showRxLog" checked> 显示接收</label>
         </div>
       </div>
       <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
@@ -862,6 +956,11 @@ const CAMERA_SOURCE_DESCRIPTIONS = {
 const DETECT_MODEL_MODE_TITLES = {
   standard: '标准输出',
   head6: 'Head6 输出',
+};
+
+const DETECT_MODEL_BACKEND_TITLES = {
+  onnx: 'ONNX Runtime',
+  pt: 'Ultralytics / PyTorch',
 };
 
 // ── Stream loading overlay ──────────────────────────────────────────────────
@@ -954,38 +1053,51 @@ function updateModelHint() {
   const hint = document.getElementById('modelHint');
   if (!hint) return;
   const select = document.getElementById('modelSelect');
-  const current = (select && select.value) || selectedDetectModel;
+  const current = displayModelName((select && select.value) || selectedDetectModel);
   const model = detectModelCache.find(item => item.name === current);
   if (!model) {
-    hint.textContent = '切换后会立即影响 Windows 侧 YOLOv8 检测流。';
+    hint.textContent = '可以直接输入原始文件名或完整路径，切换后会立即影响 Windows 侧 YOLOv8 检测流。';
     return;
   }
-  hint.textContent = `当前选择：${model.name} · ${DETECT_MODEL_MODE_TITLES[model.mode] || model.mode}。切换后会立即生效。`;
+  const backend = DETECT_MODEL_BACKEND_TITLES[model.backend || 'onnx'] || (model.backend || 'onnx');
+  hint.textContent = `当前选择：${model.name} · ${backend} · ${DETECT_MODEL_MODE_TITLES[model.mode] || model.mode}。切换后会立即生效。`;
 }
 
 function syncDetectModelSelect(modelName) {
   const sel = document.getElementById('modelSelect');
   if (!sel) return;
-  if (modelName) sel.value = modelName;
+  if (modelName) sel.value = displayModelName(modelName);
   selectedDetectModel = sel.value || selectedDetectModel;
   updateModelHint();
 }
 
 function renderDetectModelOptions(models, currentModel) {
+  const list = document.getElementById('modelOptions');
   const sel = document.getElementById('modelSelect');
-  if (!sel) return;
-  if (!models.length) {
-    sel.innerHTML = '<option value="">— 无可用模型 —</option>';
+  if (!list || !sel) return;
+  const current = displayModelName(currentModel);
+  const values = [];
+  const seen = new Set();
+  if (current) {
+    values.push(current);
+    seen.add(current);
+  }
+  models.forEach(model => {
+    const name = displayModelName(model.name);
+    if (!name || seen.has(name)) return;
+    values.push(name);
+    seen.add(name);
+  });
+  if (!values.length) {
+    list.innerHTML = '<option value=""></option>';
+    sel.value = '';
     selectedDetectModel = '';
     updateModelHint();
     return;
   }
-  sel.innerHTML = models.map(model => {
-    const suffix = DETECT_MODEL_MODE_TITLES[model.mode] || model.mode || '';
-    return `<option value="${model.name}" ${model.selected ? 'selected' : ''}>${model.label} · ${suffix}</option>`;
-  }).join('');
-  if (currentModel) sel.value = currentModel;
-  selectedDetectModel = sel.value || currentModel || '';
+  list.innerHTML = values.map(name => `<option value="${name}"></option>`).join('');
+  if (current) sel.value = current;
+  selectedDetectModel = sel.value || current || '';
   updateModelHint();
 }
 
@@ -996,11 +1108,12 @@ function loadDetectModels() {
     .then(r => r.json())
     .then(d => {
       detectModelCache = d.models || [];
-      selectedDetectModel = d.current_model || selectedDetectModel;
+      selectedDetectModel = displayModelName(d.current_model || d.current_path || selectedDetectModel);
       renderDetectModelOptions(detectModelCache, selectedDetectModel);
       const rt = document.getElementById('detRuntime');
       const mode = d.current_mode || '';
-      if (rt && mode) rt.textContent = `onnxruntime (${DETECT_MODEL_MODE_TITLES[mode] || mode})`;
+      const backend = DETECT_MODEL_BACKEND_TITLES[d.current_backend || 'onnx'] || (d.current_backend || 'onnx');
+      if (rt && mode) rt.textContent = `${backend} (${DETECT_MODEL_MODE_TITLES[mode] || mode})`;
     })
     .catch(() => {})
     .finally(() => {
@@ -1014,12 +1127,18 @@ function loadDetectStatus() {
     const rt = document.getElementById('detRuntime');
     const modelName = d.model_name || 'best_a1_formal.onnx';
     const modelMode = d.model_mode || 'standard';
+    const modelBackend = d.model_backend || (modelName.toLowerCase().endsWith('.pt') ? 'pt' : 'onnx');
+    const runtimeName = DETECT_MODEL_BACKEND_TITLES[modelBackend] || modelBackend;
     document.getElementById('detModelName').textContent = modelName;
     document.getElementById('detModelMode').textContent = DETECT_MODEL_MODE_TITLES[modelMode] || modelMode;
     document.getElementById('detNumCls').textContent = d.num_classes;
     document.getElementById('detConf').textContent = '≥ ' + d.conf_threshold.toFixed(2);
     syncDetectModelSelect(modelName);
-    if (!d.ort_available) {
+    if (modelBackend === 'pt' && !d.ultralytics_available) {
+      warn.textContent = '⚠ ultralytics / torch 未安装，请运行: pip install ultralytics';
+      warn.style.display = '';
+      rt.textContent = '不可用';
+    } else if (modelBackend === 'onnx' && !d.ort_available) {
       warn.textContent = '⚠ onnxruntime 未安装，请运行: pip install onnxruntime';
       warn.style.display = '';
       rt.textContent = '不可用';
@@ -1029,7 +1148,7 @@ function loadDetectStatus() {
       rt.textContent = '不可用';
     } else {
       warn.style.display = 'none';
-      rt.textContent = d.model_loaded ? `onnxruntime (${DETECT_MODEL_MODE_TITLES[modelMode] || modelMode} · 已加载)` : `onnxruntime (${DETECT_MODEL_MODE_TITLES[modelMode] || modelMode} · 首帧时懒加载)`;
+      rt.textContent = d.model_loaded ? `${runtimeName} (${DETECT_MODEL_MODE_TITLES[modelMode] || modelMode} · 已加载)` : `${runtimeName} (${DETECT_MODEL_MODE_TITLES[modelMode] || modelMode} · 首帧时懒加载)`;
     }
   }).catch(() => {});
 }
@@ -1037,11 +1156,11 @@ function loadDetectStatus() {
 function switchDetectModel() {
   const sel = document.getElementById('modelSelect');
   if (!sel || !sel.value) {
-    toast('请选择 ONNX 模型', 'err');
+    toast('请选择模型', 'err');
     return;
   }
   sel.disabled = true;
-  showStreamLoading('正在切换 ONNX 模型…');
+  showStreamLoading('正在切换模型…');
   fetch('/switch_detect_model', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -1050,7 +1169,7 @@ function switchDetectModel() {
     if (d.success) {
       hideStreamLoading();
       detectModelCache = d.models || detectModelCache;
-      selectedDetectModel = d.model_name || sel.value;
+      selectedDetectModel = displayModelName(d.model_name || sel.value);
       renderDetectModelOptions(detectModelCache, selectedDetectModel);
       toast('✓ 已切换模型: ' + d.model_name, 'ok');
       loadDetectStatus();
@@ -1067,6 +1186,11 @@ function switchDetectModel() {
   }).finally(() => {
     sel.disabled = false;
   });
+}
+
+function displayModelName(value) {
+  if (!value) return '';
+  return String(value).trim().split(/[/\\]/).pop();
 }
 
 function setCameraSource(source, autoSwitch = true) {
@@ -1113,7 +1237,12 @@ function switchTab(tab) {
     loadCameraDevices();
     loadDetectModels();
   }
-  if (tab === 'chassis' || tab === 'stm32') refreshPorts();
+  if (tab === 'chassis' || tab === 'stm32') {
+    setControlTarget(tab === 'stm32' ? 'direct' : 'relay');
+    refreshPorts();
+    loadRelayStatus(true);
+    loadRosStatus(true);
+  }
 }
 
 // ── Camera ─────────────────────────────────────────────────────────────────
@@ -1223,8 +1352,76 @@ function fetchGallery() {
   }).catch(()=>{});
 }
 
-// ── Chassis serial ───────────────────────────────────────────────────────────
+// ── Chassis / Relay / ROS ──────────────────────────────────────────────────
 let knownChassisPorts = [];
+let knownRelayPorts = [];
+let relayConnected = false;
+let controlTarget = 'direct';
+let relayConfigLoaded = false;
+let rosConfigInitialized = false;
+let rosSnapshotTimer = null;
+let _lastTxCount = 0;
+let _lastRxCount = 0;
+
+function apiJson(url, options = {}) {
+  return fetch(url, options).then(r => r.json());
+}
+
+function normalizePortResponse(data) {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.ports)) return data.ports;
+  return [];
+}
+
+function normalizeLogResponse(data) {
+  return Array.isArray(data) ? data : [];
+}
+
+function targetLabel(target = controlTarget) {
+  return target === 'relay' ? 'A1 Relay' : '电脑直连 STM32';
+}
+
+function targetApiBase(target = controlTarget) {
+  return target === 'relay' ? '/api/relay' : '/api/chassis';
+}
+
+function targetConnected(target = controlTarget) {
+  return target === 'relay' ? relayConnected : chsConnected;
+}
+
+function setChsStatus(online, port, target = controlTarget) {
+  const dot = document.getElementById('chsDot');
+  const prefix = target === 'relay' ? 'Relay' : '直连';
+  dot.className = 'chassis-dot ' + (online ? 'on' : 'off');
+  document.getElementById('chsStatus').textContent = online ? `${prefix} ${port || '在线'}` : `${prefix} 未连接`;
+}
+
+function updateTargetWidgets() {
+  const directBtn = document.getElementById('targetDirectBtn');
+  const relayBtn = document.getElementById('targetRelayBtn');
+  if (directBtn) directBtn.classList.toggle('active', controlTarget === 'direct');
+  if (relayBtn) relayBtn.classList.toggle('active', controlTarget === 'relay');
+  const label = '当前目标：' + targetLabel();
+  ['teleTargetLabel', 'moveTargetHint', 'pingTargetLabel', 'logTargetLabel', 'rawTargetLabel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = label;
+  });
+  document.querySelectorAll('.mode-direct-only').forEach(el => {
+    el.style.display = controlTarget === 'direct' ? '' : 'none';
+  });
+  document.querySelectorAll('.mode-relay-only').forEach(el => {
+    el.style.display = controlTarget === 'relay' ? '' : 'none';
+  });
+}
+
+function setControlTarget(target) {
+  controlTarget = target === 'relay' ? 'relay' : 'direct';
+  _lastTxCount = -1;
+  _lastRxCount = -1;
+  updateTargetWidgets();
+  updateTelemetry();
+  pollLogs();
+}
 
 function renderPortOptions(ports, markNew = false) {
   const sel = document.getElementById('portSelect');
@@ -1236,10 +1433,10 @@ function renderPortOptions(ports, markNew = false) {
     return;
   }
   const previous = new Set(knownChassisPorts);
-  sel.innerHTML = ports.map(p=>{
+  sel.innerHTML = ports.map(p => {
     const isNew = markNew && !previous.has(p.port);
     const suffix = isNew ? ' · 新' : '';
-    return `<option value="${p.port}" ${p.port===cur?'selected':''}>${p.port} — ${p.desc}${suffix}</option>`;
+    return `<option value="${p.port}" ${p.port === cur ? 'selected' : ''}>${p.port} — ${p.desc}${suffix}</option>`;
   }).join('');
   document.getElementById('portScanHint').textContent = previous.size
     ? '已更新串口列表，新接入端口会标记为“新”。'
@@ -1248,19 +1445,20 @@ function renderPortOptions(ports, markNew = false) {
 }
 
 function refreshPorts() {
-  return fetch('/api/chassis/ports').then(r=>r.json()).then(ports=>{
-    renderPortOptions(ports || [], false);
-  }).catch(()=>{});
+  return apiJson('/api/chassis/ports').then(data => {
+    renderPortOptions(normalizePortResponse(data), false);
+  }).catch(() => {});
 }
 
 function scanNewPorts() {
   const hint = document.getElementById('portScanHint');
   if (hint) hint.textContent = '正在扫描新增串口…';
-  return fetch('/api/chassis/ports').then(r=>r.json()).then(ports=>{
-    const nextPorts = (ports || []).map(p => p.port);
+  return apiJson('/api/chassis/ports').then(data => {
+    const ports = normalizePortResponse(data);
+    const nextPorts = ports.map(p => p.port);
     const prevPorts = new Set(knownChassisPorts);
     const newPorts = nextPorts.filter(port => !prevPorts.has(port));
-    renderPortOptions(ports || [], true);
+    renderPortOptions(ports, true);
     if (newPorts.length) {
       toast('发现新串口: ' + newPorts.join(', '), 'info');
       if (hint) hint.textContent = '发现新串口：' + newPorts.join(', ');
@@ -1268,7 +1466,7 @@ function scanNewPorts() {
       hint.textContent = '未发现新增串口，当前列表已是最新。';
       toast('未发现新增串口', 'info');
     }
-  }).catch(e=>{
+  }).catch(e => {
     if (hint) hint.textContent = '串口扫描失败：' + e;
     toast('✗ ' + e, 'err');
   });
@@ -1276,43 +1474,167 @@ function scanNewPorts() {
 
 function connectChassis() {
   const port = document.getElementById('portSelect').value;
-  const baud = document.getElementById('baudSelect').value;
-  if (!port) { toast('请选择串口', 'err'); return; }
-  fetch('/api/chassis/connect', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({port, baud:parseInt(baud)})})
-  .then(r=>r.json()).then(d=>{
+  const baud = parseInt(document.getElementById('baudSelect').value, 10);
+  if (!port) {
+    toast('请选择串口', 'err');
+    return;
+  }
+  apiJson('/api/chassis/connect', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({port, baud})
+  }).then(d => {
     if (d.success) {
       chsConnected = true;
-      setChsStatus(true, d.port);
       document.getElementById('connectBtn').disabled = true;
       document.getElementById('disconnectBtn').disabled = false;
       document.getElementById('chsConnMsg').textContent = '已连接 ' + d.port + ' @ ' + d.baud;
-      toast('✓ 底盘已连接', 'ok');
-    } else { toast('✗ ' + d.error, 'err'); }
-  }).catch(e=>toast('✗ '+e,'err'));
+      if (controlTarget === 'direct') setChsStatus(true, d.port, 'direct');
+      toast('✓ 直连底盘已连接', 'ok');
+    } else {
+      toast('✗ ' + d.error, 'err');
+    }
+  }).catch(e => toast('✗ ' + e, 'err'));
 }
 
 function disconnectChassis() {
-  fetch('/api/chassis/disconnect', {method:'POST'}).then(r=>r.json()).then(()=>{
+  apiJson('/api/chassis/disconnect', {method: 'POST'}).then(() => {
     chsConnected = false;
-    setChsStatus(false, null);
     document.getElementById('connectBtn').disabled = false;
     document.getElementById('disconnectBtn').disabled = true;
     document.getElementById('chsConnMsg').textContent = '';
-    toast('底盘已断开', 'info');
+    if (controlTarget === 'direct') setChsStatus(false, null, 'direct');
+    toast('直连底盘已断开', 'info');
+  }).catch(() => {});
+}
+
+function renderRelayPortOptions(ports, markNew = false) {
+  const sel = document.getElementById('relayPortSelect');
+  if (!sel) return;
+  const cur = sel.value;
+  if (!ports.length) {
+    sel.innerHTML = '<option value="">— 无可用远端口 —</option>';
+    return;
+  }
+  const previous = new Set(knownRelayPorts);
+  sel.innerHTML = ports.map(p => {
+    const isNew = markNew && !previous.has(p.port);
+    const suffix = isNew ? ' · 新' : '';
+    return `<option value="${p.port}" ${p.port === cur ? 'selected' : ''}>${p.port} — ${p.desc}${suffix}</option>`;
+  }).join('');
+  knownRelayPorts = ports.map(p => p.port);
+}
+
+function loadRelayConfig() {
+  return apiJson('/api/relay/config').then(d => {
+    if (d.base_url) document.getElementById('relayUrl').value = d.base_url;
+    if (d.timeout_sec != null) document.getElementById('relayTimeout').value = d.timeout_sec;
+    relayConfigLoaded = true;
+  }).catch(() => {});
+}
+
+function saveRelayConfig(showToast = true) {
+  const base_url = document.getElementById('relayUrl').value.trim();
+  const timeout_sec = parseFloat(document.getElementById('relayTimeout').value || '2.5');
+  return apiJson('/api/relay/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({base_url, timeout_sec})
+  }).then(d => {
+    if (d.success) {
+      relayConfigLoaded = true;
+      if (showToast) toast('Relay 地址已保存', 'ok');
+      return d;
+    }
+    if (showToast) toast('✗ ' + d.error, 'err');
+    return d;
+  }).catch(e => {
+    if (showToast) toast('✗ ' + e, 'err');
+    return {success: false, error: String(e)};
   });
 }
 
-function setChsStatus(online, port) {
-  const dot = document.getElementById('chsDot');
-  dot.className = 'chassis-dot ' + (online ? 'on' : 'off');
-  document.getElementById('chsStatus').textContent = online ? ('底盘 ' + (port||'')) : '底盘未连接';
+function loadRelayPorts(markNew = false) {
+  return apiJson('/api/relay/ports').then(d => {
+    const ports = normalizePortResponse(d);
+    renderRelayPortOptions(ports, markNew);
+    if (d && d.error) document.getElementById('relayConnMsg').textContent = d.error;
+  }).catch(() => {});
 }
 
-// ── Motion control ──────────────────────────────────────────────────────────
-// dir: 0=fwd,1=back,2=right,3=left
+function loadRelayStatus(silent = true) {
+  return apiJson('/api/relay/status').then(d => {
+    relayConnected = !!d.connected;
+    const reach = document.getElementById('relayReachability');
+    if (d.reachable) {
+      reach.textContent = '可达';
+      reach.style.color = 'var(--green)';
+    } else {
+      reach.textContent = d.error ? ('不可达: ' + d.error) : '不可达';
+      reach.style.color = 'var(--red)';
+      if (!silent && d.error) toast('✗ ' + d.error, 'err');
+    }
+    document.getElementById('relayModelName').textContent = d.model_name || '—';
+    document.getElementById('relayConnectBtn').disabled = relayConnected;
+    document.getElementById('relayDisconnectBtn').disabled = !relayConnected;
+    if (d.connected) {
+      document.getElementById('relayConnMsg').textContent = '已连接远端 ' + (d.port || '串口');
+    } else if (!d.reachable) {
+      document.getElementById('relayConnMsg').textContent = d.error || 'A1 Relay 不可达';
+    }
+    if (controlTarget === 'relay') setChsStatus(relayConnected, d.port, 'relay');
+    return d;
+  }).catch(e => {
+    relayConnected = false;
+    document.getElementById('relayReachability').textContent = '不可达';
+    document.getElementById('relayReachability').style.color = 'var(--red)';
+    document.getElementById('relayConnMsg').textContent = String(e);
+    if (!silent) toast('✗ ' + e, 'err');
+    if (controlTarget === 'relay') setChsStatus(false, null, 'relay');
+    return {success: false, error: String(e)};
+  });
+}
+
+function connectRelay() {
+  const port = document.getElementById('relayPortSelect').value;
+  const baud = parseInt(document.getElementById('relayBaudSelect').value, 10);
+  if (!port) {
+    toast('请选择远端串口', 'err');
+    return;
+  }
+  saveRelayConfig(false).then(() => apiJson('/api/relay/connect', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({port, baud})
+  })).then(d => {
+    if (d.success) {
+      relayConnected = true;
+      document.getElementById('relayConnMsg').textContent = '已连接远端 ' + d.port + ' @ ' + d.baud;
+      document.getElementById('relayConnectBtn').disabled = true;
+      document.getElementById('relayDisconnectBtn').disabled = false;
+      if (controlTarget === 'relay') setChsStatus(true, d.port, 'relay');
+      toast('✓ A1 Relay 已连接', 'ok');
+      loadRelayStatus(true);
+    } else {
+      toast('✗ ' + d.error, 'err');
+    }
+  }).catch(e => toast('✗ ' + e, 'err'));
+}
+
+function disconnectRelay() {
+  apiJson('/api/relay/disconnect', {method: 'POST'}).then(() => {
+    relayConnected = false;
+    document.getElementById('relayConnectBtn').disabled = false;
+    document.getElementById('relayDisconnectBtn').disabled = true;
+    document.getElementById('relayConnMsg').textContent = '远端底盘已断开';
+    if (controlTarget === 'relay') setChsStatus(false, null, 'relay');
+    toast('A1 Relay 已断开', 'info');
+  }).catch(() => {});
+}
+
 function startMove(dir) {
   currentDir = dir;
-  const btnIds = ['btn-fwd','btn-back','btn-right','btn-left'];
+  const btnIds = ['btn-fwd', 'btn-back', 'btn-right', 'btn-left'];
   document.querySelectorAll('.dpad-btn').forEach(b => b.classList.remove('pressed'));
   document.getElementById(btnIds[dir]).classList.add('pressed');
   sendCurrentDir();
@@ -1328,22 +1650,26 @@ function stopMove() {
 }
 
 function sendCurrentDir() {
-  const lin = parseInt(document.getElementById('linSpeed').value);
-  const ang = parseInt(document.getElementById('angSpeed').value);
+  const lin = parseInt(document.getElementById('linSpeed').value, 10);
+  const ang = parseInt(document.getElementById('angSpeed').value, 10);
   const dirs = [
-    [lin, 0, 0],    // fwd
-    [-lin, 0, 0],   // back
-    [0, 0, -ang],   // right turn
-    [0, 0, ang],    // left turn
+    [lin, 0, 0],
+    [-lin, 0, 0],
+    [0, 0, -ang],
+    [0, 0, ang],
   ];
   if (currentDir !== null) sendMove(...dirs[currentDir]);
 }
 
 function sendMove(vx, vy, vz) {
-  if (!chsConnected) return;
-  fetch('/api/chassis/move', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({vx,vy,vz})})
-  .then(r=>r.json()).then(d=>{ if(!d.success) toast('✗ '+d.error,'err'); })
-  .catch(()=>{});
+  if (!targetConnected()) return;
+  apiJson(targetApiBase() + '/move', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({vx, vy, vz})
+  }).then(d => {
+    if (!d.success) toast('✗ ' + d.error, 'err');
+  }).catch(() => {});
 }
 
 function emergencyStop() {
@@ -1351,12 +1677,11 @@ function emergencyStop() {
   moveTimer = null;
   document.querySelectorAll('.dpad-btn').forEach(b => b.classList.remove('pressed'));
   currentDir = null;
-  fetch('/api/chassis/stop', {method:'POST'}).then(r=>r.json()).then(d=>{
-    toast(d.success ? '⬛ 急停' : '✗ '+d.error, d.success ? 'info' : 'err');
-  });
+  apiJson(targetApiBase() + '/stop', {method: 'POST'}).then(d => {
+    toast(d.success ? '⬛ 急停' : '✗ ' + d.error, d.success ? 'info' : 'err');
+  }).catch(() => {});
 }
 
-// ── A1 ↔ STM32 联通测试 ────────────────────────────────────────────────────
 function runPingTest(scope = 'chassis') {
   const suffix = scope === 'page' ? 'Page' : '';
   const btn = document.getElementById('pingBtn' + suffix);
@@ -1368,25 +1693,27 @@ function runPingTest(scope = 'chassis') {
   }
   btn.disabled = true;
   badge.textContent = '测试中…';
-  badge.style.background = 'var(--amber)'; badge.style.color = '#000';
-  result.textContent = '正在发送零速度帧并等待遥测回应…';
+  badge.style.background = 'var(--amber)';
+  badge.style.color = '#000';
+  result.textContent = '正在测试 ' + targetLabel() + ' 链路…';
 
-  fetch('/api/chassis/ping', {method:'POST'})
-  .then(r=>r.json())
-  .then(d=>{
+  apiJson(targetApiBase() + '/ping', {method: 'POST'}).then(d => {
     btn.disabled = false;
     if (!d.success) {
       badge.textContent = '失败';
-      badge.style.background = 'var(--red)'; badge.style.color = '#fff';
+      badge.style.background = 'var(--red)';
+      badge.style.color = '#fff';
       result.textContent = '✗ 错误: ' + (d.error || '未知');
       return;
     }
     if (d.connected) {
       badge.textContent = '双向连通 ✓';
-      badge.style.background = 'var(--green)'; badge.style.color = '#fff';
-      const t = d.telemetry;
+      badge.style.background = 'var(--green)';
+      badge.style.color = '#fff';
+      const t = d.telemetry || {};
       result.textContent =
-        `✅ A1 → STM32 发送成功\n✅ STM32 → A1 收到遥测帧\n\n` +
+        `✅ 目标链路: ${targetLabel()}\n` +
+        `✅ 控制下发成功\n✅ 收到 STM32 遥测\n\n` +
         `发送帧: ${d.frame_tx}\n\n` +
         `遥测数据:\n` +
         `  速度  Vx=${t.vx} Vy=${t.vy} Vz=${t.vz} mm/s\n` +
@@ -1395,51 +1722,67 @@ function runPingTest(scope = 'chassis') {
         `  电池   ${t.voltage?.toFixed(2)} V`;
     } else {
       badge.textContent = '单向连通';
-      badge.style.background = 'var(--amber)'; badge.style.color = '#000';
+      badge.style.background = 'var(--amber)';
+      badge.style.color = '#000';
       result.textContent =
-        `⚠️ A1 → STM32 发送成功，未收到遥测回传\n\n` +
+        `⚠️ 目标链路: ${targetLabel()}\n` +
+        `控制已发送，未收到遥测回传\n\n` +
         `发送帧: ${d.frame_tx}\n\n` +
-        (d.note || '请检查 STM32→A1 (GPIO_PIN_2 / RX) 接线是否正确');
+        (d.note || '请检查回传链路或远端串口状态');
     }
-  })
-  .catch(e => {
+  }).catch(e => {
     btn.disabled = false;
     badge.textContent = '错误';
-    badge.style.background = 'var(--red)'; badge.style.color = '#fff';
+    badge.style.background = 'var(--red)';
+    badge.style.color = '#fff';
     result.textContent = '✗ 网络错误: ' + e;
   });
 }
 
-
 function quickMove(vx, vy, vz) {
-  if (!chsConnected) { toast('请先连接串口', 'err'); return; }
-  fetch('/api/chassis/move', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({vx,vy,vz})})
-  .then(r=>r.json()).then(d=>{ if(!d.success) toast('✗ '+d.error,'err'); })
-  .catch(()=>{});
+  if (!targetConnected()) {
+    toast('请先连接当前目标模块', 'err');
+    return;
+  }
+  apiJson(targetApiBase() + '/move', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({vx, vy, vz})
+  }).then(d => {
+    if (!d.success) toast('✗ ' + d.error, 'err');
+  }).catch(() => {});
 }
 
-// ── Raw frame ─────────────────────────────────────────────────────────────
 function buildQuickFrame() {
-  // Build example: vx=200mm/s
   const vx = 200, vy = 0, vz = 0;
-  const hexBytes = ['7B','00','00'];
+  const hexBytes = ['7B', '00', '00'];
   const toHex = (v16) => {
     const u = v16 < 0 ? v16 + 65536 : v16;
-    return [(u >> 8 & 0xFF).toString(16).padStart(2,'0').toUpperCase(),
-            (u & 0xFF).toString(16).padStart(2,'0').toUpperCase()];
+    return [
+      (u >> 8 & 0xFF).toString(16).padStart(2, '0').toUpperCase(),
+      (u & 0xFF).toString(16).padStart(2, '0').toUpperCase(),
+    ];
   };
   hexBytes.push(...toHex(vx), ...toHex(vy), ...toHex(vz));
-  const frame = hexBytes.map(h => parseInt(h,16));
-  let bcc = 0; frame.forEach(b => bcc ^= b);
-  hexBytes.push(bcc.toString(16).padStart(2,'0').toUpperCase());
+  const frame = hexBytes.map(h => parseInt(h, 16));
+  let bcc = 0;
+  frame.forEach(b => { bcc ^= b; });
+  hexBytes.push(bcc.toString(16).padStart(2, '0').toUpperCase());
   hexBytes.push('7D');
   document.getElementById('rawHexInput').value = hexBytes.join(' ');
 }
 
 function sendRawFrame() {
+  if (!targetConnected()) {
+    toast('请先连接当前目标模块', 'err');
+    return;
+  }
   const hex = document.getElementById('rawHexInput').value.trim();
-  fetch('/api/chassis/raw_send', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({hex})})
-  .then(r=>r.json()).then(d=>{
+  apiJson(targetApiBase() + '/raw_send', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({hex})
+  }).then(d => {
     const res = document.getElementById('rawResult');
     if (d.success) {
       res.style.color = 'var(--green)';
@@ -1448,17 +1791,18 @@ function sendRawFrame() {
       res.style.color = 'var(--red)';
       res.textContent = '✗ ' + d.error;
     }
-  });
+  }).catch(() => {});
 }
 
-// ── Logs ───────────────────────────────────────────────────────────────────
 function clearLogs() {
+  _lastTxCount = 0;
+  _lastRxCount = 0;
   document.getElementById('txLogArea').innerHTML = '';
   document.getElementById('rxLogArea').innerHTML = '';
 }
 
 function colorHexFrame(hex, isTx) {
-  const bytes = hex.split(' ');
+  const bytes = (hex || '').split(' ');
   if (isTx && bytes.length === 11) {
     return [
       `<span class="hex-byte hex-header">${bytes[0]}</span>`,
@@ -1477,56 +1821,74 @@ function colorHexFrame(hex, isTx) {
   return `<span style="font-family:monospace;font-size:.72em;">${hex}</span>`;
 }
 
-let _lastTxCount = 0, _lastRxCount = 0;
-
 function pollLogs() {
-  fetch('/api/chassis/tx_log').then(r=>r.json()).then(logs=>{
+  apiJson(targetApiBase() + '/tx_log').then(raw => {
+    const logs = normalizeLogResponse(raw);
     if (logs.length !== _lastTxCount) {
       _lastTxCount = logs.length;
       const area = document.getElementById('txLogArea');
-      area.innerHTML = logs.map(l=>`
+      area.innerHTML = logs.map(l => `
         <div><span class="log-ts">${l.ts}</span>
         <span class="log-tx">${colorHexFrame(l.hex, true)}</span>
         ${l.raw ? '' : ` <span style="color:var(--muted);font-size:.9em;">Vx=${l.vx} Vy=${l.vy} Vz=${l.vz}</span>`}
         </div>`).join('');
-      if (document.getElementById('autoScroll').checked)
-        area.scrollTop = 0;
+      if (document.getElementById('autoScroll').checked) area.scrollTop = 0;
     }
-  }).catch(()=>{});
+  }).catch(() => {});
 
   if (!document.getElementById('showRxLog').checked) return;
-  fetch('/api/chassis/rx_log').then(r=>r.json()).then(logs=>{
+  apiJson(targetApiBase() + '/rx_log').then(raw => {
+    const logs = normalizeLogResponse(raw);
     if (logs.length !== _lastRxCount) {
       _lastRxCount = logs.length;
       const area = document.getElementById('rxLogArea');
-      area.innerHTML = logs.map(l=>`
-        <div><span class="log-ts">${l.ts}</span>
-        <span class="log-rx" style="font-size:.8em;">${l.hex.substring(0,47)}…</span>
-        <span style="color:var(--muted);font-size:.8em;"> V=${l.data.voltage}V Vx=${l.data.vx}</span>
-        </div>`).join('');
-      if (document.getElementById('autoScroll').checked)
-        area.scrollTop = 0;
+      area.innerHTML = logs.map(l => {
+        const tail = l.data ? ` V=${l.data.voltage}V Vx=${l.data.vx}` : '';
+        const preview = (l.hex || '').length > 47 ? (l.hex.substring(0, 47) + '…') : (l.hex || '');
+        return `<div><span class="log-ts">${l.ts}</span><span class="log-rx" style="font-size:.8em;">${preview}</span><span style="color:var(--muted);font-size:.8em;">${tail}</span></div>`;
+      }).join('');
+      if (document.getElementById('autoScroll').checked) area.scrollTop = 0;
     }
-  }).catch(()=>{});
+  }).catch(() => {});
 }
 
-// ── Telemetry update ────────────────────────────────────────────────────────
+function resetTelemetryView() {
+  document.getElementById('teleTs').textContent = '—';
+  document.getElementById('tVx').textContent = '— mm/s';
+  document.getElementById('tVy').textContent = '— mm/s';
+  document.getElementById('tVz').textContent = '— mrad/s';
+  document.getElementById('tVolt').textContent = '— V';
+  document.getElementById('tAx').textContent = 'X: —';
+  document.getElementById('tAy').textContent = 'Y: —';
+  document.getElementById('tAz').textContent = 'Z: —';
+  document.getElementById('tGx').textContent = 'X: —';
+  document.getElementById('tGy').textContent = 'Y: —';
+  document.getElementById('tGz').textContent = 'Z: —';
+}
+
 function updateTelemetry() {
-  fetch('/api/chassis/status').then(r=>r.json()).then(d=>{
-    const connected = d.connected;
-    setChsStatus(connected, d.port);
-    chsConnected = connected;
-    if (!connected) {
-      document.getElementById('connectBtn').disabled = false;
-      document.getElementById('disconnectBtn').disabled = true;
+  apiJson(targetApiBase() + '/status').then(d => {
+    const connected = !!d.connected;
+    setChsStatus(connected, d.port, controlTarget);
+    if (controlTarget === 'direct') {
+      chsConnected = connected;
+      document.getElementById('connectBtn').disabled = connected;
+      document.getElementById('disconnectBtn').disabled = !connected;
+    } else {
+      relayConnected = connected;
+      document.getElementById('relayConnectBtn').disabled = connected;
+      document.getElementById('relayDisconnectBtn').disabled = !connected;
     }
     const t = d.telemetry;
-    if (!t || !t.ts) return;
+    if (!t || !t.ts) {
+      if (!connected) resetTelemetryView();
+      return;
+    }
     document.getElementById('teleTs').textContent = t.ts;
     document.getElementById('tVx').textContent = t.vx + ' mm/s';
     document.getElementById('tVy').textContent = t.vy + ' mm/s';
     document.getElementById('tVz').textContent = t.vz + ' mrad/s';
-    const v = t.voltage;
+    const v = t.voltage || 0;
     const vEl = document.getElementById('tVolt');
     vEl.textContent = v.toFixed(2) + ' V';
     vEl.className = 'tele-value ' + (v < 10 ? 'red' : v < 11.5 ? 'amber' : 'green');
@@ -1539,7 +1901,169 @@ function updateTelemetry() {
     const fs = document.getElementById('tFlagStop');
     fs.textContent = t.flag_stop === 0 ? '正常 ●' : '失控 ●';
     fs.style.color = t.flag_stop === 0 ? 'var(--green)' : 'var(--red)';
-  }).catch(()=>{});
+  }).catch(() => {});
+}
+
+function hydrateRosConfig(config, force = false) {
+  if (!config || (!force && rosConfigInitialized)) return;
+  document.getElementById('rosPortInput').value = config.serial_port || document.getElementById('rosPortInput').value;
+  document.getElementById('rosBaudInput').value = config.serial_baud || document.getElementById('rosBaudInput').value;
+  document.getElementById('rosForwardLinear').value = config.forward_linear_x || document.getElementById('rosForwardLinear').value;
+  document.getElementById('rosCameraFov').value = config.camera_hfov_deg || document.getElementById('rosCameraFov').value;
+  document.getElementById('rosAutomationEnabled').checked = !!config.automation_enabled;
+  document.getElementById('rosForwardEnabled').checked = config.forward_enabled !== false;
+  document.getElementById('rosStopEnabled').checked = config.stop_enabled !== false;
+  document.getElementById('rosObstacleEnabled').checked = config.obstacle_enabled !== false;
+  rosConfigInitialized = true;
+  updateRosSnapshotLoop();
+}
+
+function collectRosConfig() {
+  return {
+    serial_port: document.getElementById('rosPortInput').value.trim(),
+    serial_baud: parseInt(document.getElementById('rosBaudInput').value || '115200', 10),
+    forward_linear_x: parseFloat(document.getElementById('rosForwardLinear').value || '0.18'),
+    camera_hfov_deg: parseFloat(document.getElementById('rosCameraFov').value || '60'),
+    automation_enabled: document.getElementById('rosAutomationEnabled').checked,
+    forward_enabled: document.getElementById('rosForwardEnabled').checked,
+    stop_enabled: document.getElementById('rosStopEnabled').checked,
+    obstacle_enabled: document.getElementById('rosObstacleEnabled').checked,
+  };
+}
+
+function renderRosStatus(data) {
+  hydrateRosConfig(data.config || {}, false);
+  const processes = data.processes || {};
+  const chassisNode = processes.wheeltec_robot_node || {};
+  const avoidNode = processes.multi_avoidance || {};
+  document.getElementById('rosChassisState').textContent = chassisNode.running ? '运行中' : '未运行';
+  document.getElementById('rosAvoidState').textContent = avoidNode.running ? '运行中' : '未运行';
+  const cfg = data.config || {};
+  document.getElementById('rosActionSummary').textContent = `${cfg.last_action || 'idle'} · ${cfg.last_reason || '—'}`;
+  document.getElementById('rosStatusMsg').textContent = data.workspace_exists
+    ? `ROS 工作空间: ${data.workspace}；${data.ros2_available ? 'ros2 已就绪' : 'ros2 未就绪'}`
+    : '未找到 ROS 工作空间';
+}
+
+function loadRosStatus(silent = true) {
+  return apiJson('/api/ros/status').then(d => {
+    if (d.success) {
+      renderRosStatus(d);
+    } else if (!silent) {
+      toast('✗ ' + (d.error || 'ROS 状态获取失败'), 'err');
+    }
+    return d;
+  }).catch(e => {
+    if (!silent) toast('✗ ' + e, 'err');
+    return {success: false, error: String(e)};
+  });
+}
+
+function applyRosConfig(showToast = false) {
+  const payload = collectRosConfig();
+  return apiJson('/api/ros/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(d => {
+    if (d.success) {
+      hydrateRosConfig(d.config || payload, true);
+      if (showToast) toast('ROS 联动配置已更新', 'ok');
+    } else if (showToast) {
+      toast('✗ ' + d.error, 'err');
+    }
+    return d;
+  }).catch(e => {
+    if (showToast) toast('✗ ' + e, 'err');
+    return {success: false, error: String(e)};
+  });
+}
+
+function useCurrentDirectPortForRos() {
+  document.getElementById('rosPortInput').value = document.getElementById('portSelect').value || document.getElementById('rosPortInput').value;
+  document.getElementById('rosBaudInput').value = document.getElementById('baudSelect').value || document.getElementById('rosBaudInput').value;
+  applyRosConfig(true);
+}
+
+function startRosNode(node) {
+  const payload = Object.assign({node}, collectRosConfig());
+  apiJson('/api/ros/start_node', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(d => {
+    if (d.success) {
+      renderRosStatus(d);
+      toast(node === 'wheeltec_robot_node' ? 'ROS 底盘节点已启动' : 'ROS 避障节点已启动', 'ok');
+    } else {
+      toast('✗ ' + (d.error || d.message || '启动失败'), 'err');
+    }
+  }).catch(e => toast('✗ ' + e, 'err'));
+}
+
+function stopRosNode(node) {
+  apiJson('/api/ros/stop_node', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({node})
+  }).then(d => {
+    if (d.success) {
+      renderRosStatus(d);
+      toast(node === 'wheeltec_robot_node' ? 'ROS 底盘节点已停止' : 'ROS 避障节点已停止', 'info');
+    } else {
+      toast('✗ ' + (d.error || d.message || '停止失败'), 'err');
+    }
+  }).catch(e => toast('✗ ' + e, 'err'));
+}
+
+function testRosForward() {
+  const linear_x = parseFloat(document.getElementById('rosForwardLinear').value || '0.18');
+  apiJson('/api/ros/move', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({linear_x, angular_z: 0})
+  }).then(d => {
+    toast(d.success ? '已发送 ROS 前进' : ('✗ ' + d.message), d.success ? 'ok' : 'err');
+  }).catch(e => toast('✗ ' + e, 'err'));
+}
+
+function stopRosMotion() {
+  apiJson('/api/ros/stop_motion', {method: 'POST'}).then(d => {
+    toast(d.success ? '已发送 ROS 停车' : ('✗ ' + d.message), d.success ? 'info' : 'err');
+  }).catch(e => toast('✗ ' + e, 'err'));
+}
+
+function updateRosSnapshotView(data) {
+  const counts = data.class_counts || {};
+  const parts = Object.entries(counts).map(([name, count]) => `${name}:${count}`);
+  const ros = data.ros || {};
+  let text = parts.length ? parts.join(' ') : '无目标';
+  if (ros.action) text += ` | action=${ros.action}`;
+  document.getElementById('rosDetectSummary').textContent = text;
+  if (ros.reason) document.getElementById('rosActionSummary').textContent = `${ros.action || 'idle'} · ${ros.reason}`;
+}
+
+function triggerDetectSnapshot(showToast = false) {
+  return apiJson('/api/detect/snapshot').then(d => {
+    if (d.success) {
+      updateRosSnapshotView(d);
+      if (showToast) toast('YOLO 快照已刷新', 'info');
+    } else if (showToast) {
+      toast('✗ ' + d.error, 'err');
+    }
+    return d;
+  }).catch(e => {
+    if (showToast) toast('✗ ' + e, 'err');
+    return {success: false, error: String(e)};
+  });
+}
+
+function updateRosSnapshotLoop() {
+  clearInterval(rosSnapshotTimer);
+  if (document.getElementById('rosAutomationEnabled').checked) {
+    rosSnapshotTimer = setInterval(() => triggerDetectSnapshot(false), 900);
+    triggerDetectSnapshot(false);
+  }
 }
 
 // ── Status polling ──────────────────────────────────────────────────────────
@@ -1564,6 +2088,8 @@ setInterval(() => {
 
 setInterval(updateTelemetry, 500);
 setInterval(pollLogs, 800);
+setInterval(() => loadRelayStatus(true), 2500);
+setInterval(() => loadRosStatus(true), 2500);
 
 // ── Keyboard shortcuts ──────────────────────────────────────────────────────
 const keyDirMap = {'w':0,'s':1,'d':2,'a':3,'arrowup':0,'arrowdown':1,'arrowright':2,'arrowleft':3};
@@ -1605,6 +2131,13 @@ refreshPorts();
 fetchGallery();
 loadCameraDevices();
 loadDetectModels();
+updateTargetWidgets();
+loadRelayConfig();
+loadRelayPorts(false);
+loadRelayStatus(true);
+loadRosStatus(true);
+updateTelemetry();
+pollLogs();
 </script>
 </body>
 </html>

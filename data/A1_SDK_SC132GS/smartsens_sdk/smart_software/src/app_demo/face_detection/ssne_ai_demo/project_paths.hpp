@@ -33,13 +33,15 @@ constexpr int DET_HEIGHT = 360;
 // ─── 模型文件路径 ────────────────────────────────────────────────────────────
 // YOLOv8 head6 模型: 在 Detect Head 切分, 后处理在 CPU 完成
 inline const std::string MODEL_PATH =
-    "/app_demo/app_assets/models/best_yolov8_640x360.m1model";
+    "/app_demo/app_assets/models/best_a1_formal_head6.m1model";
 
 // ─── YOLOv8 模型参数 ─────────────────────────────────────────────────────────
 // 模型训练类别数 (与导出的 best_a1_formal.onnx 语义保持一致)
 constexpr int  YOLO_NUM_CLASSES = 4;
-// 主控制逻辑只对 person 类别做前进触发
-constexpr int  TARGET_CLASS_PERSON = 0;
+constexpr int  TARGET_CLASS_PERSON       = 0;
+constexpr int  TARGET_CLASS_FORWARD      = 1;
+constexpr int  TARGET_CLASS_STOP         = 2;
+constexpr int  TARGET_CLASS_OBSTACLE_BOX = 3;
 // DFL 回归 bins 数量
 constexpr int  YOLO_REG_BINS    = 16;
 // YOLOv8 三个 FPN 尺度的步长

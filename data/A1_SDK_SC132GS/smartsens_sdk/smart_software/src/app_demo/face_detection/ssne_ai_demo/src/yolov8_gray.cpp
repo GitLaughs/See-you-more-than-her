@@ -70,7 +70,6 @@ void YOLOV8::DecodeHeadOutputs(
             }
 
             if (best_score < conf_threshold) continue;
-            if (best_cls != cfg::TARGET_CLASS_PERSON) continue;
 
             // ── 2. DFL 解码 4 个边距 (left/top/right/bottom) ────────────
             const int reg_offset = (y * width + x) * kRegChannels;
@@ -206,6 +205,7 @@ void YOLOV8::Predict(ssne_tensor_t* img, FaceDetectionResult* result,
     for (size_t i = 0; i < boxes.size(); ++i) {
         result->boxes.push_back(boxes[i]);
         result->scores.push_back(scores_vec[i]);
+        result->class_ids.push_back(class_ids[i]);
     }
 
     // ── 6. NMS ────────────────────────────────────────────────────────────
@@ -221,7 +221,7 @@ void YOLOV8::Predict(ssne_tensor_t* img, FaceDetectionResult* result,
         result->boxes[i][3] *= h_scale;
     }
 
-    printf("[YOLOV8] 检测到 %d 个人物 (conf>=%.2f)\n",
+    printf("[YOLOV8] 检测到 %d 个目标 (conf>=%.2f)\n",
            final_count, conf_threshold);
 }
 
