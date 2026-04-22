@@ -190,18 +190,20 @@ switch ($Mode) {
         Write-Host "=== Aurora Companion ===" -ForegroundColor Cyan
         Write-Host "Starting Aurora Companion (camera + chassis debug)..." -ForegroundColor Green
         Write-Host "Web UI: $browserUrl" -ForegroundColor Yellow
-        Write-Host "Browser: auto-open enabled (use -NoBrowser to disable)" -ForegroundColor Yellow
+        if ($NoBrowser) {
+            Write-Host "Browser: auto-open disabled" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "Browser: auto-open enabled (use -NoBrowser to disable)" -ForegroundColor Yellow
+        }
         if ($Device -eq -1) {
-            Write-Host "Camera device: auto (prefer A1 SC132GS)" -ForegroundColor Yellow
+            Write-Host "Camera device: auto (reuse last successful device/source, fallback to scan)" -ForegroundColor Yellow
         }
         else {
             Write-Host "Camera device: $Device" -ForegroundColor Yellow
         }
         Write-Host "Capture pipeline: actual acquisition 1280x720; optional training crop 640x360" -ForegroundColor Yellow
-        $tabCamera = -join ([char[]](0x6444, 0x50CF, 0x5934, 0x91C7, 0x96C6))
-        $tabLink = -join ([char[]](0x8054, 0x901A, 0x6D4B, 0x8BD5))
-        $tabChassis = -join ([char[]](0x5E95, 0x76D8, 0x901A, 0x4FE1, 0x8C03, 0x8BD5))
-        Write-Host "Tabs: $tabCamera / A1-STM32 $tabLink / $tabChassis" -ForegroundColor Yellow
+        Write-Host "UI: 左侧预览工作台 / 电脑直连 / 经由 A1" -ForegroundColor Yellow
         if (-not $ShowDriverLogs) {
             Write-Host "Driver logs: hidden (use -ShowDriverLogs to enable)" -ForegroundColor Yellow
         }

@@ -10,6 +10,7 @@ src/ros2_ws/src/wheeltec_robot_urdf/
 tools/aurora/modules/__pycache__/
 tools/aurora/__pycache__/
 tools/aurora/.a1_camera_device
+tools/aurora/.a1_camera_source
 tools/aurora/.a1_detect_model
 third_party/ultralytics
 models

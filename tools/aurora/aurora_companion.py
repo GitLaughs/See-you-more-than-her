@@ -106,6 +106,7 @@ _last_reconnect_time = 0.0
 
 MAX_DEVICE_SCAN = 5
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
+PREFERRED_SOURCE_FILE = Path(__file__).with_name(".a1_camera_source")
 CAMERA_SOURCE_WINDOWS = "windows"
 CAMERA_SOURCE_A1 = "a1"
 CAMERA_SOURCE_AUTO = "auto"
@@ -175,6 +176,13 @@ def _open_raw_camera(device_id: int) -> cv2.VideoCapture:
 
 def _source_label(source: str) -> str:
     return SOURCE_LABELS.get(source, source)
+
+
+def _normalize_camera_source(source: Optional[str], fallback: str = CAMERA_SOURCE_AUTO) -> str:
+    normalized = str(source or "").strip().lower()
+    if normalized in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1, CAMERA_SOURCE_AUTO}:
+        return normalized
+    return fallback
 
 
 def _infer_device_source(info: dict) -> str:
@@ -256,46 +264,72 @@ def save_preferred_device(device_id: int) -> None:
         pass
 
 
+def load_preferred_source() -> Optional[str]:
+    try:
+        if not PREFERRED_SOURCE_FILE.exists():
+            return None
+        text = PREFERRED_SOURCE_FILE.read_text(encoding="utf-8").strip()
+        if text == "":
+            return None
+        return _normalize_camera_source(text, CAMERA_SOURCE_AUTO)
+    except Exception:
+        return None
+
+
+def save_preferred_source(source: str) -> None:
+    try:
+        PREFERRED_SOURCE_FILE.write_text(
+            _normalize_camera_source(source, CAMERA_SOURCE_AUTO),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
 def probe_camera_device(device_id: int) -> dict:
-    cap = _open_raw_camera(device_id)
-    if not cap.isOpened():
-        return {
-            "id": device_id,
-            "opened": False,
-            "score": -1,
-            "actual_width": 0,
-            "actual_height": 0,
-            "is_grayscale": False,
-            "has_content": False,
-            "supports_gray_fourcc": False,
-            "source": CAMERA_SOURCE_WINDOWS,
-            "source_label": _source_label(CAMERA_SOURCE_WINDOWS),
-        }
+    with camera_lock:
+        cap = _open_raw_camera(device_id)
+        if not cap.isOpened():
+            cap.release()
+            return {
+                "id": device_id,
+                "opened": False,
+                "score": -1,
+                "actual_width": 0,
+                "actual_height": 0,
+                "is_grayscale": False,
+                "has_content": False,
+                "supports_gray_fourcc": False,
+                "source": CAMERA_SOURCE_WINDOWS,
+                "source_label": _source_label(CAMERA_SOURCE_WINDOWS),
+            }
 
-    with _suppress_c_stderr():
-        gray_fourccs = [
-            cv2.VideoWriter_fourcc(*"Y800"),
-            cv2.VideoWriter_fourcc(*"GREY"),
-            cv2.VideoWriter_fourcc(*"Y8  "),
-            cv2.VideoWriter_fourcc(*"Y16 "),
-        ]
-        supports_gray_fourcc = False
-        for fourcc in gray_fourccs:
-            cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-            actual = int(cap.get(cv2.CAP_PROP_FOURCC))
-            if actual == fourcc:
-                supports_gray_fourcc = True
-                break
+        try:
+            with _suppress_c_stderr():
+                gray_fourccs = [
+                    cv2.VideoWriter_fourcc(*"Y800"),
+                    cv2.VideoWriter_fourcc(*"GREY"),
+                    cv2.VideoWriter_fourcc(*"Y8  "),
+                    cv2.VideoWriter_fourcc(*"Y16 "),
+                ]
+                supports_gray_fourcc = False
+                for fourcc in gray_fourccs:
+                    cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+                    actual = int(cap.get(cv2.CAP_PROP_FOURCC))
+                    if actual == fourcc:
+                        supports_gray_fourcc = True
+                        break
 
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-        # 丢弃前几帧：DirectShow 管道初始化期间第 1 帧通常为全黑
-        for _ in range(3):
-            cap.read()
-        ret, frame = cap.read()
-        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        cap.release()
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+                # 丢弃前几帧：DirectShow 管道初始化期间第 1 帧通常为全黑
+                for _ in range(3):
+                    cap.read()
+                ret, frame = cap.read()
+                actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        finally:
+            cap.release()
 
     if not ret or frame is None:
         source = CAMERA_SOURCE_A1 if supports_gray_fourcc else CAMERA_SOURCE_WINDOWS
@@ -380,12 +414,20 @@ def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
 def choose_camera_device(requested_device: int) -> Tuple[int, list]:
     """返回 (device_id, candidates)。requested_device=-1 时自动优先 A1。"""
     if requested_device >= 0:
-        return requested_device, list_camera_devices()
+        info = probe_camera_device(requested_device)
+        return requested_device, [info] if info["opened"] else []
 
     preferred = load_preferred_device()
+    preferred_source = load_preferred_source()
     if preferred is not None:
         preferred_info = probe_camera_device(preferred)
         if preferred_info["opened"] and (preferred_info.get("has_content") or preferred_info.get("supports_gray_fourcc")):
+            cached_source = _normalize_camera_source(
+                preferred_source,
+                preferred_info.get("source", CAMERA_SOURCE_WINDOWS),
+            )
+            preferred_info["source"] = cached_source
+            preferred_info["source_label"] = _source_label(cached_source)
             return preferred, [preferred_info]
 
     candidates = list_camera_devices()
@@ -457,6 +499,7 @@ def bootstrap_camera(requested_device: int) -> None:
 
         print(f"[INFO] 正在连接摄像头 (设备 {selected_device}, source={camera_source_global})...")
         save_preferred_device(selected_device)
+        save_preferred_source(camera_source_global)
         try:
             opened_camera = open_camera(selected_device, camera_source_global)
         except Exception as e:
@@ -1286,7 +1329,7 @@ def switch_camera():
 
     try:
         if requested_source == CAMERA_SOURCE_AUTO:
-            for info in list_camera_devices():
+            for info in camera_devices_snapshot:
                 if info["id"] == new_device:
                     requested_source = info.get("source", CAMERA_SOURCE_WINDOWS)
                     break
@@ -1306,6 +1349,7 @@ def switch_camera():
         _consecutive_failures = 0
         camera_connected = True
         save_preferred_device(new_device)
+        save_preferred_source(requested_source)
         print(f"[INFO] 已切换到摄像头设备 {new_device} ({requested_source})")
         return jsonify({"success": True, "device": new_device, "source": requested_source})
     except Exception as e:
