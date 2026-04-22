@@ -68,24 +68,40 @@ function Start-BrowserWhenReady {
     try {
         $browserWorker = @'
 $deadline = [DateTime]::UtcNow.AddSeconds(180)
+$statusUrl = "__URL__status"
+$baseUrl = "__URL__"
 while ([DateTime]::UtcNow -lt $deadline) {
     try {
+        # Fast TCP check
         $client = New-Object System.Net.Sockets.TcpClient
         $async = $client.BeginConnect("127.0.0.1", __PORT__, $null, $null)
-        if ($async.AsyncWaitHandle.WaitOne(250)) {
+        $tcpOk = $async.AsyncWaitHandle.WaitOne(200)
+        
+        if ($tcpOk) {
             $client.EndConnect($async)
             $client.Close()
-            Start-Process "__URL__" | Out-Null
-            exit 0
+            # HTTP check
+            $response = Invoke-WebRequest -Uri $baseUrl -UseBasicParsing -TimeoutSec 1 -ErrorAction SilentlyContinue
+            if ($response.StatusCode -ge 200) {
+                Start-Process $baseUrl | Out-Null
+                exit 0
+            }
+        } else {
+            $client.Close()
         }
-        $client.Close()
     }
     catch {
     }
-    Start-Sleep -Milliseconds 250
+    Start-Sleep -Milliseconds 500
 }
 '@
         $browserWorker = $browserWorker.Replace("__PORT__", [string]$ReadyPort).Replace("__URL__", $Url)
+        if (-not $browserWorker.Contains("__URL__status")) {
+            # Ensure proper URL formatting
+            if (-not $Url.EndsWith("/")) {
+                $browserWorker = $browserWorker.Replace("__URL__status", "$Url/status")
+            }
+        }
         $encodedCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($browserWorker))
         $shell = Get-Command pwsh -ErrorAction SilentlyContinue
         if (-not $shell) {
@@ -112,7 +128,17 @@ function Invoke-PythonTool {
     )
 
     if ($SuppressStderr) {
-        & $Python @Arguments 2>$null
+        $errFile = [System.IO.Path]::GetTempFileName()
+        try {
+            # Route stderr to file
+            $proc = Start-Process -FilePath $Python -ArgumentList $Arguments -NoNewWindow -Wait -RedirectStandardError $errFile -PassThru
+            if ($proc.ExitCode -ne 0) {
+                Write-Host "`n[ERROR] Python script exited with code $($proc.ExitCode). Error output:`n" -ForegroundColor Red
+                Get-Content $errFile | Out-String | Write-Host -ForegroundColor Red
+            }
+        } finally {
+            if (Test-Path $errFile) { Remove-Item $errFile -Force }
+        }
     }
     else {
         & $Python @Arguments
@@ -133,6 +159,26 @@ Write-Host "[INFO] Python: $Python" -ForegroundColor DarkGray
 
 $resolvedPort = if ($Port -gt 0) { $Port } else { Get-DefaultPort -LaunchMode $Mode }
 $browserUrl = "http://127.0.0.1:$resolvedPort"
+
+if (-not $PSBoundParameters.ContainsKey("Mode")) {
+    Write-Host "=== Aurora Launch === " -ForegroundColor Cyan
+    Write-Host "1. Aurora Companion (camera + chassis debug)"
+    Write-Host "2. A1 Companion (OSD + chassis + camera)"
+    Write-Host "3. A1 Viewer (board-side OSD preview)"
+    Write-Host "4. STM32 Port Probe"
+    Write-Host "5. Aurora Capture (image preview + dataset export)"
+    Write-Host ""
+    $choice = Read-Host "Select execution mode [1]"
+    switch ($choice) {
+        "2" { $Mode = "a1" }
+        "3" { $Mode = "viewer" }
+        "4" { $Mode = "probe" }
+        "5" { $Mode = "capture" }
+        default { $Mode = "companion" }
+    }
+    $resolvedPort = if ($Port -gt 0) { $Port } else { Get-DefaultPort -LaunchMode $Mode }
+    $browserUrl = "http://127.0.0.1:$resolvedPort"
+}
 
 switch ($Mode) {
     "companion" {

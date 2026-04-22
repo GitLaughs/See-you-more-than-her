@@ -145,9 +145,11 @@ int main() {
             bool has_forward = false;
             bool has_stop = false;
             bool has_obstacle = false;
+            bool has_backward = false;
             size_t forward_count = 0;
             size_t stop_count = 0;
             size_t obstacle_count = 0;
+            size_t backward_count = 0;
 
             // 遍历所有检测框进行坐标转换
             for (size_t i = 0; i < det_result->boxes.size(); i++) {
@@ -172,6 +174,9 @@ int main() {
                 } else if (cls_id == cfg::TARGET_CLASS_OBSTACLE_BOX) {
                     has_obstacle = true;
                     obstacle_count++;
+                } else if (cls_id == cfg::TARGET_CLASS_BACKWARD) {
+                    has_backward = true;
+                    backward_count++;
                 }
             }
             
@@ -190,6 +195,10 @@ int main() {
             } else if (has_stop) {
                 printf("[STOP] 检测到 stop 手势 %zu 个，停车\n", stop_count);
                 if (chassis_ok) chassis.SendVelocity(cfg::VX_STOP, 0, 0);
+            } else if (has_backward) {
+                printf("[DRIVE] 检测到 backward 手势 %zu 个，后退 %d mm/s\n",
+                       backward_count, cfg::VX_BACKWARD);
+                if (chassis_ok) chassis.SendVelocity(cfg::VX_BACKWARD, 0, 0);
             } else if (has_forward) {
                 printf("[DRIVE] 检测到 forward 手势 %zu 个，直行 %d mm/s\n",
                        forward_count, cfg::VX_FORWARD);

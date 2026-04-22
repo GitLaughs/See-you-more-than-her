@@ -42,6 +42,7 @@ constexpr int  TARGET_CLASS_PERSON       = 0;
 constexpr int  TARGET_CLASS_FORWARD      = 1;
 constexpr int  TARGET_CLASS_STOP         = 2;
 constexpr int  TARGET_CLASS_OBSTACLE_BOX = 3;
+constexpr int  TARGET_CLASS_BACKWARD     = 4;
 // DFL 回归 bins 数量
 constexpr int  YOLO_REG_BINS    = 16;
 // YOLOv8 三个 FPN 尺度的步长
@@ -62,6 +63,7 @@ constexpr int   DET_KEEP_TOP_K  = 30;
 // ─── 底盘控制参数 ─────────────────────────────────────────────────────────────
 constexpr uint32_t UART_BAUD   = 115200;  // 波特率
 constexpr int16_t  VX_FORWARD  =  100;   // 前进速度 (mm/s)
+constexpr int16_t  VX_BACKWARD = -100;   // 后退速度 (mm/s)
 constexpr int16_t  VX_STOP     =    0;   // 停止
 
 } // namespace cfg

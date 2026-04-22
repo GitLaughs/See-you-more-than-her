@@ -31,6 +31,8 @@ _ROS_CONFIG: Dict[str, Any] = {
     "serial_baud": 115200,
     "forward_linear_x": 0.18,
     "forward_angular_z": 0.0,
+    "backward_linear_x": -0.18,
+    "backward_angular_z": 0.0,
     "idle_stop_delay_sec": 1.0,
     "trigger_cooldown_sec": 0.8,
     "camera_hfov_deg": 60.0,
@@ -38,6 +40,7 @@ _ROS_CONFIG: Dict[str, Any] = {
     "obstacle_clear_distance": 100.0,
     "automation_enabled": False,
     "forward_enabled": True,
+    "backward_enabled": True,
     "stop_enabled": True,
     "obstacle_enabled": True,
     "last_action": "idle",
@@ -48,12 +51,15 @@ _ROS_CONFIG: Dict[str, Any] = {
 _BOOL_FIELDS = {
     "automation_enabled",
     "forward_enabled",
+    "backward_enabled",
     "stop_enabled",
     "obstacle_enabled",
 }
 _FLOAT_FIELDS = {
     "forward_linear_x",
     "forward_angular_z",
+    "backward_linear_x",
+    "backward_angular_z",
     "idle_stop_delay_sec",
     "trigger_cooldown_sec",
     "camera_hfov_deg",
@@ -355,6 +361,16 @@ def _dispatch_forward(config: Dict[str, Any], reason: str) -> Tuple[bool, str]:
     return ok, message
 
 
+def _dispatch_backward(config: Dict[str, Any], reason: str) -> Tuple[bool, str]:
+    topic = "/cmd_vel_ori" if _process_running("multi_avoidance") else "/cmd_vel"
+    if _process_running("multi_avoidance"):
+        _publish_clear_obstacle()
+    ok, message = _publish_twist(topic, config["backward_linear_x"], config["backward_angular_z"])
+    if ok:
+        _set_last_action("backward", reason)
+    return ok, message
+
+
 def _dispatch_obstacle(config: Dict[str, Any],
                        box: Tuple[float, float, float, float, float, int],
                        frame_shape: Tuple[int, int]) -> Tuple[bool, str]:
@@ -389,12 +405,15 @@ def handle_yolo_detections(detections: Iterable[Tuple[float, float, float, float
     has_stop = bool(config["stop_enabled"] and buckets.get(2))
     obstacle_box = _largest_box(buckets.get(3, [])) if config["obstacle_enabled"] else None
     has_forward = bool(config["forward_enabled"] and buckets.get(1))
+    has_backward = bool(config["backward_enabled"] and buckets.get(4))
 
     action = "idle"
     if has_stop:
         action = "stop"
     elif obstacle_box is not None:
         action = "obstacle"
+    elif has_backward:
+        action = "backward"
     elif has_forward:
         action = "forward"
 
@@ -411,15 +430,17 @@ def handle_yolo_detections(detections: Iterable[Tuple[float, float, float, float
         ok, message = _dispatch_stop("检测到 stop 手势")
     elif action == "obstacle":
         ok, message = _dispatch_obstacle(config, obstacle_box, frame_shape)
+    elif action == "backward":
+        ok, message = _dispatch_backward(config, "检测到 backward 手势")
     elif action == "forward":
         ok, message = _dispatch_forward(config, "检测到 forward 手势")
     else:
-        should_idle_stop = last_action in {"forward", "obstacle"} and (now - last_dispatch_ts) >= float(config["idle_stop_delay_sec"])
+        should_idle_stop = last_action in {"forward", "backward", "obstacle"} and (now - last_dispatch_ts) >= float(config["idle_stop_delay_sec"])
         if should_idle_stop:
             ok, message = _dispatch_stop("手势消失，自动停车")
         else:
             ok, message = True, config["last_reason"]
-            _set_last_action("idle", "等待 forward/stop/obstacle_box")
+            _set_last_action("idle", "等待 forward/backward/stop/obstacle_box")
 
     result["reason"] = message
     result["dispatched"] = ok
