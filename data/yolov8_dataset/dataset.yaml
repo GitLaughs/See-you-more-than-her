@@ -1,0 +1,10 @@
+# YOLOv8 dataset config
+# 图像格式: 640x360 灰度图 (SC132GS 摄像头采集, 16:9)
+path: data/yolov8_dataset
+train: images/train
+val: images/val
+test: images/test
+
+# Update class names for your project
+names:
+  0: face

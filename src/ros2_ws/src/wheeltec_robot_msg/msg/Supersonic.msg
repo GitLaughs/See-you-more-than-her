@@ -1,0 +1,9 @@
+std_msgs/Header  header
+float32 distance_a
+float32 distance_b
+float32 distance_c
+float32 distance_d
+float32 distance_e
+float32 distance_f
+float32 distance_g
+float32 distance_h

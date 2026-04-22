@@ -1,0 +1,38 @@
+a1-sdk-builder-latest.tar
+data/yolov8_dataset/raw/
+output/
+src/ros2_ws/build/
+src/ros2_ws/install/
+src/ros2_ws/log/
+.venv39/
+x3_src_250401/
+src/ros2_ws/src/wheeltec_robot_urdf/
+tools/aurora/modules/__pycache__/
+tools/aurora/__pycache__/
+tools/aurora/.a1_camera_device
+tools/aurora/.a1_camera_source
+tools/aurora/.a1_detect_model
+third_party/ultralytics
+models
+Aurora-2.0.0-ciciec.16
+# Aurora 拍照工具保留在版本控制中: tools/aurora/
+
+# Local editor / IDE
+.vscode/
+# 保留团队共享的编辑器设置（markdown 报错屏蔽等）
+!.vscode/settings.json
+
+# Vendor / hardware dumps and binaries
+WHEELTEC_C50X_2025.12.26/
+
+# Temporary / build artifacts
+*.o
+*.obj
+*.so
+*.dll
+*.exe
+*.hex
+*.log
+.vscode/settings.json
+.vscode/settings.json
+data/data

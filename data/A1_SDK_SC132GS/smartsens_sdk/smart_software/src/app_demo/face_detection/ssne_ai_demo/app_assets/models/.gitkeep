@@ -1,0 +1,8 @@
+# 模型文件占位
+#
+# 将以下模型文件放置于此目录:
+#   face_640x480.m1model  (遗留保留)
+#   face_640x360.m1model  (当前默认，SCRFD 640×360 输入)
+#
+# 模型由项目根目录 models/ 拷贝：
+#   cp models/face_640x480.m1model data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/app_assets/models/face_640x360.m1model
