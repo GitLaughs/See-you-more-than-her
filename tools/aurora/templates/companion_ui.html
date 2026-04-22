@@ -117,17 +117,18 @@ body{
   overflow-y: auto;
   overscroll-behavior: contain;
   display: grid;
-  grid-template-rows: minmax(420px, 2.3fr) minmax(220px, 1fr);
+  grid-template-rows: minmax(360px, 1.8fr) minmax(200px, 1fr) minmax(280px, auto);
   align-content: stretch;
   gap: var(--space-3);
   padding-right: 4px;
 }
 
 .page-stage{
-  flex: 0 0 450px;
-  max-width: 450px;
+  flex: 1.2 1 0;
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
@@ -191,19 +192,21 @@ body{
 
 .workflow-grid{
   display:grid;
-  grid-template-columns:repeat(2, minmax(320px, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap:var(--space-3);
   align-items:start;
   grid-auto-flow:row dense;
 }
 
 .workflow-grid-stm32{
-  grid-template-columns:minmax(300px, 1fr) minmax(360px, 1.08fr);
+  grid-template-columns: 1fr 1fr;
   grid-template-areas:
+    "onnx onnx"
     "serial ros"
     "check ros";
 }
 
+.workflow-grid-stm32 .onnx-card{grid-area:onnx;}
 .workflow-grid-stm32 .chs-conn{grid-area:serial;}
 .workflow-grid-stm32 .stm32-precheck{grid-area:check;}
 .workflow-grid-stm32 .chs-ros{grid-area:ros;}
@@ -490,6 +493,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
 @media (max-width: 1180px){
   .workflow-grid,.workflow-points{grid-template-columns:1fr;}
   .workflow-grid-stm32{grid-template-areas:
+    "onnx"
     "serial"
     "check"
     "ros";
@@ -580,6 +584,34 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
         </div>
       </div>
     </div>
+    <div class="card" style="flex: 0 0 auto;">
+      <div class="card-head">摄像头输入直切</div>
+      <div class="card-body">
+        <div class="form-row" style="margin-bottom:6px;">
+          <label>设备</label>
+          <select id="cameraSelect">
+            <option value="">加载中...</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="loadCameraDevices()">列表</button>
+          <button class="btn btn-blue" style="flex:1;justify-content:center;" onclick="switchCamera()">切换</button>
+        </div>
+        <div class="divider"></div>
+        <div style="font-size:.72em;color:var(--color-secondary);margin-bottom:6px;">优先源</div>
+        <div class="source-switch" id="cameraSourceSwitch">
+          <button class="source-chip active" type="button" data-source="windows" onclick="setCameraSource('windows')">Windows</button>
+          <button class="source-chip" type="button" data-source="a1" onclick="setCameraSource('a1')">A1</button>
+          <button class="source-chip" type="button" data-source="auto" onclick="setCameraSource('auto')">Auto</button>
+        </div>
+        <div id="cameraSourceHint" class="source-desc">优先级：找不到首选时自动降级。</div>
+        <div class="divider"></div>
+        <button class="btn btn-ghost btn-full" id="camRefreshBtn" onclick="refreshCam()">
+          <span class="btn-icon" id="camRefIcon">↻</span>
+          <label>断联修复<small>卡顿点此重启驱动</small></label>
+        </button>
+      </div>
+    </div>
   </aside>
 
   <main class="page-stage">
@@ -599,43 +631,6 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
           <span class="btn-icon">🏹</span>
           <label>拍照 640×360<small>YOLOv8 训练集 · 16:9 中心裁剪</small></label>
         </button>
-        <div class="divider"></div>
-        <button class="btn btn-ghost btn-full" id="camRefreshBtn" onclick="refreshCam()">
-          <span class="btn-icon" id="camRefIcon">刷新</span>
-          <label>刷新摄像头<small>断联后点此恢复</small></label>
-        </button>
-        <div class="divider"></div>
-        <div style="font-size:.72em;color:var(--color-secondary);margin-bottom:6px;">摄像头源</div>
-        <div class="source-switch" id="cameraSourceSwitch">
-          <button class="source-chip active" type="button" data-source="windows" onclick="setCameraSource('windows')">Windows 纯预览</button>
-          <button class="source-chip" type="button" data-source="a1" onclick="setCameraSource('a1')">A1 板端 OSD</button>
-          <button class="source-chip" type="button" data-source="auto" onclick="setCameraSource('auto')">自动识别</button>
-        </div>
-        <div id="cameraSourceHint" class="source-desc">当前将优先选择 <b>Windows 纯预览</b>，预览保持原图不叠加框；YOLOv8 仅在本地 Windows 侧运行。</div>
-        <div style="font-size:.72em;color:var(--color-secondary);margin-top:10px;margin-bottom:6px;">模型（支持 .onnx / .pt）</div>
-        <div class="form-row" style="margin-bottom:6px;">
-          <label>模型</label>
-          <div style="flex:1;display:flex;flex-direction:column;gap:4px;">
-            <input type="text" id="modelSelect" list="modelOptions" placeholder="best_a1_formal.onnx / best.pt">
-            <datalist id="modelOptions"></datalist>
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="loadDetectModels()">列表</button>
-          <button class="btn btn-blue" style="flex:1;justify-content:center;" onclick="switchDetectModel()">切换</button>
-        </div>
-        <div id="modelHint" class="source-desc" style="margin-top:6px;">可以直接输入原始文件名或完整路径，切换后会立即影响 Windows 侧 YOLOv8 检测流。</div>
-        <div class="form-row" style="margin-bottom:6px;">
-          <label>设备</label>
-          <select id="cameraSelect">
-            <option value="">加载中...</option>
-          </select>
-        </div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="loadCameraDevices()">列表</button>
-          <button class="btn btn-blue" style="flex:1;justify-content:center;" onclick="switchCamera()">切换</button>
-        </div>
-        <div style="font-size:.72em;color:var(--color-secondary);margin-top:8px;line-height:1.5;">左侧预览在两个工作流页面中保持可见，避免重复打开多路视频流。</div>
       </div>
     </div>
 
@@ -695,6 +690,23 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
       </section>
 
       <div class="workflow-grid workflow-grid-stm32">
+        <div class="card onnx-card">
+          <div class="card-head">PC端实时 ONNX 模型切换</div>
+          <div class="card-body">
+            <div class="form-row" style="margin-bottom:6px;">
+              <label>切换模型</label>
+              <div style="flex:1;display:flex;flex-direction:column;gap:4px;">
+                <input type="text" id="modelSelect" list="modelOptions" placeholder="best_a1_formal.onnx / best.pt">
+                <datalist id="modelOptions"></datalist>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="loadDetectModels()">检测模型列表</button>
+              <button class="btn btn-blue" style="flex:1;justify-content:center;" onclick="switchDetectModel()">实时切换推理</button>
+            </div>
+            <div id="modelHint" class="source-desc" style="margin-top:6px;">模型即时切换 (onnx/pt)。由于计算全在电脑端，仅当且仅当你使用 Windows 纯预览捕获帧大小时有效预测。</div>
+          </div>
+        </div>
         <div class="card chs-conn">
           <div class="card-head">串口连接与协议</div>
           <div class="card-body">

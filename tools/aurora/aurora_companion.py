@@ -3,7 +3,7 @@
 Aurora Companion — Windows/A1 摄像头可视化采集伴侣
 
 增强版拍照工具，在 aurora_capture 基础上提供：
-  - 精心设计的现代暗色玻璃态 UI
+  - 精心设计的现代 UI
   - 摄像头断联自动检测 + 一键刷新恢复
   - 实时 FPS 及连接状态显示
   - 最近拍摄缩略图画廊 (最多 8 张)
@@ -403,11 +403,27 @@ def probe_camera_device(device_id: int) -> dict:
 
 def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
     """串行探测摄像头设备（避免并行 DirectShow 调用干扰驱动状态）。"""
+    import time
+    start_time = time.time()
     devices = []
+    found_windows = False
+    found_a1 = False
     for i in range(max_scan):
+        if time.time() - start_time > 30:
+            print("[WARN] 摄像头扫描超过 30 秒，已停止扫描。")
+            break
         info = probe_camera_device(i)
         if info["opened"]:
             devices.append(info)
+            source = info.get("source")
+            if source == CAMERA_SOURCE_WINDOWS:
+                found_windows = True
+            elif source == CAMERA_SOURCE_A1:
+                found_a1 = True
+                
+            if found_windows and found_a1:
+                print("[INFO] 已找到 Windows 彩色摄像头和 A1 灰度摄像头，提前结束扫描。")
+                break
     return devices
 
 
