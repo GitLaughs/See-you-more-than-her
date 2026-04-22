@@ -42,6 +42,7 @@ constexpr int  TARGET_CLASS_PERSON       = 0;
 constexpr int  TARGET_CLASS_FORWARD      = 1;
 constexpr int  TARGET_CLASS_STOP         = 2;
 constexpr int  TARGET_CLASS_OBSTACLE_BOX = 3;
+constexpr int  TARGET_CLASS_BACKWARD     = 4;
 // DFL 回归 bins 数量
 constexpr int  YOLO_REG_BINS    = 16;
 // YOLOv8 三个 FPN 尺度的步长
@@ -62,6 +63,16 @@ constexpr int   DET_KEEP_TOP_K  = 30;
 // ─── 底盘控制参数 ─────────────────────────────────────────────────────────────
 constexpr uint32_t UART_BAUD   = 115200;  // 波特率
 constexpr int16_t  VX_FORWARD  =  100;   // 前进速度 (mm/s)
+constexpr int16_t  VX_BACKWARD = -100;   // 后退速度 (mm/s)
 constexpr int16_t  VX_STOP     =    0;   // 停止
+
+// ─── A1↔STM32 联通性测试参数（临时）──────────────────────────────────────────
+// 这一组常量只服务于“验证上下位机链路是否通”的临时测试模块。
+// 当前需求是：每隔 5 秒给 STM32 下发 1 秒轻微前进，其余 4 秒持续停车。
+// 之后恢复正式识别联动时，只需要删除 demo_face.cpp 中引用这些常量的临时代码块即可。
+constexpr bool     LINK_TEST_ENABLED            = true;
+constexpr int16_t  LINK_TEST_FORWARD_VX         = 60;    // mm/s，故意放慢，避免联通性测试时车速过快
+constexpr uint64_t LINK_TEST_PERIOD_US          = 5000000ULL;
+constexpr uint64_t LINK_TEST_FORWARD_WINDOW_US  = 1000000ULL;
 
 } // namespace cfg

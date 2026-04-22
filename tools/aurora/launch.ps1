@@ -1,22 +1,12 @@
-param(
-    [ValidateSet("companion", "a1", "viewer", "probe", "capture")]
-    [string]$Mode = "companion",
+﻿param(
     [int]$Device = -1,
-    [string]$Output = "",
-    [int]$Port = 0,
-    [switch]$ShowDriverLogs,
-    [switch]$NoBrowser
+    [int]$Port = 5801
 )
 
 $ErrorActionPreference = "Stop"
 
 function Initialize-Utf8Console {
-    try {
-        & chcp.com 65001 | Out-Null
-    }
-    catch {
-    }
-
+    try { & chcp.com 65001 | Out-Null } catch {}
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [Console]::InputEncoding = $utf8NoBom
     [Console]::OutputEncoding = $utf8NoBom
@@ -31,213 +21,57 @@ function Get-PythonExecutable {
         (Resolve-Path "..\..\.venv39\Scripts\python.exe" -ErrorAction SilentlyContinue),
         "python"
     ) | Where-Object { $_ }
-
     foreach ($candidate in $candidates) {
         try {
             $version = & $candidate --version 2>&1
-            if ($version -match "Python 3") {
-                return $candidate
-            }
-        }
-        catch {
-        }
+            if ($version -match "Python 3") { return $candidate }
+        } catch {}
     }
-
     return "python"
 }
 
-function Get-DefaultPort {
-    param([string]$LaunchMode)
-
-    switch ($LaunchMode) {
-        "companion" { return 5801 }
-        "a1" { return 5803 }
-        "viewer" { return 5802 }
-        "probe" { return 5006 }
-        "capture" { return 5000 }
-        default { return 5801 }
-    }
-}
-
 function Start-BrowserWhenReady {
-    param(
-        [int]$ReadyPort,
-        [string]$Url
-    )
-
+    param([int]$ReadyPort, [string]$Url)
     try {
         $browserWorker = @'
 $deadline = [DateTime]::UtcNow.AddSeconds(180)
+$baseUrl = "__URL__"
 while ([DateTime]::UtcNow -lt $deadline) {
     try {
         $client = New-Object System.Net.Sockets.TcpClient
         $async = $client.BeginConnect("127.0.0.1", __PORT__, $null, $null)
-        if ($async.AsyncWaitHandle.WaitOne(250)) {
+        if ($async.AsyncWaitHandle.WaitOne(200)) {
             $client.EndConnect($async)
             $client.Close()
-            Start-Process "__URL__" | Out-Null
-            exit 0
-        }
-        $client.Close()
-    }
-    catch {
-    }
-    Start-Sleep -Milliseconds 250
+            $response = Invoke-WebRequest -Uri $baseUrl -UseBasicParsing -TimeoutSec 1 -ErrorAction SilentlyContinue
+            if ($response.StatusCode -ge 200) { Start-Process $baseUrl | Out-Null; exit 0 }
+        } else { $client.Close() }
+    } catch {}
+    Start-Sleep -Milliseconds 500
 }
 '@
         $browserWorker = $browserWorker.Replace("__PORT__", [string]$ReadyPort).Replace("__URL__", $Url)
         $encodedCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($browserWorker))
         $shell = Get-Command pwsh -ErrorAction SilentlyContinue
-        if (-not $shell) {
-            $shell = Get-Command powershell -ErrorAction SilentlyContinue
-        }
-
+        if (-not $shell) { $shell = Get-Command powershell -ErrorAction SilentlyContinue }
         if ($shell) {
             Start-Process -FilePath $shell.Source -WindowStyle Hidden -ArgumentList @("-NoProfile", "-EncodedCommand", $encodedCommand) | Out-Null
             return
         }
-
-        throw "No PowerShell host found"
-    }
-    catch {
-        Write-Host "[WARN] Unable to open browser automatically. Please open $Url manually." -ForegroundColor DarkYellow
-    }
-}
-
-function Invoke-PythonTool {
-    param(
-        [string]$Python,
-        [string[]]$Arguments,
-        [switch]$SuppressStderr
-    )
-
-    if ($SuppressStderr) {
-        & $Python @Arguments 2>$null
-    }
-    else {
-        & $Python @Arguments
-    }
+    } catch {}
 }
 
 Initialize-Utf8Console
-
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
-
-if (-not (Test-Path "aurora_companion.py")) {
-    Write-Error "aurora_companion.py not found in $ScriptDir"
-}
 
 $Python = Get-PythonExecutable
 Write-Host "[INFO] Python: $Python" -ForegroundColor DarkGray
 
-$resolvedPort = if ($Port -gt 0) { $Port } else { Get-DefaultPort -LaunchMode $Mode }
-$browserUrl = "http://127.0.0.1:$resolvedPort"
+$browserUrl = "http://127.0.0.1:$Port"
+Write-Host "=== Aurora Companion ===" -ForegroundColor Cyan
+Write-Host "Starting Aurora Companion..." -ForegroundColor Green
+Write-Host "Web UI: $browserUrl" -ForegroundColor Yellow
 
-switch ($Mode) {
-    "companion" {
-        $launchArgs = @("aurora_companion.py", "--device", $Device, "--port", $resolvedPort)
-        if ($Output -ne "") {
-            $launchArgs += @("--output", $Output)
-        }
-
-        Write-Host "=== Aurora Companion ===" -ForegroundColor Cyan
-        Write-Host "Starting Aurora Companion (camera + chassis debug)..." -ForegroundColor Green
-        Write-Host "Web UI: $browserUrl" -ForegroundColor Yellow
-        Write-Host "Browser: auto-open enabled (use -NoBrowser to disable)" -ForegroundColor Yellow
-        if ($Device -eq -1) {
-            Write-Host "Camera device: auto (prefer A1 SC132GS)" -ForegroundColor Yellow
-        }
-        else {
-            Write-Host "Camera device: $Device" -ForegroundColor Yellow
-        }
-        Write-Host "Capture pipeline: actual acquisition 1280x720; optional training crop 640x360" -ForegroundColor Yellow
-        $tabCamera = -join ([char[]](0x6444, 0x50CF, 0x5934, 0x91C7, 0x96C6))
-        $tabLink = -join ([char[]](0x8054, 0x901A, 0x6D4B, 0x8BD5))
-        $tabChassis = -join ([char[]](0x5E95, 0x76D8, 0x901A, 0x4FE1, 0x8C03, 0x8BD5))
-        Write-Host "Tabs: $tabCamera / A1-STM32 $tabLink / $tabChassis" -ForegroundColor Yellow
-        if (-not $ShowDriverLogs) {
-            Write-Host "Driver logs: hidden (use -ShowDriverLogs to enable)" -ForegroundColor Yellow
-        }
-        Write-Host "Model: best_a1_formal.onnx (switchable in the page)" -ForegroundColor Yellow
-        Write-Host ""
-
-        if (-not $NoBrowser) {
-            Start-BrowserWhenReady -ReadyPort $resolvedPort -Url $browserUrl
-        }
-
-        $hideStderr = -not $ShowDriverLogs
-        Invoke-PythonTool -Python $Python -Arguments $launchArgs -SuppressStderr:$hideStderr
-        break
-    }
-    "a1" {
-        $launchArgs = @("a1_companion.py", "--port", $resolvedPort)
-        Write-Host "=== A1 Companion ===" -ForegroundColor Cyan
-        Write-Host "Starting A1 Companion (camera + OSD + chassis debug)..." -ForegroundColor Green
-        Write-Host "Web UI: $browserUrl" -ForegroundColor Yellow
-        Write-Host "Browser: auto-open enabled (use -NoBrowser to disable)" -ForegroundColor Yellow
-        Write-Host "Model: best_a1_formal_head6.onnx (switchable in the page)" -ForegroundColor Yellow
-        Write-Host ""
-
-        if (-not $NoBrowser) {
-            Start-BrowserWhenReady -ReadyPort $resolvedPort -Url $browserUrl
-        }
-
-        $hideStderr = -not $ShowDriverLogs
-        Invoke-PythonTool -Python $Python -Arguments $launchArgs -SuppressStderr:$hideStderr
-        break
-    }
-    "viewer" {
-        $launchArgs = @("a1_viewer.py", "--port", $resolvedPort)
-        if ($Device -ge 0) {
-            $launchArgs += @("--device", $Device)
-        }
-
-        Write-Host "=== A1 Viewer ===" -ForegroundColor Cyan
-        Write-Host "Starting A1 Viewer (board-side OSD preview)..." -ForegroundColor Green
-        Write-Host "Web UI: $browserUrl" -ForegroundColor Yellow
-        Write-Host "Browser: auto-open enabled (use -NoBrowser to disable)" -ForegroundColor Yellow
-        Write-Host ""
-
-        if (-not $NoBrowser) {
-            Start-BrowserWhenReady -ReadyPort $resolvedPort -Url $browserUrl
-        }
-
-        Invoke-PythonTool -Python $Python -Arguments $launchArgs
-        break
-    }
-    "probe" {
-        $launchArgs = @("stm32_port_probe.py", "--port", $resolvedPort)
-        Write-Host "=== STM32 Port Probe ===" -ForegroundColor Cyan
-        Write-Host "Starting COM port probe page..." -ForegroundColor Green
-        Write-Host "Web UI: $browserUrl" -ForegroundColor Yellow
-        Write-Host "Browser: auto-open enabled (use -NoBrowser to disable)" -ForegroundColor Yellow
-        Write-Host ""
-
-        if (-not $NoBrowser) {
-            Start-BrowserWhenReady -ReadyPort $resolvedPort -Url $browserUrl
-        }
-
-        Invoke-PythonTool -Python $Python -Arguments $launchArgs
-        break
-    }
-    "capture" {
-        $launchArgs = @("aurora_capture.py", "--device", $Device, "--port", $resolvedPort)
-        if ($Output -ne "") {
-            $launchArgs += @("--output", $Output)
-        }
-
-        Write-Host "=== Aurora Capture ===" -ForegroundColor Cyan
-        Write-Host "Starting Aurora Capture (image preview + dataset export)..." -ForegroundColor Green
-        Write-Host "Web UI: $browserUrl" -ForegroundColor Yellow
-        Write-Host "Browser: auto-open enabled (use -NoBrowser to disable)" -ForegroundColor Yellow
-        Write-Host ""
-
-        if (-not $NoBrowser) {
-            Start-BrowserWhenReady -ReadyPort $resolvedPort -Url $browserUrl
-        }
-
-        Invoke-PythonTool -Python $Python -Arguments $launchArgs -SuppressStderr
-        break
-    }
-}
+Start-BrowserWhenReady -ReadyPort $Port -Url $browserUrl
+& $Python aurora_companion.py --device $Device --port $Port
