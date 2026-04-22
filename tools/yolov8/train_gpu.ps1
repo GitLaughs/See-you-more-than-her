@@ -11,6 +11,10 @@ param(
     [switch]$SkipInstall
 )
 
+# 注意: 训练数据为 640x480 灰度图 (SC132GS 摄像头采集)
+# YOLOv8 默认会将灰度图复制为 3 通道输入, 无需额外处理。
+# imgsz 设为 640 时, YOLOv8 会自动处理非正方形图像的 letterbox padding。
+
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)

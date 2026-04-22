@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>A1 Camera Preview Tool</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 左侧区域：视频流 -->
+        <div class="left-panel" id="left-panel">
+            <div class="panel-header">
+                <h2>A1 摄像头实时流</h2>
+                <div class="controls">
+                    <button id="btn-connect" class="btn active">连接</button>
+                    <button id="btn-disconnect" class="btn">断开</button>
+                </div>
+            </div>
+            
+            <div class="video-container">
+                <canvas id="video-canvas"></canvas>
+                
+                <!-- 重连遮罩 -->
+                <div id="reconnect-overlay" class="overlay hidden">
+                    <div class="overlay-content">
+                        <h3>连接异常，正在重连...</h3>
+                        <p>请检查网络或 A1 状态</p>
+                        <button id="btn-close-overlay" class="btn">关闭提示</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 状态信息 -->
+            <div class="status-bar">
+                <span id="fps-counter">FPS: 0</span>
+                <span id="latency-counter">延迟: 0 ms</span>
+            </div>
+        </div>
+
+        <!-- 拖拽分割线 -->
+        <div class="resizer" id="resizer"></div>
+
+        <!-- 右侧区域：虚拟小车面板 & 控制区 -->
+        <div class="right-panel" id="right-panel">
+            
+            <!-- 虚拟小车面板 -->
+            <div class="car-panel">
+                <h3>虚拟小车状态</h3>
+                <div class="svg-container">
+                    <svg id="car-svg" viewBox="0 0 200 200">
+                        <!-- 车身 -->
+                        <rect x="70" y="50" width="60" height="100" rx="10" class="car-body" />
+                        <!-- 方向箭头 -->
+                        <polygon id="arrow-forward" points="100,10 80,40 120,40" class="arrow" />
+                        <polygon id="arrow-back" points="100,190 80,160 120,160" class="arrow" />
+                        <polygon id="arrow-left" points="10,100 40,80 40,120" class="arrow" />
+                        <polygon id="arrow-right" points="190,100 160,80 160,120" class="arrow" />
+                    </svg>
+                </div>
+            </div>
+            
+            <!-- 控制区 -->
+            <div class="control-panel">
+                <h3>控制面板</h3>
+                
+                <!-- WASD 实时控制 -->
+                <div class="wasd-control">
+                    <h4>WASD 实时控制</h4>
+                    <div class="wasd-keys">
+                        <button class="key-btn" data-key="W">W</button>
+                        <div class="row">
+                            <button class="key-btn" data-key="A">A</button>
+                            <button class="key-btn" data-key="S">S</button>
+                            <button class="key-btn" data-key="D">D</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 预设动作 -->
+                <div class="preset-control">
+                    <h4>预设动作</h4>
+                    <div class="preset-buttons">
+                        <button class="preset-btn" data-action="forward_500">前进 500mm</button>
+                        <button class="preset-btn" data-action="back_500">后退 500mm</button>
+                        <button class="preset-btn" data-action="left_90">左转 90°</button>
+                        <button class="preset-btn" data-action="right_90">右转 90°</button>
+                        <button class="preset-btn" data-action="rotate_180">原地 180°</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 三维点云预留接口 -->
+            <div class="pointcloud-panel">
+                <div class="pc-header">
+                    <h3>三维点云</h3>
+                    <button id="btn-toggle-pc" class="btn">显示点云</button>
+                </div>
+                <div id="point-cloud-container" style="height:320px; display:none;">
+                    <p class="placeholder-text">Three.js 渲染区 (预留)</p>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+    <!-- 引入 Socket.IO 和前端逻辑 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>

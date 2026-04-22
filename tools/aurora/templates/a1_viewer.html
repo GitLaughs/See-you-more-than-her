@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>A1 Viewer — YOLOv8 OSD 结果显示</title>
+<style>
+:root {
+  --bg:      #06111a;
+  --surface: #0d1f2d;
+  --card:    #112436;
+  --border:  #1e3a50;
+  --text:    #e8f4ff;
+  --muted:   #6a97b3;
+  --blue:    #2fb6ff;
+  --green:   #26d97f;
+  --amber:   #f0b030;
+  --red:     #ff5757;
+  --purple:  #9d8bff;
+  --radius:  12px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', 'Noto Sans SC', sans-serif;
+  overflow: hidden;
+}
+
+/* ── Layout ── */
+.app {
+  display: grid;
+  grid-template-rows: 52px 1fr;
+  grid-template-columns: 1fr 320px;
+  height: 100vh;
+  gap: 0;
+}
+
+/* ── Header ── */
+header {
+  grid-column: 1 / -1;
+  background: rgba(13,31,45,.96);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  gap: 16px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.4);
+  z-index: 100;
+}
+.logo {
+  display:flex; align-items:center; gap:8px;
+  font-weight: 700; font-size: 1.05em;
+  background: linear-gradient(90deg, var(--blue), #00d1c7);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.logo svg { flex-shrink:0; }
+.spacer { flex: 1; }
+
+/* Status pill */
+.status-pill {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(17,36,54,.8);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 4px 14px;
+  font-size: .82em;
+}
+.dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--red);
+  transition: background .4s;
+}
+.dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+#fps-badge {
+  background: rgba(47,182,255,.12);
+  border: 1px solid rgba(47,182,255,.25);
+  border-radius: 16px;
+  padding: 3px 12px;
+  font-size: .8em;
+  color: var(--blue);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reconnect button */
+.btn {
+  padding: 6px 18px;
+  border: none; border-radius: 8px;
+  font-size: .83em; font-weight: 600;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--blue), #0080cc);
+  color: #fff;
+  transition: opacity .15s, transform .1s;
+}
+.btn:active { transform: scale(.97); opacity: .85; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Fullscreen button */
+.btn-ghost {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: .82em; font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.btn-ghost:hover { border-color: var(--blue); color: var(--blue); }
+
+/* ── Main video panel ── */
+.video-panel {
+  background: #020d15;
+  position: relative;
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+#stream-img {
+  max-width: 100%; max-height: 100%;
+  object-fit: contain;
+  display: block;
+  transition: opacity .2s;
+}
+.overlay-label {
+  position: absolute;
+  top: 14px; left: 14px;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(47,182,255,.25);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: .78em;
+  color: var(--muted);
+  pointer-events: none;
+  display: flex; align-items: center; gap: 6px;
+}
+.overlay-label span { color: var(--blue); font-weight: 600; }
+
+/* No-signal overlay */
+#no-signal {
+  position: absolute;
+  inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 12px;
+  background: rgba(3,10,18,.85);
+  z-index: 10;
+  transition: opacity .3s;
+}
+#no-signal.hidden { opacity: 0; pointer-events: none; }
+#no-signal svg { opacity: .35; }
+#no-signal p { color: var(--muted); font-size: .9em; }
+#no-signal h2 { font-size: 1.3em; color: var(--text); font-weight: 600; }
+
+/* ── Side panel ── */
+.side-panel {
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  gap: 0;
+}
+.side-section {
+  border-bottom: 1px solid var(--border);
+  padding: 14px 16px;
+}
+.side-section-title {
+  font-size: .75em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-bottom: 10px;
+  display: flex; align-items: center; gap: 6px;
+}
+.side-section-title .badge {
+  background: rgba(47,182,255,.12);
+  border: 1px solid rgba(47,182,255,.2);
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: .8em;
+  color: var(--blue);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Info grid */
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.info-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.info-card .label { font-size: .72em; color: var(--muted); }
+.info-card .value {
+  font-size: 1.15em; font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+.info-card .value.green { color: var(--green); }
+.info-card .value.amber { color: var(--amber); }
+.info-card .value.red   { color: var(--red); }
+
+/* ── 3D Point Cloud placeholder ── */
+#pointcloud-canvas-wrap {
+  width: 100%;
+  aspect-ratio: 4/3;
+  background: #08141e;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  position: relative;
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+#pointcloud-canvas {
+  width: 100%; height: 100%;
+  display: block;
+}
+.pc-placeholder {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: .8em;
+  pointer-events: none;
+}
+.pc-placeholder .title { color: var(--text); font-size: .95em; font-weight: 600; }
+
+/* Future extension tabs */
+.ext-tabs {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.ext-tab {
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  font-size: .75em; font-weight: 600;
+  cursor: pointer; background: transparent; color: var(--muted);
+  transition: all .15s;
+}
+.ext-tab.active { background: rgba(47,182,255,.12); border-color: var(--blue); color: var(--blue); }
+
+/* Camera selector */
+.cam-select-wrap {
+  display: flex; align-items: center; gap: 6px;
+}
+.cam-select {
+  background: rgba(17,36,54,.9);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: .8em;
+  padding: 4px 8px;
+  max-width: 190px;
+  cursor: pointer;
+  outline: none;
+}
+.cam-select:focus { border-color: var(--blue); }
+.btn-sm {
+  padding: 4px 12px;
+  border: none; border-radius: 6px;
+  font-size: .78em; font-weight: 600;
+  cursor: pointer;
+  background: rgba(47,182,255,.18);
+  color: var(--blue);
+  border: 1px solid rgba(47,182,255,.3);
+  transition: opacity .15s;
+}
+.btn-sm:hover { opacity: .8; }
+.btn-sm:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Scrollbar */
+.side-panel::-webkit-scrollbar { width: 4px; }
+.side-panel::-webkit-scrollbar-track { background: transparent; }
+.side-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* Mobile / tablet adjust */
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: 52px 1fr auto;
+  }
+  .side-panel {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    max-height: 45vh;
+  }
+}
+
+/* Fullscreen mode */
+.video-panel:fullscreen { background: #000; }
+.video-panel:fullscreen #stream-img { max-width: 100%; max-height: 100%; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Header ── -->
+  <header>
+    <div class="logo">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <rect width="24" height="24" rx="6"
+              fill="url(#hg)"/>
+        <path d="M7 17L12 7L17 17" stroke="#fff" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="12" cy="7" r="1.5" fill="#fff"/>
+        <defs>
+          <linearGradient id="hg" x1="0" y1="0" x2="24" y2="24">
+            <stop offset="0%" stop-color="#2fb6ff"/>
+            <stop offset="100%" stop-color="#ff8a3d"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      A1 Viewer
+    </div>
+
+    <div class="status-pill">
+      <span class="dot" id="conn-dot"></span>
+      <span id="conn-text">Disconnected</span>
+    </div>
+
+    <div id="fps-badge">-- FPS</div>
+
+    <div class="spacer"></div>
+
+    <!-- Camera selector -->
+    <div class="cam-select-wrap">
+      <select class="cam-select" id="cam-select" title="选择摄像头设备">
+        <option value="">扫描中...</option>
+      </select>
+      <button class="btn-sm" id="btn-switch-cam">切换</button>
+      <button class="btn-sm" id="btn-scan-cam" title="重新扫描">⟳</button>
+    </div>
+
+    <button class="btn-ghost" id="btn-fullscreen" title="全屏">⛶ Fullscreen</button>
+    <button class="btn" id="btn-reconnect">Reconnect</button>
+  </header>
+
+  <!-- ── Video Panel ── -->
+  <div class="video-panel" id="video-panel">
+    <img id="stream-img" src="/stream" alt="A1 stream"
+         onload="onStreamLoad()" onerror="onStreamError()">
+
+    <div class="overlay-label">
+      A1 NPU · YOLOv8+OSD · <span id="res-label">1280×720</span>
+    </div>
+
+    <!-- No-signal overlay -->
+    <div id="no-signal">
+      <svg width="56" height="56" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" stroke="#6a97b3" stroke-width="1.5"/>
+        <path d="M8 12h8M12 8v8" stroke="#6a97b3" stroke-width="1.5"
+              stroke-linecap="round" transform="rotate(45 12 12)"/>
+      </svg>
+      <h2>等待 A1 信号</h2>
+      <p>请通过 USB 连接 A1 开发板，然后点击 Reconnect</p>
+    </div>
+  </div>
+
+  <!-- ── Side Panel ── -->
+  <aside class="side-panel">
+
+    <!-- Status cards -->
+    <div class="side-section">
+      <div class="side-section-title">系统状态</div>
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="label">连接状态</div>
+          <div class="value" id="sc-conn">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">帧率</div>
+          <div class="value" id="sc-fps">— fps</div>
+        </div>
+        <div class="info-card">
+          <div class="label">设备</div>
+          <div class="value" id="sc-dev">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">分辨率</div>
+          <div class="value" id="sc-res">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3D Point Cloud panel -->
+    <div class="side-section">
+      <div class="side-section-title">
+        3D 点云
+        <span class="badge">预留接口</span>
+      </div>
+      <div id="pointcloud-canvas-wrap">
+        <canvas id="pointcloud-canvas"></canvas>
+        <div class="pc-placeholder" id="pc-placeholder">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+            <circle cx="5" cy="19" r="2" fill="#1e3a50"/>
+            <circle cx="12" cy="5"  r="2" fill="#1e3a50"/>
+            <circle cx="19" cy="14" r="2" fill="#1e3a50"/>
+            <circle cx="8"  cy="12" r="1.5" fill="#1e3a50"/>
+            <circle cx="16" cy="9"  r="1.5" fill="#1e3a50"/>
+          </svg>
+          <span class="title">3D 点云显示</span>
+          <span>调用 /api/pointcloud 获取数据</span>
+          <span>Three.js 渲染，待接入传感器</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Future extensions -->
+    <div class="side-section">
+      <div class="side-section-title">
+        扩展面板
+        <span class="badge">可开发</span>
+      </div>
+      <div class="ext-tabs">
+        <button class="ext-tab active">点云</button>
+        <button class="ext-tab">雷达</button>
+        <button class="ext-tab">遥测</button>
+        <button class="ext-tab">控制</button>
+      </div>
+      <div style="color:var(--muted);font-size:.78em;line-height:1.6">
+        各面板通过以下 API 扩展：<br>
+        <code style="color:var(--blue)">/api/pointcloud</code> — 点云数据<br>
+        <code style="color:var(--blue)">/api/telemetry</code> — 底盘遥测<br>
+        <code style="color:var(--blue)">/stream</code> — MJPEG 视频<br>
+        <br>
+        可在
+        <code style="color:var(--purple)">a1_viewer.py</code>
+        中添加 WebSocket / SSE 端点接入实时数据流。
+      </div>
+    </div>
+
+    <!-- About -->
+    <div class="side-section" style="margin-top:auto">
+      <div style="color:var(--muted);font-size:.75em;line-height:1.7">
+        <b style="color:var(--text)">A1 Viewer v1.0</b><br>
+        板端推理：SC132GS + M1 NPU<br>
+        模型：YOLOv8 head6 (640×360)<br>
+        OSD：SmartSens 硬件叠加层<br>
+        PC端：仅显示，不做本地推理
+      </div>
+    </div>
+
+  </aside>
+</div>
+
+<script>
+// ── Three.js 点云占位动画（展示扩展能力）──────────────────────────────
+(function initPointCloudDemo() {
+  const canvas = document.getElementById('pointcloud-canvas');
+  const wrap   = document.getElementById('pointcloud-canvas-wrap');
+  const ph     = document.getElementById('pc-placeholder');
+
+  // 简单 Canvas 2D 演示动画（占位，真实实现用 Three.js WebGL）
+  const ctx = canvas.getContext('2d');
+  let raf, t = 0;
+
+  function resize() {
+    canvas.width  = wrap.clientWidth;
+    canvas.height = wrap.clientHeight;
+  }
+  resize();
+  new ResizeObserver(resize).observe(wrap);
+
+  // 生成占位点集
+  const pts = Array.from({length: 120}, () => ({
+    x: (Math.random() - .5) * 1.6,
+    y: (Math.random() - .5) * 1.2,
+    z: Math.random() * 2,
+    vx: (Math.random() - .5) * .002,
+    vy: (Math.random() - .5) * .002,
+  }));
+
+  function project(x, y, z, cx, cy) {
+    const fov = 2.2;
+    const s   = fov / (fov + z);
+    return { px: cx + x * s * cy * .7, py: cy + y * s * cy, s };
+  }
+
+  function draw() {
+    const W = canvas.width, H = canvas.height;
+    const cx = W / 2, cy = H / 2;
+    ctx.clearRect(0, 0, W, H);
+    t += .008;
+    pts.forEach(p => {
+      p.x += p.vx; p.y += p.vy;
+      if (Math.abs(p.x) > .8) p.vx *= -1;
+      if (Math.abs(p.y) > .6) p.vy *= -1;
+      const rx  = p.x * Math.cos(t) - p.z * .3 * Math.sin(t);
+      const { px, py, s } = project(rx, p.y, p.z + 1, cx, cy);
+      const r = Math.max(1, s * 3);
+      const alpha = .15 + s * .45;
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(47,182,255,${alpha.toFixed(2)})`;
+      ctx.fill();
+    });
+    raf = requestAnimationFrame(draw);
+  }
+
+  // 隐藏占位文字，显示动画
+  ph.style.display = 'none';
+  draw();
+})();
+
+
+// ── Camera selector ─────────────────────────────────────────────────────
+async function loadCameraDevices() {
+  const sel = document.getElementById('cam-select');
+  const scanBtn = document.getElementById('btn-scan-cam');
+  scanBtn.disabled = true;
+  sel.innerHTML = '<option value="">扫描中...</option>';
+  try {
+    const r = await fetch('/camera_devices');
+    const data = await r.json();
+    sel.innerHTML = '';
+    if (!data.devices || data.devices.length === 0) {
+      sel.innerHTML = '<option value="">未找到设备</option>';
+    } else {
+      data.devices.forEach(d => {
+        const op = document.createElement('option');
+        op.value = d.id;
+        op.textContent = d.label;
+        if (d.id === data.current_device) op.selected = true;
+        sel.appendChild(op);
+      });
+    }
+  } catch (_) {
+    sel.innerHTML = '<option value="">扫描失败</option>';
+  }
+  scanBtn.disabled = false;
+}
+
+document.getElementById('btn-switch-cam').addEventListener('click', async function() {
+  const sel = document.getElementById('cam-select');
+  const device = Number(sel.value);
+  if (isNaN(device) || sel.value === '') return;
+  this.disabled = true;
+  this.textContent = '切换中…';
+  try {
+    const r = await fetch('/switch_camera', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({device}),
+    });
+    const data = await r.json();
+    if (data.success) {
+      // 重新加载视频流
+      const img = document.getElementById('stream-img');
+      img.src = '/stream?' + Date.now();
+      pollStatus();
+    } else {
+      alert('切换失败: ' + data.error);
+    }
+  } catch (e) {
+    alert('网络错误: ' + e);
+  }
+  this.disabled = false;
+  this.textContent = '切换';
+});
+
+document.getElementById('btn-scan-cam').addEventListener('click', loadCameraDevices);
+
+// 初始加载设备列表
+loadCameraDevices();
+
+
+// ── 状态轮询 ────────────────────────────────────────────────────────────
+let streamOK = false;
+
+function onStreamLoad() {
+  streamOK = true;
+  document.getElementById('no-signal').classList.add('hidden');
+}
+function onStreamError() {
+  streamOK = false;
+  document.getElementById('no-signal').classList.remove('hidden');
+}
+
+async function pollStatus() {
+  try {
+    const r  = await fetch('/status');
+    const st = await r.json();
+
+    const dot       = document.getElementById('conn-dot');
+    const connText  = document.getElementById('conn-text');
+    const fpsBadge  = document.getElementById('fps-badge');
+    const scConn    = document.getElementById('sc-conn');
+    const scFps     = document.getElementById('sc-fps');
+    const scDev     = document.getElementById('sc-dev');
+    const scRes     = document.getElementById('sc-res');
+    const resLabel  = document.getElementById('res-label');
+    const noSignal  = document.getElementById('no-signal');
+
+    if (st.connected) {
+      dot.classList.add('connected');
+      connText.textContent = 'Connected';
+      scConn.textContent   = 'Connected';
+      scConn.className     = 'value green';
+      noSignal.classList.add('hidden');
+    } else {
+      dot.classList.remove('connected');
+      connText.textContent = 'Disconnected';
+      scConn.textContent   = 'Disconnected';
+      scConn.className     = 'value red';
+      if (!streamOK) noSignal.classList.remove('hidden');
+    }
+
+    fpsBadge.textContent = `${st.fps} FPS`;
+    scFps.textContent    = `${st.fps} fps`;
+    scFps.className      = st.fps >= 20 ? 'value green' : st.fps >= 10 ? 'value amber' : 'value red';
+    scDev.textContent    = `dev ${st.device}`;
+    scRes.textContent    = st.resolution;
+    resLabel.textContent = st.resolution;
+
+  } catch (_) { /* network error, ignore */ }
+}
+
+setInterval(pollStatus, 1500);
+pollStatus();
+
+
+// ── Reconnect ───────────────────────────────────────────────────────────
+document.getElementById('btn-reconnect').addEventListener('click', async function() {
+  this.disabled = true;
+  this.textContent = 'Reconnecting…';
+  try {
+    await fetch('/reconnect', { method: 'POST' });
+    // Reload the img src to restart MJPEG stream
+    const img = document.getElementById('stream-img');
+    img.src = '/stream?' + Date.now();
+  } catch (_) {}
+  setTimeout(() => {
+    this.disabled    = false;
+    this.textContent = 'Reconnect';
+    pollStatus();
+  }, 2000);
+});
+
+
+// ── Fullscreen ──────────────────────────────────────────────────────────
+document.getElementById('btn-fullscreen').addEventListener('click', () => {
+  const panel = document.getElementById('video-panel');
+  if (!document.fullscreenElement) {
+    panel.requestFullscreen?.();
+  } else {
+    document.exitFullscreen?.();
+  }
+});
+
+
+// ── Extension tabs (UI only) ────────────────────────────────────────────
+document.querySelectorAll('.ext-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.ext-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
