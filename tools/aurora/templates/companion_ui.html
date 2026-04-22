@@ -111,27 +111,29 @@ body{
 }
 
 .camera-rail{
-  flex:0 0 400px;
-  max-width:400px;
-  min-height:0;
-  overflow-y:auto;
-  overscroll-behavior:contain;
-  display:flex;
-  flex-direction:column;
-  gap:var(--space-2);
-  padding-right:4px;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  grid-template-rows: minmax(420px, 2.3fr) minmax(220px, 1fr);
+  align-content: stretch;
+  gap: var(--space-3);
+  padding-right: 4px;
 }
 
 .page-stage{
-  flex:1 1 0;
-  min-width:0;
-  min-height:0;
-  overflow-y:auto;
-  overscroll-behavior:contain;
-  display:flex;
-  flex-direction:column;
-  gap:var(--space-3);
-  padding-right:4px;
+  flex: 0 0 450px;
+  max-width: 450px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-right: 4px;
+  padding-left: 8px;
 }
 
 .page-stage > .page.active{
@@ -279,8 +281,13 @@ body{
 }
 .card-body{padding:var(--space-3);}
 
-.preview-wrap{position:relative;background:#000;line-height:0;}
+.preview-wrap{position:relative;background:#000;line-height:0;min-height:280px;}
 .preview-wrap img{width:100%;display:block;}
+.preview-main-card{display:flex;flex-direction:column;min-height:0;}
+.preview-main-card .preview-wrap{flex:1 1 auto;min-height:420px;display:flex;align-items:stretch;}
+.preview-main-card .preview-wrap img{height:100%;object-fit:contain;}
+.gallery-main-card{display:flex;flex-direction:column;min-height:0;}
+.gallery-main-card .card-body{flex:1 1 auto;min-height:0;overflow:auto;}
 .preview-fps{position:absolute;top:var(--space-2);right:var(--space-2);background:rgba(255,255,255,0.9);border:1px solid var(--color-border);border-radius:var(--radius);padding:var(--space-1) var(--space-2);font-size:var(--text-xs);font-family:monospace;color:var(--color-secondary);}
 
 /* 摄像头加载遮罩 */
@@ -345,7 +352,7 @@ body{
 .gallery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--space-1);}
 .gallery-item{position:relative;border-radius:var(--radius);overflow:hidden;background:#000;border:1px solid var(--color-border);transition:border-color .15s;cursor:pointer;}
 .gallery-item:hover{border-color:var(--color-brand);}
-.gallery-item img{width:100%;display:block;}
+.gallery-item img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover;}
 .gallery-item .g-lbl{position:absolute;bottom:0;left:0;right:0;background:rgba(255,255,255,.9);font-size:var(--text-xs);color:var(--color-secondary);padding:2px var(--space-1);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .gallery-empty{grid-column:1/-1;text-align:center;color:var(--color-secondary);font-size:var(--text-sm);padding:var(--space-3) 0;}
 
@@ -491,8 +498,10 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
 
 @media (max-width: 900px){
   .app-shell{flex-direction:column;overflow:auto;}
-  .camera-rail,.page-stage{max-width:none;overflow:visible;padding-right:0;}
-  .camera-rail{flex-basis:auto;}
+  .camera-rail,.page-stage{flex:0 0 auto;max-width:none;width:100%;padding-right:0;padding-left:0;}
+  .camera-rail{
+    grid-template-rows:minmax(300px, 1.7fr) minmax(180px, 1fr);
+  }
 }
 
 @media (max-width: 820px){
@@ -536,7 +545,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
 
 <div class="app-shell">
   <aside class="camera-rail">
-    <div class="card">
+    <div class="card preview-main-card">
       <div class="card-head">
         <span>实时预览</span>
         <div style="display:flex;align-items:center;gap:8px;">
@@ -560,21 +569,20 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
       </div>
     </div>
 
-    <div class="card" id="detInfoPanel" style="display:none;">
-      <div class="card-head">YOLOv8 检测信息</div>
-      <div class="det-panel">
-        <table>
-          <tr><td>模型</td><td><span class="det-badge" id="detModelName">best_a1_formal.onnx</span></td></tr>
-          <tr><td>格式</td><td id="detModelMode">标准输出</td></tr>
-          <tr><td>输入尺寸</td><td>640 × 640 (letterbox)</td></tr>
-          <tr><td>类别数</td><td id="detNumCls">4</td></tr>
-          <tr><td>置信度</td><td id="detConf">≥ 0.40</td></tr>
-          <tr><td>NMS IoU</td><td>0.45</td></tr>
-          <tr><td>运行时</td><td id="detRuntime">—</td></tr>
-        </table>
-        <div id="detWarn" class="det-warn" style="display:none;"></div>
+    <div class="card gallery-main-card">
+      <div class="card-head">
+        <span>最近拍摄</span>
+        <span id="galleryCount" style="color:var(--color-secondary)">0 / 8</span>
+      </div>
+      <div class="card-body">
+        <div class="gallery-grid" id="gallery">
+          <div class="gallery-empty">暂无拍摄记录</div>
+        </div>
       </div>
     </div>
+  </aside>
+
+  <main class="page-stage">
 
     <div class="card">
       <div class="card-head">输入源与采集</div>
@@ -631,15 +639,19 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-head">
-        <span>最近拍摄</span>
-        <span id="galleryCount" style="color:var(--color-secondary)">0 / 8</span>
-      </div>
-      <div class="card-body">
-        <div class="gallery-grid" id="gallery">
-          <div class="gallery-empty">暂无拍摄记录</div>
-        </div>
+    <div class="card" id="detInfoPanel" style="display:none;">
+      <div class="card-head">YOLOv8 检测信息</div>
+      <div class="det-panel">
+        <table>
+          <tr><td>模型</td><td><span class="det-badge" id="detModelName">best_a1_formal.onnx</span></td></tr>
+          <tr><td>格式</td><td id="detModelMode">标准输出</td></tr>
+          <tr><td>输入尺寸</td><td>640 × 640 (letterbox)</td></tr>
+          <tr><td>类别数</td><td id="detNumCls">4</td></tr>
+          <tr><td>置信度</td><td id="detConf">≥ 0.40</td></tr>
+          <tr><td>NMS IoU</td><td>0.45</td></tr>
+          <tr><td>运行时</td><td id="detRuntime">—</td></tr>
+        </table>
+        <div id="detWarn" class="det-warn" style="display:none;"></div>
       </div>
     </div>
 
@@ -661,9 +673,6 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
         </div>
       </div>
     </div>
-  </aside>
-
-  <main class="page-stage">
     <div class="page active" id="page-stm32">
       <section class="workflow-hero">
         <div class="workflow-eyebrow">电脑直连工作流</div>

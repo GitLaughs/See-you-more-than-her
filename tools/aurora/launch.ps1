@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("companion", "a1", "viewer", "probe", "capture")]
     [string]$Mode = "companion",
     [int]$Device = -1,
