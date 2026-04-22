@@ -18,6 +18,7 @@ Aurora Companion — Windows/A1 摄像头可视化采集伴侣
 import argparse
 import base64
 import contextlib
+import logging
 import os
 import shutil
 import sys
@@ -91,7 +92,6 @@ camera_lock = threading.Lock()
 device_id_global = 0
 camera_source_global = "auto"
 camera_bootstrap_active = False
-camera_devices_snapshot: list = []
 output_dir: str = ""
 capture_count = 0
 recent_captures: deque = deque(maxlen=8)
@@ -115,6 +115,7 @@ SOURCE_LABELS = {
     CAMERA_SOURCE_A1: "A1 开发板",
     CAMERA_SOURCE_AUTO: "自动识别",
 }
+VERBOSE_CAMERA_SCAN_LOGS = False
 
 # ─── YOLOv8 检测器（PC 端 ONNX 推理）────────────────────────────────────────
 MODEL_ROOT = Path(__file__).parent.parent.parent / "models"
@@ -145,6 +146,12 @@ _last_detect_snapshot: Dict[str, Any] = {
 
 
 # ─── 摄像头操作 ───────────────────────────────────────────────────────────────
+
+
+def _log(level: str, message: str, noisy: bool = False) -> None:
+    if noisy and not VERBOSE_CAMERA_SCAN_LOGS:
+        return
+    print(f"[{level}] {message}")
 
 @contextlib.contextmanager
 def _suppress_c_stderr():
@@ -234,56 +241,15 @@ def _configure_camera_for_source(cap: cv2.VideoCapture, source: str) -> bool:
         cap.set(cv2.CAP_PROP_FOURCC, fourcc)
         if int(cap.get(cv2.CAP_PROP_FOURCC)) == fourcc:
             fourcc_str = "".join([chr((fourcc >> (8 * i)) & 0xFF) for i in range(4)])
-            print(f"[INFO] 摄像头格式设置为: {fourcc_str}")
+            _log("INFO", f"摄像头格式设置为: {fourcc_str}", noisy=True)
             format_set = True
             break
     if format_set:
         cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
     else:
         cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
-        print("[INFO] A1 源未锁定到灰度格式，将以彩色模式读取后转灰度")
+        _log("INFO", "A1 源未锁定到灰度格式，将以彩色模式读取后转灰度", noisy=True)
     return format_set
-
-
-def load_preferred_device() -> Optional[int]:
-    try:
-        if not PREFERRED_DEVICE_FILE.exists():
-            return None
-        text = PREFERRED_DEVICE_FILE.read_text(encoding="utf-8").strip()
-        if text == "":
-            return None
-        return int(text)
-    except Exception:
-        return None
-
-
-def save_preferred_device(device_id: int) -> None:
-    try:
-        PREFERRED_DEVICE_FILE.write_text(str(device_id), encoding="utf-8")
-    except Exception:
-        pass
-
-
-def load_preferred_source() -> Optional[str]:
-    try:
-        if not PREFERRED_SOURCE_FILE.exists():
-            return None
-        text = PREFERRED_SOURCE_FILE.read_text(encoding="utf-8").strip()
-        if text == "":
-            return None
-        return _normalize_camera_source(text, CAMERA_SOURCE_AUTO)
-    except Exception:
-        return None
-
-
-def save_preferred_source(source: str) -> None:
-    try:
-        PREFERRED_SOURCE_FILE.write_text(
-            _normalize_camera_source(source, CAMERA_SOURCE_AUTO),
-            encoding="utf-8",
-        )
-    except Exception:
-        pass
 
 
 def probe_camera_device(device_id: int) -> dict:
@@ -410,7 +376,7 @@ def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
     found_a1 = False
     for i in range(max_scan):
         if time.time() - start_time > 30:
-            print("[WARN] 摄像头扫描超过 30 秒，已停止扫描。")
+            _log("WARN", "摄像头扫描超过 30 秒，已停止扫描。")
             break
         info = probe_camera_device(i)
         if info["opened"]:
@@ -422,36 +388,52 @@ def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
                 found_a1 = True
                 
             if found_windows and found_a1:
-                print("[INFO] 已找到 Windows 彩色摄像头和 A1 灰度摄像头，提前结束扫描。")
+                _log("INFO", "已找到 Windows 彩色摄像头和 A1 灰度摄像头，提前结束扫描。", noisy=True)
                 break
     return devices
 
 
-def choose_camera_device(requested_device: int) -> Tuple[int, list]:
-    """返回 (device_id, candidates)。requested_device=-1 时自动优先 A1。"""
+def choose_camera_device(requested_device: int, requested_source: str = CAMERA_SOURCE_AUTO) -> Tuple[int, list]:
+    """返回 (device_id, candidates)。始终重新探测真实设备，不复用历史缓存。"""
+    candidates = list_camera_devices()
     if requested_device >= 0:
+        selected_info = next((item for item in candidates if item["id"] == requested_device), None)
+        if selected_info is not None:
+            return requested_device, candidates
         info = probe_camera_device(requested_device)
         return requested_device, [info] if info["opened"] else []
 
-    preferred = load_preferred_device()
-    preferred_source = load_preferred_source()
-    if preferred is not None:
-        preferred_info = probe_camera_device(preferred)
-        if preferred_info["opened"] and (preferred_info.get("has_content") or preferred_info.get("supports_gray_fourcc")):
-            cached_source = _normalize_camera_source(
-                preferred_source,
-                preferred_info.get("source", CAMERA_SOURCE_WINDOWS),
-            )
-            preferred_info["source"] = cached_source
-            preferred_info["source_label"] = _source_label(cached_source)
-            return preferred, [preferred_info]
-
-    candidates = list_camera_devices()
     if not candidates:
         return 0, []
 
+    normalized_source = _normalize_camera_source(requested_source, CAMERA_SOURCE_AUTO)
+    if normalized_source != CAMERA_SOURCE_AUTO:
+        source_candidates = [item for item in candidates if item.get("source") == normalized_source]
+        if source_candidates:
+            candidates = source_candidates
+
     candidates_sorted = sorted(candidates, key=lambda x: (x["score"], x["id"]), reverse=True)
     return candidates_sorted[0]["id"], candidates_sorted
+
+
+def resolve_camera_selection(requested_device: int, requested_source: str = CAMERA_SOURCE_AUTO) -> Tuple[int, str, list, dict]:
+    """先探测，再决定要打开的真实设备与源类型。"""
+    selected_device, candidates = choose_camera_device(requested_device, requested_source)
+    if not candidates and requested_device >= 0:
+        selected_device, candidates = choose_camera_device(-1, requested_source)
+
+    if candidates:
+        selected_info = next((item for item in candidates if item["id"] == selected_device), candidates[0])
+    else:
+        selected_info = probe_camera_device(selected_device)
+
+    resolved_source = selected_info.get("source", CAMERA_SOURCE_WINDOWS)
+    if requested_source != CAMERA_SOURCE_AUTO:
+        resolved_source = _normalize_camera_source(requested_source, resolved_source)
+    selected_info = dict(selected_info)
+    selected_info["source"] = resolved_source
+    selected_info["source_label"] = _source_label(resolved_source)
+    return selected_info["id"], resolved_source, candidates, selected_info
 
 
 def open_camera(device_id: int, source: str = CAMERA_SOURCE_AUTO) -> Optional[cv2.VideoCapture]:
@@ -465,9 +447,9 @@ def open_camera(device_id: int, source: str = CAMERA_SOURCE_AUTO) -> Optional[cv
 
     format_set = _configure_camera_for_source(cap, source)
     if source == CAMERA_SOURCE_WINDOWS:
-        print("[INFO] Windows 摄像头以纯图像模式读取")
+        _log("INFO", "Windows 摄像头以纯图像模式读取", noisy=True)
     elif source == CAMERA_SOURCE_A1 and not format_set:
-        print("[INFO] A1 摄像头以兼容模式读取")
+        _log("INFO", "A1 摄像头以兼容模式读取", noisy=True)
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
@@ -476,55 +458,48 @@ def open_camera(device_id: int, source: str = CAMERA_SOURCE_AUTO) -> Optional[cv
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps_actual = cap.get(cv2.CAP_PROP_FPS)
-    print(f"[INFO] 摄像头已打开: {w}×{h} @ {fps_actual:.1f}fps (设备 {device_id})")
+    _log("INFO", f"摄像头已打开: {w}×{h} @ {fps_actual:.1f}fps (设备 {device_id})")
     if w != CAMERA_WIDTH or h != CAMERA_HEIGHT:
-        print(f"[WARN] 实际分辨率 {w}×{h} 与预期 {CAMERA_WIDTH}×{CAMERA_HEIGHT} 不匹配")
+        _log("WARN", f"实际分辨率 {w}×{h} 与预期 {CAMERA_WIDTH}×{CAMERA_HEIGHT} 不匹配", noisy=True)
     return cap
 
 
 def bootstrap_camera(requested_device: int) -> None:
     """在后台完成摄像头自动探测与打开，避免阻塞 Web 服务启动。"""
     global camera, device_id_global, camera_source_global, camera_connected, _fail_streak, _consecutive_failures
-    global camera_bootstrap_active, camera_devices_snapshot
+    global camera_bootstrap_active
 
     camera_bootstrap_active = True
     try:
-        selected_device, candidates = choose_camera_device(requested_device)
-        if candidates:
-            selected_info = next((c for c in candidates if c["id"] == selected_device), None)
-            if selected_info is None:
-                selected_info = probe_camera_device(selected_device)
-        else:
-            selected_info = probe_camera_device(selected_device)
+        selected_device, resolved_source, candidates, selected_info = resolve_camera_selection(
+            requested_device,
+            camera_source_global,
+        )
 
-        camera_devices_snapshot = list(candidates) if candidates else [selected_info]
-
-        camera_source_global = selected_info.get("source", CAMERA_SOURCE_WINDOWS)
+        camera_source_global = resolved_source
         device_id_global = selected_device
 
         if requested_device < 0:
             if candidates:
-                print("[INFO] 自动探测摄像头结果（按优先级）:")
+                _log("INFO", "自动探测摄像头结果（按优先级）:", noisy=True)
                 for c in candidates:
                     kind = "Gray" if c.get("is_grayscale") else "Color"
                     y8 = "Y8" if c.get("supports_gray_fourcc") else "NoY8"
-                    print(f"  - device {c['id']}: {c['actual_width']}x{c['actual_height']} {kind} {y8} score={c['score']} source={c.get('source', CAMERA_SOURCE_WINDOWS)}")
-                print(f"[INFO] 自动选择设备: {selected_device} source={camera_source_global}")
+                    _log("INFO", f"  - device {c['id']}: {c['actual_width']}x{c['actual_height']} {kind} {y8} score={c['score']} source={c.get('source', CAMERA_SOURCE_WINDOWS)}", noisy=True)
+                _log("INFO", f"自动选择设备: {selected_device} source={camera_source_global}")
             else:
-                print("[WARN] 未探测到可用摄像头，回退到设备 0")
+                _log("WARN", "未探测到可用摄像头，回退到设备 0")
 
-        print(f"[INFO] 正在连接摄像头 (设备 {selected_device}, source={camera_source_global})...")
-        save_preferred_device(selected_device)
-        save_preferred_source(camera_source_global)
+        _log("INFO", f"正在连接摄像头 (设备 {selected_device}, source={camera_source_global})...")
         try:
             opened_camera = open_camera(selected_device, camera_source_global)
         except Exception as e:
-            print(f"[WARN] 摄像头打开失败: {e}，工具仍可启动，请连接后点击「刷新摄像头」")
+            _log("WARN", f"摄像头打开失败: {e}，工具仍可启动，请连接后点击「刷新摄像头」")
             opened_camera = None
 
         # 到这里 snapshot 已设置，/camera_devices 可正常应答，再做初始帧预热
         if opened_camera is not None and opened_camera.isOpened():
-            print("[INFO] 刷新 DirectShow 初始化队列帧...")
+            _log("INFO", "刷新 DirectShow 初始化队列帧...", noisy=True)
             with _suppress_c_stderr():
                 for _ in range(5):
                     opened_camera.read()
@@ -539,7 +514,7 @@ def bootstrap_camera(requested_device: int) -> None:
             _fail_streak = 0
             _consecutive_failures = 0
     except Exception as e:
-        print(f"[WARN] 摄像头后台初始化失败: {e}")
+        _log("WARN", f"摄像头后台初始化失败: {e}")
         with camera_lock:
             if camera:
                 camera.release()
@@ -1047,6 +1022,7 @@ def _save_capture(frame: np.ndarray, fmt: str) -> dict:
 def generate_frames():
     """MJPEG 预览流，只输出摄像头原始画面，不叠加训练框。"""
     global camera, current_fps, _frame_count, _fps_ts, camera_connected
+    global device_id_global, camera_source_global
     global _fail_streak, _consecutive_failures, _last_reconnect_time
     RECONNECT_INTERVAL = 3.0
     FAIL_THRESHOLD = 10
@@ -1067,16 +1043,22 @@ def generate_frames():
                 _last_reconnect_time = now
                 _consecutive_failures = 0
                 _fail_streak = 0
-                print("[INFO] 视频流中断，自动尝试重连摄像头...")
+                _log("INFO", "视频流中断，自动尝试重新探测并连接摄像头...")
                 try:
+                    next_device, next_source, _, _ = resolve_camera_selection(
+                        device_id_global,
+                        camera_source_global,
+                    )
                     with camera_lock:
                         if camera:
                             camera.release()
-                        camera = open_camera(device_id_global, camera_source_global)
+                        camera = open_camera(next_device, next_source)
+                    device_id_global = next_device
+                    camera_source_global = next_source
                     camera_connected = True
-                    print("[INFO] 摄像头自动重连成功")
+                    _log("INFO", f"摄像头自动重连成功: device={next_device}, source={next_source}")
                 except Exception as e:
-                    print(f"[WARN] 自动重连失败: {e}")
+                    _log("WARN", f"自动重连失败: {e}")
             blk = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH, 3), dtype=np.uint8)
             cv2.putText(blk, "No Signal - Reconnecting...",
                         (CAMERA_WIDTH // 2 - 190, CAMERA_HEIGHT // 2 - 10),
@@ -1269,39 +1251,42 @@ def do_capture():
 
 @app.route("/refresh_camera", methods=["POST"])
 def refresh_camera():
-    global camera, _fail_streak, _consecutive_failures, camera_connected
+    global camera, device_id_global, camera_source_global
+    global _fail_streak, _consecutive_failures, camera_connected
     try:
+        next_device, next_source, _, _ = resolve_camera_selection(
+            device_id_global,
+            camera_source_global,
+        )
         with camera_lock:
             if camera:
                 camera.release()
-            camera = open_camera(device_id_global, camera_source_global)
+            camera = open_camera(next_device, next_source)
             ok = camera is not None and camera.isOpened()
+        if ok:
+            device_id_global = next_device
+            camera_source_global = next_source
     except Exception as e:
         ok = False
-        print(f"[WARN] 摄像头刷新异常: {e}")
+        _log("WARN", f"摄像头刷新异常: {e}")
     _fail_streak = 0
     _consecutive_failures = 0
     camera_connected = ok
     if ok:
-        print("[INFO] 摄像头手动刷新成功")
+        _log("INFO", f"摄像头手动刷新成功: device={device_id_global}, source={camera_source_global}")
         return jsonify({"success": True, "message": "摄像头已重新连接"})
-    print("[WARN] 摄像头刷新失败")
+    _log("WARN", "摄像头刷新失败")
     return jsonify({"success": False, "error": "无法连接到摄像头设备"})
 
 
 @app.route("/camera_devices")
 def camera_devices():
-    global camera_devices_snapshot
-
     bootstrapping = False
-    if camera_devices_snapshot:
-        devices = list(camera_devices_snapshot)
-    elif camera_bootstrap_active:
+    if camera_bootstrap_active:
         devices = []
         bootstrapping = True
     else:
         devices = list_camera_devices()
-        camera_devices_snapshot = list(devices)
     items = []
     for d in devices:
         kind = "Gray" if d.get("is_grayscale") else "Color"
@@ -1344,14 +1329,7 @@ def switch_camera():
         requested_source = CAMERA_SOURCE_AUTO
 
     try:
-        if requested_source == CAMERA_SOURCE_AUTO:
-            for info in camera_devices_snapshot:
-                if info["id"] == new_device:
-                    requested_source = info.get("source", CAMERA_SOURCE_WINDOWS)
-                    break
-        if requested_source == CAMERA_SOURCE_AUTO:
-            requested_probe = probe_camera_device(new_device)
-            requested_source = requested_probe.get("source", CAMERA_SOURCE_WINDOWS)
+        new_device, requested_source, _, _ = resolve_camera_selection(new_device, requested_source)
         with camera_lock:
             if camera:
                 camera.release()
@@ -1364,9 +1342,7 @@ def switch_camera():
         _fail_streak = 0
         _consecutive_failures = 0
         camera_connected = True
-        save_preferred_device(new_device)
-        save_preferred_source(requested_source)
-        print(f"[INFO] 已切换到摄像头设备 {new_device} ({requested_source})")
+        _log("INFO", f"已切换到摄像头设备 {new_device} ({requested_source})")
         return jsonify({"success": True, "device": new_device, "source": requested_source})
     except Exception as e:
         camera_connected = False
@@ -1414,10 +1390,12 @@ def main():
     script_dir = Path(__file__).parent
     output_dir = str((script_dir / args.output).resolve())
     os.makedirs(output_dir, exist_ok=True)
-    print(f"[INFO] 输出目录: {output_dir}")
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    app.logger.disabled = True
+    _log("INFO", f"输出目录: {output_dir}")
 
-    print(f"[INFO] Aurora Companion 正在启动 Web 服务: http://127.0.0.1:{args.port}")
-    print(f"[INFO] 快捷键: 1=1280×720  2=640×360  R=刷新摄像头")
+    _log("INFO", f"Aurora Companion 正在启动 Web 服务: http://127.0.0.1:{args.port}")
+    _log("INFO", "快捷键: 1=1280×720  2=640×360  R=刷新摄像头")
     camera_bootstrap = threading.Thread(target=bootstrap_camera, args=(args.device,), daemon=True)
     camera_bootstrap.start()
     app.run(host=args.host, port=args.port, debug=False, threaded=True)

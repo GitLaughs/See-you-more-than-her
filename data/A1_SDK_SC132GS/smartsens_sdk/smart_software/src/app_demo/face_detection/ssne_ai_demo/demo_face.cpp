@@ -7,6 +7,7 @@
 #include <regex>
 #include <dirent.h>
 #include <unistd.h>
+#include <sys/time.h>
 #include "include/utils.hpp"
 #include "include/chassis_controller.hpp"
 #include "project_paths.hpp"
@@ -49,6 +50,17 @@ bool check_exit_flag() {
     std::lock_guard<std::mutex> lock(g_mtx);
     return g_exit_flag;
 }
+
+namespace {
+
+uint64_t monotonic_time_us() {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return static_cast<uint64_t>(tv.tv_sec) * 1000000ULL +
+           static_cast<uint64_t>(tv.tv_usec);
+}
+
+}  // namespace
 
 /**
  * @brief 人物检测演示程序主函数
@@ -111,6 +123,9 @@ int main() {
         fprintf(stderr, "[WARN] 底盘控制器初始化失败，底盘控制不可用\n");
     }
 
+    const uint64_t link_test_start_us = monotonic_time_us();
+    bool last_link_test_forward = false;
+
     // 系统稳定等待
     cout << "sleep for 0.2 second!" << endl;
     sleep(0.2);  // 等待系统稳定
@@ -132,7 +147,61 @@ int main() {
         
         // 目标检测模型推理（YOLOv8, 置信度阈值来自 cfg::DET_CONF_THRESH）
         detector.Predict(&img_sensor, det_result, cfg::DET_CONF_THRESH);
+
+        /**********************************************************************************
+         * 3.0 A1 ↔ STM32 联通性测试模块（临时）
+         *
+         * 需求背景：当前阶段不是验证“识别到什么动作”，而是先验证 A1 板端 UART
+         * 到 STM32 底盘控制链路是否稳定可达。因此这里故意把正式的“检测结果驱动底盘”
+         * 逻辑整体旁路掉，改成一个非常容易观察、又相对安全的固定节拍：
+         *
+         *   - 每 5 秒为一个周期
+         *   - 周期内前 1 秒发送轻微前进指令
+         *   - 剩余 4 秒持续发送停车指令
+         *
+         * 这样做的好处：
+         *   1. 不依赖模型是否识别到 person / forward，能把“链路问题”和“模型问题”拆开；
+         *   2. 前进速度固定且较低，便于安全观察；
+         *   3. 删除也简单：后续恢复正式识别联动时，直接删掉本代码块，并恢复下面被注释
+         *      标记为“正式识别联动逻辑”的分支即可。
+         *
+         * 注意：这个测试模块只改变底盘控制，不屏蔽检测与 OSD。也就是说，板端仍然会继续
+         * 跑 YOLOv8 并继续画框，所以可以同时观察“链路是否通”和“OSD 是否真正有检测框”。
+         **********************************************************************************/
+        if (cfg::LINK_TEST_ENABLED) {
+            const uint64_t elapsed_us = monotonic_time_us() - link_test_start_us;
+            const uint64_t phase_us = elapsed_us % cfg::LINK_TEST_PERIOD_US;
+            const bool should_forward = phase_us < cfg::LINK_TEST_FORWARD_WINDOW_US;
+
+            if (should_forward != last_link_test_forward) {
+                if (should_forward) {
+                    printf("[LINK_TEST] 周期触发前进 1 秒，vx=%d mm/s\n",
+                           cfg::LINK_TEST_FORWARD_VX);
+                } else {
+                    printf("[LINK_TEST] 周期前进结束，恢复停车 4 秒\n");
+                }
+                last_link_test_forward = should_forward;
+            }
+
+            if (chassis_ok) {
+                if (should_forward) {
+                    chassis.SendVelocity(cfg::LINK_TEST_FORWARD_VX, 0, 0);
+                } else {
+                    chassis.SendVelocity(cfg::VX_STOP, 0, 0);
+                }
+            }
+        }
         
+        /**********************************************************************************
+         * 3.1 正式识别联动逻辑
+         *
+         * 这一段目前只保留检测统计与 OSD 绘制，不再驱动底盘。
+         * 原因：底盘动作已经被上面的 LINK_TEST 模块接管，用于纯链路联通性测试。
+         * 后续要恢复“识别结果直接控制底盘”时：
+         *   1. 将 cfg::LINK_TEST_ENABLED 改为 false 或删除该配置；
+         *   2. 删掉上面的 3.0 代码块；
+         *   3. 再把这里的动作判断重新绑定到 chassis.SendVelocity()。
+         **********************************************************************************/
         /**********************************************************************************
          * 3.1 解析检测结果并根据类别决定底盘动作
          **********************************************************************************/
@@ -186,35 +255,22 @@ int main() {
             visualizer.Draw(boxes_original_coord);
 
             /**********************************************************************************
-             * 3.4 底盘控制优先级：obstacle_box/stop > forward > 默认停车
+             * 3.4 调试打印：保留类别统计，帮助判断“没有 OSD”究竟是没有检测框，还是 OSD
+             *     绘制链路异常。
              **********************************************************************************/
-            if (has_obstacle) {
-                printf("[STOP] 检测到 obstacle_box %zu 个，优先停车等待避障\n",
-                       obstacle_count);
-                if (chassis_ok) chassis.SendVelocity(cfg::VX_STOP, 0, 0);
-            } else if (has_stop) {
-                printf("[STOP] 检测到 stop 手势 %zu 个，停车\n", stop_count);
-                if (chassis_ok) chassis.SendVelocity(cfg::VX_STOP, 0, 0);
-            } else if (has_backward) {
-                printf("[DRIVE] 检测到 backward 手势 %zu 个，后退 %d mm/s\n",
-                       backward_count, cfg::VX_BACKWARD);
-                if (chassis_ok) chassis.SendVelocity(cfg::VX_BACKWARD, 0, 0);
-            } else if (has_forward) {
-                printf("[DRIVE] 检测到 forward 手势 %zu 个，直行 %d mm/s\n",
-                       forward_count, cfg::VX_FORWARD);
-                if (chassis_ok) chassis.SendVelocity(cfg::VX_FORWARD, 0, 0);
-            } else {
-                printf("[STOP] 已检测到目标 %zu 个，但未出现 forward 手势，停车\n",
-                       det_result->boxes.size());
-                if (chassis_ok) chassis.SendVelocity(cfg::VX_STOP, 0, 0);
-            }
+            printf("[DET] count=%zu person=%zu forward=%zu stop=%zu obstacle=%zu backward=%zu\n",
+                   det_result->boxes.size(),
+                   det_result->boxes.size() - forward_count - stop_count - obstacle_count - backward_count,
+                   forward_count,
+                   stop_count,
+                   obstacle_count,
+                   backward_count);
         }
         else {
-            // 未检测到目标，清除OSD上的检测框并停车
-            cout << "[STOP] 未检测到目标，停车" << endl;
+            // 未检测到目标时清空 OSD。底盘动作由上方 LINK_TEST 模块统一负责。
+            cout << "[DET] 未检测到目标，已清空 OSD 检测框" << endl;
             std::vector<std::array<float, 4>> empty_boxes;
             visualizer.Draw(empty_boxes);  // 传入空向量清除显示
-            if (chassis_ok) chassis.SendVelocity(cfg::VX_STOP, 0, 0);
         }
         
         //num_frames += 1;  // 帧计数器递增
