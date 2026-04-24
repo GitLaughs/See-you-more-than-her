@@ -284,8 +284,8 @@ body{
 }
 .card-body{padding:var(--space-3);}
 
-.preview-wrap{position:relative;background:#000;line-height:0;min-height:280px;}
-.preview-wrap img{width:100%;display:block;}
+.preview-wrap{position:relative;background:#000;line-height:0;min-height:280px;overflow:hidden;}
+.preview-wrap img{width:100%;display:block;transform:rotate(var(--preview-rotate, 0deg));transform-origin:center center;transition:transform .12s ease-out;}
 .preview-main-card{display:flex;flex-direction:column;min-height:0;}
 .preview-main-card .preview-wrap{flex:1 1 auto;min-height:420px;display:flex;align-items:stretch;}
 .preview-main-card .preview-wrap img{height:100%;object-fit:contain;}
@@ -599,6 +599,14 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
           <button class="source-chip" type="button" data-source="auto" onclick="setCameraSource('auto')">Auto</button>
         </div>
         <div id="cameraSourceHint" class="source-desc">优先级：找不到首选时自动降级。</div>
+        <div class="divider"></div>
+        <div style="font-size:.72em;color:var(--color-secondary);margin-bottom:6px;">预览旋转</div>
+        <div class="source-switch" id="previewRotationSwitch">
+          <button class="source-chip active" type="button" data-rotation="0" onclick="setPreviewRotation(0)">0°</button>
+          <button class="source-chip" type="button" data-rotation="90" onclick="setPreviewRotation(90)">90°</button>
+          <button class="source-chip" type="button" data-rotation="180" onclick="setPreviewRotation(180)">180°</button>
+          <button class="source-chip" type="button" data-rotation="270" onclick="setPreviewRotation(270)">270°</button>
+        </div>
       </div>
     </div>
 
@@ -844,44 +852,31 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
 
     <div class="page" id="page-chassis">
       <section class="workflow-hero">
-        <div class="workflow-eyebrow">A1 Relay 工作流</div>
+        <div class="workflow-eyebrow">COM13 工作流</div>
         <h2>经由 A1 到 STM32</h2>
-        <p>这一页聚焦 PC → A1 Relay → STM32 的远端链路。先完成 A1 Companion 地址和远端串口配置，再进入共享操作区执行联通测试与控制。</p>
+        <p>这一页聚焦 PC → COM13 → A1_TEST → STM32 的本地串口链路。所有经由 A1 的测试和底盘控制都统一走 COM13 终端。</p>
         <div class="workflow-points">
           <div class="workflow-point">
-            <strong>1. 配置 A1 地址</strong>
-            <span>保存 Companion 地址和超时，先确认 A1 Relay 可达。</span>
+            <strong>1. 连接 COM13</strong>
+            <span>优先自动连接 USB-HiSpeed-SERIAL-A / CH347F 对应的 COM13。</span>
           </div>
           <div class="workflow-point">
-            <strong>2. 连接远端串口</strong>
-            <span>选择 A1 侧实际连接 STM32 的串口与波特率，再建立 relay。</span>
+            <strong>2. 发送 A1_TEST</strong>
+            <span>通过 A1 demo 内置 CLI 下发 debug_status、move、stop 等命令。</span>
           </div>
           <div class="workflow-point">
             <strong>3. 在共享区控制</strong>
-            <span>联通测试、遥测、运动控制和日志会自动改为 relay 目标。</span>
+            <span>联通测试、运动控制和日志会自动改为 COM13 目标。</span>
           </div>
         </div>
       </section>
 
       <div class="workflow-grid">
         <div class="card chs-relay">
-          <div class="card-head">A1 Relay 连接</div>
+          <div class="card-head">COM13 / A1_TEST 连接</div>
           <div class="card-body">
             <div class="form-row">
-              <label>地址</label>
-              <input type="text" id="relayUrl" value="" placeholder="http://A1-IP:5803">
-            </div>
-            <div class="form-row">
-              <label>超时</label>
-              <input type="number" id="relayTimeout" value="2.5" min="0.5" step="0.5">
-            </div>
-            <div style="display:flex;gap:8px;margin-top:6px;">
-              <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="saveRelayConfig()">保存地址</button>
-              <button class="btn btn-blue" style="flex:1;justify-content:center;" onclick="loadRelayStatus(false)">检测 Relay</button>
-            </div>
-            <div class="divider"></div>
-            <div class="form-row">
-              <label>远端口</label>
+              <label>端口</label>
               <select id="relayPortSelect"></select>
               <button class="btn btn-ghost" style="padding:5px 10px;" onclick="loadRelayPorts(true)" title="刷新端口">⟳</button>
             </div>
@@ -895,14 +890,14 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
               </select>
             </div>
             <div style="display:flex;gap:8px;margin-top:6px;">
-              <button class="btn btn-green" id="relayConnectBtn" onclick="connectRelay()" style="flex:1;">连接 Relay</button>
-              <button class="btn btn-red" id="relayDisconnectBtn" onclick="disconnectRelay()" style="flex:1;" disabled>断开</button>
+              <button class="btn btn-green" id="relayConnectBtn" onclick="connectRelay()" style="flex:1;">连接 COM13</button>
+              <button class="btn btn-red" id="relayDisconnectBtn" onclick="disconnectRelay()" style="flex:1;" disabled>释放目标</button>
             </div>
             <div id="relayConnMsg" style="font-size:.75em;color:var(--color-secondary);margin-top:8px;"></div>
             <div class="divider"></div>
-            <div class="state-line">Relay 状态：<b id="relayReachability">未检测</b></div>
-            <div class="state-line">远端模型：<b id="relayModelName">—</b></div>
-            <div class="mini-note" style="margin-top:8px;">左侧预览建议切到 A1 板端 OSD，这样可以同时观察远端视觉输入和 relay 链路状态。</div>
+            <div class="state-line">COM13 状态：<b id="relayReachability">未检测</b></div>
+            <div class="state-line">命令通道：<b id="relayModelName">A1_TEST</b></div>
+            <div class="mini-note" style="margin-top:8px;">左侧预览建议切到 A1 板端 OSD；底盘命令会通过 COM13 发送到 A1 demo，再由 A1 UART0 控制 STM32。</div>
           </div>
         </div>
 
@@ -910,10 +905,10 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
           <div class="card-head">经由 A1 的工作顺序</div>
           <div class="card-body">
             <div class="stm32-steps">
-              <div class="stm32-step"><b>1.</b> 先保存 A1 Companion 地址，再点击“检测 Relay”确认网络可达。</div>
-              <div class="stm32-step"><b>2.</b> 选择 A1 侧实际接 STM32 的远端串口并建立连接。</div>
-              <div class="stm32-step"><b>3.</b> 到下方共享操作区执行联通测试，验证 PC → A1 → STM32 → A1 → PC 的完整链路。</div>
-              <div class="stm32-step"><b>4.</b> 链路通过后再使用运动控制、原始帧发送和日志面板持续调试。</div>
+              <div class="stm32-step"><b>1.</b> 点击“连接 COM13”，确认 A1 demo 的串口终端在线。</div>
+              <div class="stm32-step"><b>2.</b> 到下方共享操作区执行联通测试，发送 A1_TEST debug_status。</div>
+              <div class="stm32-step"><b>3.</b> 使用运动控制时会发送 A1_TEST move vx vy vz，松开或急停会发送 A1_TEST stop。</div>
+              <div class="stm32-step"><b>4.</b> 如需看详细回传，直接查看 A1 串口终端实时输出。</div>
             </div>
           </div>
         </div>
@@ -927,7 +922,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
             </div>
           </div>
           <div class="card-body">
-            <div id="wiringViewNote" style="font-size:.75em;color:var(--color-secondary);margin-bottom:8px;">A1 Relay 场景下，A1 通过 UART0 与 STM32 UART3 直连并共地。</div>
+            <div id="wiringViewNote" style="font-size:.75em;color:var(--color-secondary);margin-bottom:8px;">COM13 控制场景下，PC 通过 A1 串口终端下发 A1_TEST，A1 通过 UART0 与 STM32 UART3 直连并共地。</div>
             <table class="wire-table">
               <thead>
                 <tr><th>场景</th><th>发送端 (TX)</th><th>→</th><th>接收端 (RX)</th><th>说明</th></tr>
@@ -998,7 +993,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
           <h3>联通测试、遥测、运动控制和日志会自动跟随当前页面目标</h3>
           <p id="sharedTargetLabel">当前目标：电脑直连 STM32</p>
         </div>
-        <div class="mini-note">顶部页面决定 direct / relay 目标，不再需要额外切换按钮。</div>
+        <div class="mini-note">顶部页面决定 direct / COM13 目标，不再需要额外切换按钮。</div>
       </div>
 
       <div class="workflow-grid">
@@ -1015,7 +1010,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
             </div>
             <pre id="pingResult" style="background:var(--color-surface-hover);border-radius:6px;padding:8px 10px;font-size:.72em;color:var(--color-primary);font-family:monospace;white-space:pre-wrap;min-height:40px;margin:0;"></pre>
             <div class="divider"></div>
-            <div style="font-size:.72em;color:var(--color-secondary);">直连模式测试的是 PC → STM32；Relay 模式测试的是 PC → A1 → STM32。</div>
+            <div style="font-size:.72em;color:var(--color-secondary);">直连模式测试的是 PC → STM32；COM13 模式测试的是 PC → COM13 → A1_TEST。</div>
           </div>
         </div>
 
@@ -1243,6 +1238,8 @@ let desktopCaptureTargetCache = null;
 let cropEditMode = false;
 let cropDragState = null;
 let _streamLoadingTimer = null;
+let _streamReconnectTimer = null;
+let previewRotation = parseInt(localStorage.getItem('auroraPreviewRotation') || '0', 10) || 0;
 
 const CAMERA_SOURCE_TITLES = {
   windows: 'Windows 纯预览',
@@ -1283,6 +1280,7 @@ function hideStreamLoading() {
 }
 
 function onStreamLoad() {
+  clearTimeout(_streamReconnectTimer);
   hideStreamLoading();
   setCamOnline(true);
   updateDesktopCropOverlay();
@@ -1291,6 +1289,13 @@ function onStreamLoad() {
 function onStreamError() {
   hideStreamLoading();
   setCamOnline(false);
+  clearTimeout(_streamReconnectTimer);
+  _streamReconnectTimer = setTimeout(() => {
+    if (!document.hidden) {
+      showStreamLoading('视频流断开，正在重新同步…');
+      refreshStreamFeed();
+    }
+  }, 900);
 }
 
 function setCamOnline(ok) {
@@ -1310,7 +1315,18 @@ function updateSourceHint() {
 
 function syncSourceButtons() {
   document.querySelectorAll('.source-chip').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.source === selectedCameraSource);
+    if (btn.dataset.source) btn.classList.toggle('active', btn.dataset.source === selectedCameraSource);
+  });
+}
+
+function setPreviewRotation(deg) {
+  const normalized = [0, 90, 180, 270].includes(Number(deg)) ? Number(deg) : 0;
+  previewRotation = normalized;
+  localStorage.setItem('auroraPreviewRotation', String(previewRotation));
+  const wrap = document.querySelector('.preview-wrap');
+  if (wrap) wrap.style.setProperty('--preview-rotate', previewRotation + 'deg');
+  document.querySelectorAll('#previewRotationSwitch .source-chip').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.rotation) === previewRotation);
   });
 }
 
@@ -2017,7 +2033,7 @@ function normalizeLogResponse(data) {
 }
 
 function targetLabel(target = controlTarget) {
-  return target === 'relay' ? 'A1 Relay' : '电脑直连 STM32';
+  return target === 'relay' ? 'COM13 经由 A1' : '电脑直连 STM32';
 }
 
 function targetApiBase(target = controlTarget) {
@@ -2030,7 +2046,7 @@ function targetConnected(target = controlTarget) {
 
 function setChsStatus(online, port, target = controlTarget) {
   const dot = document.getElementById('chsDot');
-  const prefix = target === 'relay' ? 'Relay' : '直连';
+  const prefix = target === 'relay' ? 'COM13' : '直连';
   dot.className = 'chassis-dot ' + (online ? 'on' : 'off');
   document.getElementById('chsStatus').textContent = online ? `${prefix} ${port || '在线'}` : `${prefix} 未连接`;
 }
@@ -2060,7 +2076,7 @@ function setWiringView(view) {
   if (note) {
     note.textContent = wiringView === 'pc'
       ? 'PC 调试场景下，USB 串口直接连接 STM32 UART3，并保持和 STM32 共地。'
-      : 'A1 Relay 场景下，A1 通过 UART0 与 STM32 UART3 直连并共地。';
+      : 'COM13 控制场景下，PC 通过 A1 串口终端下发 A1_TEST，A1 通过 UART0 与 STM32 UART3 直连并共地。';
   }
 }
 
@@ -2172,7 +2188,7 @@ function renderRelayPortOptions(ports, markNew = false) {
   if (!sel) return;
   const cur = sel.value;
   if (!ports.length) {
-    sel.innerHTML = '<option value="">— 无可用远端口 —</option>';
+    sel.innerHTML = '<option value="">— 未发现 COM13 —</option>';
     return;
   }
   const previous = new Set(knownRelayPorts);
@@ -2186,23 +2202,19 @@ function renderRelayPortOptions(ports, markNew = false) {
 
 function loadRelayConfig() {
   return apiJson('/api/relay/config').then(d => {
-    if (d.base_url) document.getElementById('relayUrl').value = d.base_url;
-    if (d.timeout_sec != null) document.getElementById('relayTimeout').value = d.timeout_sec;
     relayConfigLoaded = true;
   }).catch(() => {});
 }
 
 function saveRelayConfig(showToast = true) {
-  const base_url = document.getElementById('relayUrl').value.trim();
-  const timeout_sec = parseFloat(document.getElementById('relayTimeout').value || '2.5');
   return apiJson('/api/relay/config', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({base_url, timeout_sec})
+    body: JSON.stringify({})
   }).then(d => {
     if (d.success) {
       relayConfigLoaded = true;
-      if (showToast) toast('Relay 地址已保存', 'ok');
+      if (showToast) toast('COM13 配置已确认', 'ok');
       return d;
     }
     if (showToast) toast('✗ ' + d.error, 'err');
@@ -2214,11 +2226,6 @@ function saveRelayConfig(showToast = true) {
 }
 
 function loadRelayPorts(markNew = false) {
-  const baseUrl = document.getElementById('relayUrl').value.trim();
-  if (!baseUrl) {
-    document.getElementById('relayPortSelect').innerHTML = '';
-    return Promise.resolve({ports: []});
-  }
   return apiJson('/api/relay/ports').then(d => {
     const ports = normalizePortResponse(d);
     renderRelayPortOptions(ports, markNew);
@@ -2227,20 +2234,6 @@ function loadRelayPorts(markNew = false) {
 }
 
 function loadRelayStatus(silent = true) {
-  const baseUrl = document.getElementById('relayUrl').value.trim();
-  if (!baseUrl) {
-    relayConnected = false;
-    relayPort = null;
-    const reach = document.getElementById('relayReachability');
-    reach.textContent = '未配置';
-    reach.style.color = 'var(--color-secondary)';
-    document.getElementById('relayModelName').textContent = '—';
-    document.getElementById('relayConnMsg').textContent = '未配置 A1 Companion 地址';
-    document.getElementById('relayConnectBtn').disabled = true;
-    document.getElementById('relayDisconnectBtn').disabled = true;
-    if (controlTarget === 'relay') setChsStatus(false, null, 'relay');
-    return Promise.resolve({success: false, reachable: false, error: 'A1 Companion 地址未配置'});
-  }
   return apiJson('/api/relay/status').then(d => {
     relayConnected = !!d.connected;
     relayPort = d.port || null;
@@ -2257,9 +2250,9 @@ function loadRelayStatus(silent = true) {
     document.getElementById('relayConnectBtn').disabled = relayConnected;
     document.getElementById('relayDisconnectBtn').disabled = !relayConnected;
     if (d.connected) {
-      document.getElementById('relayConnMsg').textContent = '已连接远端 ' + (d.port || '串口');
+      document.getElementById('relayConnMsg').textContent = '已连接 ' + (d.port || 'COM13') + '，命令将走 A1_TEST';
     } else if (!d.reachable) {
-      document.getElementById('relayConnMsg').textContent = d.error || 'A1 Relay 不可达';
+      document.getElementById('relayConnMsg').textContent = d.error || 'COM13 未连接';
     }
     if (controlTarget === 'relay') setChsStatus(relayConnected, d.port, 'relay');
     return d;
@@ -2279,7 +2272,7 @@ function connectRelay() {
   const port = document.getElementById('relayPortSelect').value;
   const baud = parseInt(document.getElementById('relayBaudSelect').value, 10);
   if (!port) {
-    toast('请选择远端串口', 'err');
+    toast('请选择 COM13 端口', 'err');
     return;
   }
   saveRelayConfig(false).then(() => apiJson('/api/relay/connect', {
@@ -2290,11 +2283,11 @@ function connectRelay() {
     if (d.success) {
       relayConnected = true;
       relayPort = d.port || port;
-      document.getElementById('relayConnMsg').textContent = '已连接远端 ' + d.port + ' @ ' + d.baud;
+      document.getElementById('relayConnMsg').textContent = '已连接 ' + (d.port || 'COM13') + ' @ ' + (d.baud || 115200);
       document.getElementById('relayConnectBtn').disabled = true;
       document.getElementById('relayDisconnectBtn').disabled = false;
       if (controlTarget === 'relay') setChsStatus(true, d.port, 'relay');
-      toast('✓ A1 Relay 已连接', 'ok');
+      toast('✓ COM13 已连接', 'ok');
       loadRelayStatus(true);
     } else {
       toast('✗ ' + d.error, 'err');
@@ -2304,13 +2297,8 @@ function connectRelay() {
 
 function disconnectRelay() {
   apiJson('/api/relay/disconnect', {method: 'POST'}).then(() => {
-    relayConnected = false;
-    relayPort = null;
-    document.getElementById('relayConnectBtn').disabled = false;
-    document.getElementById('relayDisconnectBtn').disabled = true;
-    document.getElementById('relayConnMsg').textContent = '远端底盘已断开';
-    if (controlTarget === 'relay') setChsStatus(false, null, 'relay');
-    toast('A1 Relay 已断开', 'info');
+    loadRelayStatus(true);
+    toast('COM13 目标已释放，终端连接保持可用', 'info');
   }).catch(() => {});
 }
 
@@ -2450,7 +2438,7 @@ function runPingTest(scope = 'chassis') {
         `⚠️ 目标链路: ${targetLabel()}\n` +
         `控制已发送，未收到遥测回传\n\n` +
         `发送帧: ${d.frame_tx}\n\n` +
-        (d.note || '请检查回传链路或远端串口状态');
+        (d.note || '请检查 COM13 / A1_TEST 回传状态');
     }
   }).catch(e => {
     btn.disabled = false;
@@ -3140,6 +3128,7 @@ function toast(msg, type = 'ok') {
 
 // ── Init ────────────────────────────────────────────────────────────────────
 refreshPorts();
+setPreviewRotation(previewRotation);
 loadCameraDevices();
 loadDetectModels();
 loadSerialTermPorts(false);

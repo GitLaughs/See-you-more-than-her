@@ -1,181 +1,169 @@
 #!/usr/bin/env python3
-"""relay_comm.py — PC -> A1 Companion -> STM32 relay proxy."""
+"""relay_comm.py — A1 chassis control over the local COM13 terminal."""
 
-import json
-import os
-import threading
-import urllib.error
-import urllib.request
-from typing import Any, Dict, Optional
+import time
+from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request
 
+import serial_terminal as st
+
 relay_bp = Blueprint("relay", __name__, url_prefix="/api/relay")
 
-_relay_lock = threading.Lock()
-_relay_state: Dict[str, Any] = {
-    "base_url": os.environ.get("A1_COMPANION_URL", "").strip(),
-    "timeout_sec": 2.5,
-}
+
+def _connected() -> bool:
+    with st._ser_lock:
+        return st._ser is not None and st._ser.is_open
 
 
-def _normalize_base_url(value: str) -> str:
-    text = (value or "").strip()
-    if not text:
-        return ""
-    if not text.startswith("http://") and not text.startswith("https://"):
-        text = f"http://{text}"
-    return text.rstrip("/")
+def _current_port() -> Optional[str]:
+    with st._ser_lock:
+        if st._ser is not None and st._ser.is_open:
+            return st._ser.port
+    return st._snapshot_state().get("port") or st._DEFAULT_PORT
 
 
-def _snapshot_state() -> Dict[str, Any]:
-    with _relay_lock:
-        return dict(_relay_state)
+def _ensure_connected(baud: Optional[int] = None) -> Dict[str, Any]:
+    if _connected():
+        return {"success": True, "port": _current_port(), "baud": st._snapshot_state().get("baud", 115200)}
+    return st._auto_connect(baud=baud or 115200)
 
 
-def _update_state(base_url: Optional[str] = None,
-                  timeout_sec: Optional[float] = None) -> Dict[str, Any]:
-    with _relay_lock:
-        if base_url is not None:
-            _relay_state["base_url"] = _normalize_base_url(base_url)
-        if timeout_sec is not None:
-            _relay_state["timeout_sec"] = max(0.5, float(timeout_sec))
-        return dict(_relay_state)
+def _send_cli(line: str, wait_tokens: Optional[List[str]] = None, timeout_sec: float = 0.8) -> Dict[str, Any]:
+    ready = _ensure_connected()
+    if not ready.get("success"):
+        return ready
+    payload = (line.rstrip() + "\r\n").encode("utf-8")
+    result = st._send_payload(payload, line, hex_mode=False)
+    if not result.get("success") or not wait_tokens:
+        return {**result, "port": _current_port(), "command_line": line}
+    waited = st._wait_for_text(wait_tokens, timeout_sec=timeout_sec)
+    return {
+        **result,
+        "success": bool(result.get("success")) and bool(waited.get("success")),
+        "transport_success": bool(result.get("success")),
+        "response_received": bool(waited.get("success")),
+        "matched": waited.get("matched"),
+        "message": waited.get("matched", {}).get("text", "") if waited.get("success") else waited.get("error", ""),
+        "port": _current_port(),
+        "command_line": line,
+    }
 
 
-def _relay_json(method: str, path: str,
-                payload: Optional[Dict[str, Any]] = None) -> Any:
-    state = _snapshot_state()
-    base_url = (state.get("base_url") or "").strip()
-    if not base_url:
-        raise RuntimeError("A1 Companion 地址未配置")
-
-    target = f"{base_url}{path}"
-    body = None if payload is None else json.dumps(payload).encode("utf-8")
-    headers = {"Content-Type": "application/json"} if body is not None else {}
-    req = urllib.request.Request(target, data=body, headers=headers,
-                                 method=method.upper())
-    try:
-        with urllib.request.urlopen(req, timeout=state["timeout_sec"]) as resp:
-            raw = resp.read()
-            if not raw:
-                return {}
-            charset = resp.headers.get_content_charset() or "utf-8"
-            text = raw.decode(charset, errors="replace")
-            return json.loads(text)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        if detail:
-            try:
-                parsed = json.loads(detail)
-                if isinstance(parsed, dict) and parsed.get("error"):
-                    raise RuntimeError(str(parsed["error"]))
-            except json.JSONDecodeError:
-                pass
-        raise RuntimeError(f"远端返回 HTTP {exc.code}") from exc
-    except urllib.error.URLError as exc:
-        reason = getattr(exc, "reason", exc)
-        raise RuntimeError(f"无法连接 A1 Companion: {reason}") from exc
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("远端响应不是合法 JSON") from exc
-
-
-def _proxy_json(method: str, remote_path: str,
-                payload: Optional[Dict[str, Any]] = None):
-    try:
-        result = _relay_json(method, remote_path, payload)
-        return jsonify(result)
-    except RuntimeError as exc:
-        return jsonify({"success": False, "error": str(exc)})
+def _status_payload() -> Dict[str, Any]:
+    state = st._snapshot_state()
+    connected = _connected()
+    return {
+        "success": True,
+        "reachable": connected,
+        "connected": connected,
+        "port": _current_port(),
+        "baud": state.get("baud", 115200),
+        "telemetry": {},
+        "model_name": "COM13 / A1_TEST",
+        "transport": "COM13",
+        "latest_lines": list(st._rx_log)[:10],
+    }
 
 
 @relay_bp.route("/config", methods=["GET", "POST"])
 def relay_config():
-    if request.method == "GET":
-        return jsonify(_snapshot_state())
-
-    data = request.get_json(silent=True) or {}
-    try:
-        state = _update_state(
-            base_url=data.get("base_url") or data.get("url"),
-            timeout_sec=data.get("timeout_sec") or data.get("timeout"),
-        )
-    except (TypeError, ValueError) as exc:
-        return jsonify({"success": False, "error": str(exc)})
-    return jsonify({"success": True, **state})
+    state = st._snapshot_state()
+    return jsonify({
+        "success": True,
+        "base_url": "COM13",
+        "timeout_sec": state.get("timeout", 0.05),
+        "port": state.get("port") or st._DEFAULT_PORT,
+        "baud": state.get("baud", 115200),
+        "transport": "COM13",
+    })
 
 
 @relay_bp.route("/status")
 def relay_status():
-    state = _snapshot_state()
-    try:
-        companion = _relay_json("GET", "/status")
-        chassis = _relay_json("GET", "/api/chassis/status")
-        return jsonify({
-            "success": True,
-            "reachable": True,
-            "base_url": state["base_url"],
-            "connected": bool(chassis.get("connected")),
-            "port": chassis.get("port"),
-            "telemetry": chassis.get("telemetry") or {},
-            "companion": companion,
-            "source": companion.get("source"),
-            "model_name": companion.get("model_name"),
-        })
-    except RuntimeError as exc:
-        return jsonify({
-            "success": False,
-            "reachable": False,
-            "base_url": state["base_url"],
-            "connected": False,
-            "error": str(exc),
-            "telemetry": {},
-        })
+    return jsonify(_status_payload())
 
 
 @relay_bp.route("/ports")
 def relay_ports():
-    try:
-        return jsonify(_relay_json("GET", "/api/chassis/ports"))
-    except RuntimeError as exc:
-        return jsonify({"success": False, "error": str(exc), "ports": []})
+    return jsonify({"success": True, "ports": st._list_ports(), "preferred": _current_port(), "transport": "COM13"})
 
 
 @relay_bp.route("/connect", methods=["POST"])
 def relay_connect():
-    return _proxy_json("POST", "/api/chassis/connect", request.get_json(silent=True) or {})
+    data = request.get_json(silent=True) or {}
+    baud = int(data.get("baud") or 115200)
+    result = _ensure_connected(baud=baud)
+    return jsonify({**result, "transport": "COM13"})
 
 
 @relay_bp.route("/disconnect", methods=["POST"])
 def relay_disconnect():
-    return _proxy_json("POST", "/api/chassis/disconnect", request.get_json(silent=True) or {})
+    # Keep COM13 alive for the shared terminal; this action only clears the logical relay target.
+    return jsonify({"success": True, "connected": _connected(), "port": _current_port(), "transport": "COM13"})
 
 
 @relay_bp.route("/move", methods=["POST"])
 def relay_move():
-    return _proxy_json("POST", "/api/chassis/move", request.get_json(silent=True) or {})
+    data = request.get_json(silent=True) or {}
+    vx = int(data.get("vx") or 0)
+    vy = int(data.get("vy") or 0)
+    vz = int(data.get("vz") or 0)
+    line = f"A1_TEST move {vx} {vy} {vz}"
+    result = _send_cli(line)
+    return jsonify({**result, "vx": vx, "vy": vy, "vz": vz, "transport": "COM13"})
 
 
 @relay_bp.route("/stop", methods=["POST"])
 def relay_stop():
-    return _proxy_json("POST", "/api/chassis/stop", request.get_json(silent=True) or {})
+    result = _send_cli("A1_TEST stop")
+    return jsonify({**result, "transport": "COM13"})
 
 
 @relay_bp.route("/raw_send", methods=["POST"])
 def relay_raw_send():
-    return _proxy_json("POST", "/api/chassis/raw_send", request.get_json(silent=True) or {})
+    data = request.get_json(silent=True) or {}
+    text = str(data.get("text") or "").strip()
+    hex_text = str(data.get("hex") or "").strip()
+    if text:
+        result = _send_cli(text)
+        return jsonify({**result, "transport": "COM13"})
+    if not hex_text:
+        return jsonify({"success": False, "error": "发送内容不能为空", "transport": "COM13"})
+    ready = _ensure_connected()
+    if not ready.get("success"):
+        return jsonify(ready)
+    try:
+        payload = bytes.fromhex(hex_text.replace(" ", ""))
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc), "transport": "COM13"})
+    result = st._send_payload(payload, hex_text, hex_mode=True)
+    return jsonify({**result, "transport": "COM13"})
 
 
 @relay_bp.route("/ping", methods=["POST"])
 def relay_ping():
-    return _proxy_json("POST", "/api/chassis/ping", request.get_json(silent=True) or {})
+    result = _send_cli(
+        "A1_TEST debug_status",
+        wait_tokens=["\"success\":true", "\"command\":\"debug_status\"", "\"chassis_ok\":"],
+        timeout_sec=1.8,
+    )
+    return jsonify({
+        **result,
+        "connected": bool(result.get("success")),
+        "telemetry": {},
+        "frame_tx": "A1_TEST debug_status",
+        "note": "COM13 已收到 A1 debug_status 回传；底盘运动请使用 A1_TEST move/stop。",
+        "transport": "COM13",
+        "ts": time.strftime("%H:%M:%S"),
+    })
 
 
 @relay_bp.route("/tx_log")
 def relay_tx_log():
-    return _proxy_json("GET", "/api/chassis/tx_log")
+    return jsonify(list(st._tx_log))
 
 
 @relay_bp.route("/rx_log")
 def relay_rx_log():
-    return _proxy_json("GET", "/api/chassis/rx_log")
+    return jsonify(list(st._rx_log))

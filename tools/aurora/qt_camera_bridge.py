@@ -34,7 +34,7 @@ except Exception as exc:  # pragma: no cover - 无依赖环境下也需要正常
 CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 720
 CAMERA_FPS = 30.0
-DEFAULT_JPEG_QUALITY = 86
+DEFAULT_JPEG_QUALITY = 97
 
 SOURCE_WINDOWS = "windows"
 SOURCE_A1 = "a1"
@@ -182,6 +182,7 @@ class CameraBridgeState:
         self.last_encode_error_ts = 0.0
         self.fps = 0.0
         self.devices_cache: List[Dict[str, Any]] = []
+        self.latest_image = None
         self.latest_color_jpeg: Optional[bytes] = None
         self.latest_gray_jpeg: Optional[bytes] = None
         self.status_message = "Qt 相机桥未初始化"
@@ -368,6 +369,13 @@ class CameraBridgeState:
         self.raw8_hint = any(token in self.pixel_format.lower() for token in _RAW_HINTS + _GRAY_HINTS)
         self.frame_width = int(meta.get("width", 0)) if meta else 0
         self.frame_height = int(meta.get("height", 0)) if meta else 0
+        self.frame_count = 0
+        self.last_frame_ts = 0.0
+        self.fps = 0.0
+        self.latest_image = None
+        self.latest_color_jpeg = None
+        self.latest_gray_jpeg = None
+        self.started_at = time.time()
         self.connected = True
         self.status_message = (
             f"Qt 相机桥已连接: {self.device_name} / {self.frame_width}x{self.frame_height} / {self.pixel_format}"
@@ -387,17 +395,11 @@ class CameraBridgeState:
         if image is None or image.isNull():
             return
         now = time.time()
-        try:
-            color = self._jpeg_bytes(image, grayscale=False)
-            gray = self._jpeg_bytes(image, grayscale=True)
-        except Exception as exc:
-            if now - self.last_encode_error_ts >= 5.0:
-                self.last_encode_error_ts = now
-                print(f"[WARN] Qt frame encode failed: {exc}")
-            return
+        latest = image.copy()
         with self.lock:
-            self.latest_color_jpeg = color
-            self.latest_gray_jpeg = gray
+            self.latest_image = latest
+            self.latest_color_jpeg = None
+            self.latest_gray_jpeg = None
             self.frame_count += 1
             self.last_frame_ts = now
             if self.frame_count > 1 and self.started_at < now:
@@ -406,9 +408,17 @@ class CameraBridgeState:
 
     def frame_bytes(self, mode: str = "color") -> Optional[bytes]:
         with self.lock:
-            if mode == "gray":
-                return self.latest_gray_jpeg
-            return self.latest_color_jpeg
+            image = self.latest_image.copy() if self.latest_image is not None else None
+        if image is None or image.isNull():
+            return None
+        now = time.time()
+        try:
+            return self._jpeg_bytes(image, grayscale=(mode == "gray"))
+        except Exception as exc:
+            if now - self.last_encode_error_ts >= 5.0:
+                self.last_encode_error_ts = now
+                print(f"[WARN] Qt frame encode failed: {exc}")
+            return None
 
     def status(self) -> Dict[str, Any]:
         with self.lock:
@@ -485,7 +495,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if parsed.path == "/frame.jpg":
             query = parse_qs(parsed.query or "")
             mode = str((query.get("mode") or ["color"])[0]).strip().lower()
-            payload = BRIDGE.frame_bytes("gray" if mode == "gray" else "color")
+            payload = None
+            for _ in range(20):
+                payload = BRIDGE.frame_bytes("gray" if mode == "gray" else "color")
+                if payload:
+                    break
+                time.sleep(0.05)
             if payload:
                 self._write_bytes(payload)
             else:

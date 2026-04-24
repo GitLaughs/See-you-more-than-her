@@ -81,9 +81,9 @@ except ImportError:
 try:
     from relay_comm import relay_bp
     app.register_blueprint(relay_bp)
-    print("[INFO] A1 Relay 模块已加载")
+    print("[INFO] COM13 经由 A1 控制模块已加载")
 except ImportError:
-    print("[WARN] relay_comm 未找到，A1 Relay 功能不可用")
+    print("[WARN] relay_comm 未找到，COM13 经由 A1 控制不可用")
 try:
     from serial_terminal import serial_term_bp
     app.register_blueprint(serial_term_bp)
@@ -968,7 +968,14 @@ def _normalize_frame_for_display(frame: np.ndarray) -> np.ndarray:
     if frame is None:
         return frame
     if len(frame.shape) >= 2:
+        current_source = camera_source_global
         height, width = frame.shape[:2]
+        if current_source == CAMERA_SOURCE_A1:
+            # Aurora/Qt 将 A1 的 UYVY 灰度流暴露为 360x1280；横向按打包宽度还原为 720x1280，
+            # 并保持与 Aurora 一致的竖向画面，旋转交给网页端预览控制。
+            if height >= 1000 and width <= 400:
+                frame = cv2.resize(frame, (width * 2, height), interpolation=cv2.INTER_LINEAR)
+            return frame
         if height > width:
             frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
         if frame.shape[:2] != (CAMERA_HEIGHT, CAMERA_WIDTH):
@@ -1214,15 +1221,21 @@ def _qt_bridge_probe_device(device_id: int) -> Optional[dict]:
 def _qt_bridge_fetch_frame(mode: str = "color", timeout: float = 2.5) -> Optional[np.ndarray]:
     query = urllib_parse.urlencode({"mode": mode})
     req = urllib_request.Request(f"{QT_BRIDGE_URL}/frame.jpg?{query}", method="GET")
-    try:
-        with urllib_request.urlopen(req, timeout=timeout) as resp:
-            if resp.status != 200:
-                return None
-            raw = resp.read()
-    except urllib_error.URLError:
-        return None
-    except Exception:
-        return None
+    raw = b""
+    for _ in range(2):
+        try:
+            with urllib_request.urlopen(req, timeout=timeout) as resp:
+                if resp.status != 200:
+                    raw = b""
+                else:
+                    raw = resp.read()
+            if raw:
+                break
+        except urllib_error.URLError:
+            raw = b""
+        except Exception:
+            raw = b""
+        time.sleep(0.03)
     if not raw:
         return None
     flags = cv2.IMREAD_GRAYSCALE if mode == "gray" else cv2.IMREAD_COLOR
@@ -2198,7 +2211,7 @@ def generate_frames():
             _frame_count = 0
             _fps_ts = now
 
-        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 97])
         yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
                + buf.tobytes() + b"\r\n")
 
@@ -2261,14 +2274,28 @@ def index():
 
 @app.route("/video_feed")
 def video_feed():
-    return Response(generate_frames(),
-                    mimetype="multipart/x-mixed-replace; boundary=frame")
+    return Response(
+        generate_frames(),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.route("/detect_feed")
 def detect_feed():
-    return Response(_generate_detect_frames(),
-                    mimetype="multipart/x-mixed-replace; boundary=frame")
+    return Response(
+        _generate_detect_frames(),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.route("/detect_status")
