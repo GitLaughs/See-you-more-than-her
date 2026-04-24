@@ -74,6 +74,7 @@ class IMAGEPROCESSOR {
 
     // 释放资源
     void Release();
+    bool IsReady() const { return online_ready_; }
 
     // 前处理时，模型推理输入的原始待检测图像尺寸，（width，height）
     std::array<int, 2> img_shape;
@@ -81,6 +82,7 @@ class IMAGEPROCESSOR {
   private:
     // online setting
     uint8_t format_online;
+    bool online_ready_ = false;
 };
 
 class SCRFDGRAY {

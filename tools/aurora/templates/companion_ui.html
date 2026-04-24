@@ -561,6 +561,9 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
       <div class="preview-wrap">
         <img id="stream" src="/video_feed" alt="camera"
              onload="typeof onStreamLoad === 'function' && onStreamLoad()" onerror="typeof onStreamError === 'function' && onStreamError()">
+        <div id="previewCropLayer" style="position:absolute;inset:0;pointer-events:none;">
+          <div id="previewCropBox" style="position:absolute;border:2px solid #22c55e;background:rgba(34,197,94,.12);display:none;"></div>
+        </div>
         <div class="preview-badges">
           <div class="preview-badge" id="streamSourceChip">Windows 纯预览</div>
           <div class="preview-badge secondary" id="streamModeChip">纯图像 · 无框</div>
@@ -573,19 +576,8 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
       </div>
     </div>
 
-    <div class="card gallery-main-card">
-      <div class="card-head">
-        <span>最近拍摄</span>
-        <span id="galleryCount" style="color:var(--color-secondary)">0 / 8</span>
-      </div>
-      <div class="card-body">
-        <div class="gallery-grid" id="gallery">
-          <div class="gallery-empty">暂无拍摄记录</div>
-        </div>
-      </div>
-    </div>
     <div class="card" style="flex: 0 0 auto;">
-      <div class="card-head">摄像头输入直切</div>
+      <div class="card-head">窗口抓取与输入切换</div>
       <div class="card-body">
         <div class="form-row" style="margin-bottom:6px;">
           <label>设备</label>
@@ -602,9 +594,49 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
         <div class="source-switch" id="cameraSourceSwitch">
           <button class="source-chip active" type="button" data-source="windows" onclick="setCameraSource('windows')">Windows</button>
           <button class="source-chip" type="button" data-source="a1" onclick="setCameraSource('a1')">A1</button>
+          <button class="source-chip" type="button" data-source="aurora_window" onclick="setCameraSource('aurora_window')">Aurora</button>
           <button class="source-chip" type="button" data-source="auto" onclick="setCameraSource('auto')">Auto</button>
         </div>
         <div id="cameraSourceHint" class="source-desc">优先级：找不到首选时自动降级。</div>
+        <div class="divider"></div>
+        <div style="font-size:.72em;color:var(--color-secondary);margin-bottom:6px;">桌面窗口抓取工具</div>
+        <div class="mini-note" id="desktopCaptureSummary" style="margin-bottom:8px;">当前抓取目标：Aurora 自动窗口</div>
+        <div class="form-row" style="margin-bottom:6px;">
+          <label>窗口列表</label>
+          <select id="desktopWindowSelect">
+            <option value="">加载中...</option>
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+          <button class="btn btn-ghost" onclick="loadDesktopWindows(false)">刷新窗口</button>
+          <button class="btn btn-blue" onclick="useSelectedDesktopWindow()">使用所选窗口</button>
+          <button class="btn btn-blue" onclick="pickDesktopWindowInteractive()">点选窗口</button>
+          <button class="btn btn-ghost" onclick="pickDesktopRegionInteractive()">框选区域</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+          <button class="btn btn-ghost" onclick="forceRefreshDesktopCapture()">强制刷新目标</button>
+          <button class="btn btn-ghost" onclick="refreshStreamFeed()">重读当前画面</button>
+        </div>
+        <button class="btn btn-ghost btn-full" onclick="resetDesktopCaptureTarget()" style="margin-bottom:8px;">
+          <label>恢复 Aurora 自动<small>重新自动寻找 Aurora 主窗口</small></label>
+        </button>
+        <div id="desktopCaptureHint" class="source-desc">如果 Aurora 的视频区不是独立窗口，请用“框选区域”直接框住 device 里的视频画面。</div>
+        <div class="divider"></div>
+        <div style="font-size:.72em;color:var(--color-secondary);margin-bottom:6px;">预览微调裁剪</div>
+        <div class="mini-note" id="desktopCropHint" style="margin-bottom:8px;">先点击“开启预览框选”，再直接在左侧预览图上拖拽要保留的区域；拖完后会立即生效。</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+          <button class="btn btn-blue" id="cropEditBtn" onclick="togglePreviewCropEdit()">开启预览框选</button>
+          <button class="btn btn-ghost" onclick="resetDesktopCrop()">重置裁剪</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;">
+          <button class="btn btn-ghost" onclick="nudgeDesktopCrop(0,-0.02,0,0)">上移</button>
+          <button class="btn btn-ghost" onclick="nudgeDesktopCrop(-0.02,0,-0.02,0)">左缩</button>
+          <button class="btn btn-ghost" onclick="nudgeDesktopCrop(0,0.02,0,0)">下移</button>
+          <button class="btn btn-ghost" onclick="nudgeDesktopCrop(0,0,0.02,0)">右扩</button>
+          <button class="btn btn-ghost" onclick="nudgeDesktopCrop(0,0,0,-0.02)">上缩</button>
+          <button class="btn btn-ghost" onclick="nudgeDesktopCrop(0,0,0,0.02)">下扩</button>
+        </div>
+        <div class="mini-note" id="desktopCropSummary" style="margin-bottom:8px;">当前未启用额外裁剪。</div>
         <div class="divider"></div>
         <button class="btn btn-ghost btn-full" id="camRefreshBtn" onclick="refreshCam()">
           <span class="btn-icon" id="camRefIcon">↻</span>
@@ -615,24 +647,6 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
   </aside>
 
   <main class="page-stage">
-
-    <div class="card">
-      <div class="card-head">输入源与采集</div>
-      <div class="card-body">
-        <div class="counter-box">
-          <div class="counter-num" id="counter">0</div>
-          <div class="counter-lbl">已拍摄张数</div>
-        </div>
-        <button class="btn btn-blue btn-full" onclick="capture('1280x720')" style="margin-bottom:5px;">
-          <span class="btn-icon">📷</span>
-          <label>拍照 1280×720<small>当前源的原始画面</small></label>
-        </button>
-        <button class="btn btn-green btn-full" onclick="capture('640x360')">
-          <span class="btn-icon">🏹</span>
-          <label>拍照 640×360<small>YOLOv8 训练集 · 16:9 中心裁剪</small></label>
-        </button>
-      </div>
-    </div>
 
     <div class="card" id="detInfoPanel" style="display:none;">
       <div class="card-head">YOLOv8 检测信息</div>
@@ -1001,6 +1015,57 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
           </div>
         </div>
 
+        <div class="card">
+          <div class="card-head">
+            <span>A1 串口终端 / CLI</span>
+            <span id="serialTermBadge" style="font-size:.78em;padding:2px 8px;border-radius:10px;background:var(--color-surface-hover);color:var(--color-secondary);">未连接</span>
+          </div>
+          <div class="card-body">
+            <div class="form-row">
+              <label>终端端口</label>
+              <select id="serialTermPortSelect">
+                <option value="COM13">COM13</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>波特率</label>
+              <input type="number" id="serialTermBaud" value="115200" min="1200" step="1">
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:8px;">
+              <button class="btn btn-ghost" style="flex:1;" onclick="loadSerialTermPorts(true)">刷新端口</button>
+              <button class="btn btn-blue" style="flex:1;" onclick="autoConnectSerialTerm()">自动连接</button>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:8px;">
+              <button class="btn btn-green" style="flex:1;" onclick="connectSerialTerm()">连接终端</button>
+              <button class="btn btn-red" style="flex:1;" onclick="disconnectSerialTerm()">断开</button>
+            </div>
+            <div id="serialTermHint" class="mini-note" style="margin-bottom:8px;">优先选择 `COM13 / USB-HiSpeed-SERIAL-A / CH347F`。如果 TCP 测试服务不可用，请直接使用下面的串口测试按钮。</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
+              <button class="btn btn-ghost" onclick="sendSerialQuick('help')">help</button>
+              <button class="btn btn-ghost" onclick="sendSerialQuick('status')">status</button>
+              <button class="btn btn-blue" onclick="sendSerialTestEcho()">test_echo</button>
+            </div>
+            <div class="divider"></div>
+            <div style="font-size:.72em;color:var(--color-secondary);margin-bottom:4px;">实时输出</div>
+            <div class="log-area" id="serialTermRxArea" style="min-height:96px;max-height:140px;"></div>
+            <div class="divider"></div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:.75em;color:var(--color-secondary);margin-bottom:6px;">
+              <input type="checkbox" id="serialTermHexMode">
+              HEX 发送
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:.75em;color:var(--color-secondary);margin-bottom:8px;">
+              <input type="checkbox" id="serialTermAppendNewline" checked>
+              自动追加换行
+            </label>
+            <textarea id="serialTermInput" class="raw-send-area" style="width:100%;height:72px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:6px;color:var(--color-primary);padding:6px 8px;resize:none;" placeholder="输入串口命令，回车或按钮发送"></textarea>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+              <button class="btn btn-blue" style="flex:1;" onclick="sendSerialTerm()">发送到终端</button>
+              <button class="btn btn-ghost" onclick="clearSerialTermLogs()">清空日志</button>
+            </div>
+            <div id="serialTermTxHint" style="font-size:.72em;color:var(--color-secondary);margin-top:6px;font-family:monospace;"></div>
+          </div>
+        </div>
+
         <div class="card chs-tele">
           <div class="card-head">
             <span>实时遥测</span>
@@ -1158,20 +1223,29 @@ let chsPort = null;
 let statusPollTimer = null;
 let currentStreamTab = 'preview';  // 'preview' | 'detect'
 let selectedCameraSource = 'windows';
+let currentCameraSource = 'windows';
+let currentCameraDevice = null;
 let cameraDevicesCache = [];
+let desktopWindowItems = [];
 let detectModelCache = [];
 let selectedDetectModel = '';
+let serialTermConfigLoaded = false;
+let desktopCaptureTargetCache = null;
+let cropEditMode = false;
+let cropDragState = null;
 let _streamLoadingTimer = null;
 
 const CAMERA_SOURCE_TITLES = {
   windows: 'Windows 纯预览',
   a1: 'A1 板端 OSD',
+  aurora_window: 'Aurora 窗口',
   auto: '自动识别',
 };
 
 const CAMERA_SOURCE_DESCRIPTIONS = {
   windows: '预览保持原图，不叠加检测框；YOLOv8 只在 Windows 本地运行。',
   a1: '预览对应 A1 板端输入/OSD 画面，适合查看板侧检测结果。',
+  aurora_window: '抓取桌面上已显示的窗口内容；可自动找 Aurora，也可点选窗口或框选区域。',
   auto: '根据当前设备特性自动匹配 Windows 纯预览或 A1 板端源。',
 };
 
@@ -1204,6 +1278,7 @@ function hideStreamLoading() {
 function onStreamLoad() {
   hideStreamLoading();
   setCamOnline(true);
+  updateDesktopCropOverlay();
 }
 
 function onStreamError() {
@@ -1232,6 +1307,293 @@ function syncSourceButtons() {
   });
 }
 
+function describeDesktopTarget(target) {
+  if (!target) return 'Aurora 自动窗口';
+  if (target.mode === 'manual_window') {
+    const title = target.title || target.label || '手动点选窗口';
+    return `${title} · ${target.width || 0}x${target.height || 0}`;
+  }
+  if (target.mode === 'manual_region') {
+    return `${target.title || '手动框选区域'} · ${target.width || 0}x${target.height || 0}`;
+  }
+  return target.label || 'Aurora 自动窗口';
+}
+
+function refreshStreamFeed() {
+  const img = document.getElementById('stream');
+  if (!img) return;
+  img.src = (currentStreamTab === 'detect' ? '/detect_feed' : '/video_feed') + '?' + Date.now();
+}
+
+function updateDesktopCropOverlay(target = desktopCaptureTargetCache) {
+  const layer = document.getElementById('previewCropLayer');
+  const box = document.getElementById('previewCropBox');
+  const img = document.getElementById('stream');
+  if (!layer || !box || !img || !target) {
+    if (box) box.style.display = 'none';
+    return;
+  }
+  const wrapRect = layer.getBoundingClientRect();
+  const imgRect = img.getBoundingClientRect();
+  const crop = Array.isArray(target.crop_norm) && target.crop_norm.length === 4 ? target.crop_norm : [0, 0, 1, 1];
+  const left = Math.max(0, imgRect.left - wrapRect.left + imgRect.width * crop[0]);
+  const top = Math.max(0, imgRect.top - wrapRect.top + imgRect.height * crop[1]);
+  const width = Math.max(12, imgRect.width * (crop[2] - crop[0]));
+  const height = Math.max(12, imgRect.height * (crop[3] - crop[1]));
+  box.style.display = target.mode === 'manual_window' || target.mode === 'manual_region' || target.mode === 'auto_aurora' ? 'block' : 'none';
+  box.style.left = left + 'px';
+  box.style.top = top + 'px';
+  box.style.width = width + 'px';
+  box.style.height = height + 'px';
+  layer.style.pointerEvents = cropEditMode ? 'auto' : 'none';
+  box.style.borderColor = cropEditMode ? '#2563eb' : '#22c55e';
+}
+
+function updateDesktopCropSummary(target = desktopCaptureTargetCache) {
+  const el = document.getElementById('desktopCropSummary');
+  const btn = document.getElementById('cropEditBtn');
+  if (btn) btn.textContent = cropEditMode ? '关闭预览框选' : '开启预览框选';
+  if (!el) return;
+  if (!target || !target.crop_norm) {
+    el.textContent = '当前未启用额外裁剪。';
+    updateDesktopCropOverlay(target);
+    return;
+  }
+  const crop = target.crop_norm.map(v => Math.round(v * 100));
+  el.textContent = `当前裁剪：左上 ${crop[0]}%, ${crop[1]}% · 右下 ${crop[2]}%, ${crop[3]}%`;
+  updateDesktopCropOverlay(target);
+}
+
+function renderDesktopTarget(target) {
+  desktopCaptureTargetCache = target || null;
+  const summary = document.getElementById('desktopCaptureSummary');
+  const hint = document.getElementById('desktopCaptureHint');
+  if (summary) summary.textContent = '当前抓取目标：' + describeDesktopTarget(target);
+  if (hint) {
+    if (!target || target.mode === 'auto_aurora') {
+      hint.textContent = '当前由程序自动寻找 Aurora 主窗口；如果仍抓不准，请点选 Aurora 的视频区，或直接框选 device 里的视频画面。';
+    } else if (target.mode === 'manual_window') {
+      hint.textContent = '当前为手动点选窗口/控件抓取；若画面仍不准确，说明该视频区不是独立子窗口，请改用“框选区域”。';
+    } else {
+      hint.textContent = '当前为手动框选区域抓取；抓到的是桌面已显示的像素，不是 Aurora 内部原始源头。';
+    }
+  }
+  updateDesktopCropSummary(target);
+}
+
+function renderDesktopWindowOptions(items = [], currentTarget = null) {
+  const sel = document.getElementById('desktopWindowSelect');
+  if (!sel) return;
+  desktopWindowItems = items;
+  if (!items.length) {
+    sel.innerHTML = '<option value="">— 未发现可抓取窗口 —</option>';
+    renderDesktopTarget(currentTarget);
+    return;
+  }
+  sel.innerHTML = items.map(item => {
+    const text = `${item.title || '(无标题)'} · ${item.process_name || 'unknown'} · ${item.width}x${item.height}`;
+    const selected = currentTarget && currentTarget.mode === 'manual_window' && Number(currentTarget.hwnd) === Number(item.hwnd);
+    return `<option value="${item.hwnd}" ${selected ? 'selected' : ''}>${text}</option>`;
+  }).join('');
+  renderDesktopTarget(currentTarget);
+}
+
+function ensureDesktopCaptureActive(reloadDevices = false) {
+  selectedCameraSource = 'aurora_window';
+  syncSourceButtons();
+  updateSourceHint();
+  updateStreamSummary();
+  const sel = document.getElementById('cameraSelect');
+  const auroraDevice = cameraDevicesCache.find(cam => Number(cam.id) === -100);
+  const backendAuroraActive = Number(currentCameraDevice) === -100 && currentCameraSource === 'aurora_window';
+  if (sel && auroraDevice) sel.value = String(auroraDevice.id);
+  if (backendAuroraActive && !reloadDevices) {
+    refreshStreamFeed();
+    return Promise.resolve();
+  }
+  if (reloadDevices) {
+    loadCameraDevices();
+  }
+  return switchCamera();
+}
+
+function loadDesktopCaptureStatus() {
+  return apiJson('/desktop_capture/status').then(d => {
+    renderDesktopTarget(d);
+    return d;
+  }).catch(() => null);
+}
+
+function loadDesktopWindows(showToast = false) {
+  return apiJson('/desktop_windows').then(d => {
+    renderDesktopWindowOptions(d.items || [], d.current_target || null);
+    if (showToast) toast('✓ 窗口列表已刷新', 'ok');
+    return d;
+  }).catch(e => {
+    if (showToast) toast('✗ ' + e, 'err');
+    return null;
+  });
+}
+
+function useSelectedDesktopWindow() {
+  const sel = document.getElementById('desktopWindowSelect');
+  if (!sel || !sel.value) {
+    toast('请选择一个窗口', 'err');
+    return;
+  }
+  const item = desktopWindowItems.find(x => Number(x.hwnd) === Number(sel.value));
+  showStreamLoading('正在切换到所选窗口…');
+  apiJson('/desktop_capture/select_window', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(item ? {target: item} : {hwnd: parseInt(sel.value, 10)})
+  }).then(d => {
+    if (!d.success) throw new Error(d.error || '切换失败');
+    renderDesktopTarget(d.target);
+    return ensureDesktopCaptureActive(false);
+  }).then(() => {
+    toast('✓ 已切换到所选窗口抓取', 'ok');
+    loadDesktopWindows(false);
+  }).catch(e => {
+    hideStreamLoading();
+    toast('✗ ' + e, 'err');
+  });
+}
+
+function pickDesktopWindowInteractive() {
+  showStreamLoading('请到桌面上单击目标窗口或 Aurora 的视频区…');
+  apiJson('/desktop_capture/pick_window', {method: 'POST'}).then(d => {
+    if (!d.success) throw new Error(d.error || '点选失败');
+    renderDesktopTarget(d.target);
+    return ensureDesktopCaptureActive(false);
+  }).then(() => {
+    toast('✓ 已切换到点选窗口', 'ok');
+    loadDesktopWindows(false);
+  }).catch(e => {
+    hideStreamLoading();
+    toast('✗ ' + e, 'err');
+  });
+}
+
+function pickDesktopRegionInteractive() {
+  showStreamLoading('请拖拽框选 Aurora 的视频区域…');
+  apiJson('/desktop_capture/pick_region', {method: 'POST'}).then(d => {
+    if (!d.success) throw new Error(d.error || '框选失败');
+    renderDesktopTarget(d.target);
+    return ensureDesktopCaptureActive(false);
+  }).then(() => {
+    toast('✓ 已切换到框选区域', 'ok');
+    loadDesktopWindows(false);
+  }).catch(e => {
+    hideStreamLoading();
+    toast('✗ ' + e, 'err');
+  });
+}
+
+function resetDesktopCaptureTarget() {
+  showStreamLoading('正在恢复 Aurora 自动窗口抓取…');
+  apiJson('/desktop_capture/reset', {method: 'POST'}).then(d => {
+    if (!d.success) throw new Error(d.error || '恢复失败');
+    renderDesktopTarget(d.target);
+    return ensureDesktopCaptureActive(false);
+  }).then(() => {
+    toast('✓ 已恢复 Aurora 自动抓取', 'ok');
+    loadDesktopWindows(false);
+  }).catch(e => {
+    hideStreamLoading();
+    toast('✗ ' + e, 'err');
+  });
+}
+
+function previewPointToNorm(clientX, clientY) {
+  const img = document.getElementById('stream');
+  if (!img) return null;
+  const rect = img.getBoundingClientRect();
+  if (rect.width < 10 || rect.height < 10) return null;
+  const x = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
+  const y = Math.min(Math.max((clientY - rect.top) / rect.height, 0), 1);
+  return [x, y];
+}
+
+function startPreviewCropDrag(ev) {
+  if (!cropEditMode) return;
+  const point = previewPointToNorm(ev.clientX, ev.clientY);
+  if (!point) return;
+  cropDragState = {start: point, current: point};
+  ev.preventDefault();
+}
+
+function movePreviewCropDrag(ev) {
+  if (!cropEditMode || !cropDragState) return;
+  const point = previewPointToNorm(ev.clientX, ev.clientY);
+  if (!point) return;
+  cropDragState.current = point;
+  const [sx, sy] = cropDragState.start;
+  const [cx, cy] = cropDragState.current;
+  updateDesktopCropOverlay({
+    ...(desktopCaptureTargetCache || {}),
+    crop_norm: [Math.min(sx, cx), Math.min(sy, cy), Math.max(sx, cx), Math.max(sy, cy)]
+  });
+}
+
+function endPreviewCropDrag(ev) {
+  if (!cropEditMode || !cropDragState) return;
+  const point = previewPointToNorm(ev.clientX, ev.clientY);
+  if (point) cropDragState.current = point;
+  const [sx, sy] = cropDragState.start;
+  const [cx, cy] = cropDragState.current;
+  cropDragState = null;
+  const crop = [Math.min(sx, cx), Math.min(sy, cy), Math.max(sx, cx), Math.max(sy, cy)];
+  if (crop[2] - crop[0] < 0.02 || crop[3] - crop[1] < 0.02) {
+    updateDesktopCropOverlay();
+    return;
+  }
+  setDesktopCrop(crop, '✓ 已按预览框选更新裁剪');
+}
+
+function togglePreviewCropEdit() {
+  cropEditMode = !cropEditMode;
+  updateDesktopCropSummary(desktopCaptureTargetCache);
+}
+
+function setDesktopCrop(cropNorm, toastText = '✓ 已更新裁剪') {
+  return apiJson('/desktop_capture/set_crop', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({crop_norm: cropNorm})
+  }).then(d => {
+    if (!d.success) throw new Error(d.error || '裁剪失败');
+    renderDesktopTarget(d.target);
+    refreshStreamFeed();
+    if (toastText) toast(toastText, 'ok');
+    return d.target;
+  }).catch(e => {
+    toast('✗ ' + e, 'err');
+    throw e;
+  });
+}
+
+function resetDesktopCrop() {
+  apiJson('/desktop_capture/reset_crop', {method: 'POST'}).then(d => {
+    if (!d.success) throw new Error(d.error || '重置失败');
+    renderDesktopTarget(d.target);
+    refreshStreamFeed();
+    toast('✓ 已重置裁剪', 'ok');
+  }).catch(e => toast('✗ ' + e, 'err'));
+}
+
+function nudgeDesktopCrop(dx, dy, dw, dh) {
+  apiJson('/desktop_capture/nudge', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({dx, dy, dw, dh})
+  }).then(d => {
+    if (!d.success) throw new Error(d.error || '微调失败');
+    renderDesktopTarget(d.target);
+    refreshStreamFeed();
+  }).catch(e => toast('✗ ' + e, 'err'));
+}
+
 function pickBestDeviceForSource(source) {
   if (!cameraDevicesCache.length) return null;
   const currentSel = document.getElementById('cameraSelect');
@@ -1254,20 +1616,24 @@ function updateStreamSummary() {
   if (modeChip) {
     modeChip.textContent = currentStreamTab === 'detect'
       ? '检测框 + OSD 仅在 Windows 本地绘制'
+      : (selectedCameraSource === 'aurora_window'
+          ? 'Aurora 已显示画面 · 窗口抓取'
       : (selectedCameraSource === 'a1'
           ? 'A1 板端画面 · 带框/OSD'
           : selectedCameraSource === 'auto'
             ? '自动识别 · 由设备特性决定'
-            : '纯图像 · 无框');
+            : '纯图像 · 无框'));
   }
   if (summary) {
     summary.textContent = currentStreamTab === 'detect'
       ? 'Windows 本地 ONNX · 640 × 360 推理'
+      : (selectedCameraSource === 'aurora_window'
+          ? 'Aurora 窗口输入 · 1280 × 720 抓取'
       : (selectedCameraSource === 'a1'
           ? 'A1 板端预览 · 1280 × 720 输入'
           : selectedCameraSource === 'auto'
             ? '自动识别 · 1280 × 720 输入'
-          : 'Windows 纯预览 · 1280 × 720 输入');
+          : 'Windows 纯预览 · 1280 × 720 输入'));
   }
 }
 
@@ -1416,7 +1782,7 @@ function displayModelName(value) {
 }
 
 function setCameraSource(source, autoSwitch = true) {
-  selectedCameraSource = ['windows', 'a1', 'auto'].includes(source) ? source : 'auto';
+  selectedCameraSource = ['windows', 'a1', 'aurora_window', 'auto'].includes(source) ? source : 'auto';
   syncSourceButtons();
   updateSourceHint();
   updateStreamSummary();
@@ -1474,19 +1840,6 @@ function switchTab(tab) {
 }
 
 // ── Camera ─────────────────────────────────────────────────────────────────
-function capture(fmt) {
-  fetch('/capture', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({format:fmt})})
-  .then(r => r.json())
-  .then(d => {
-    if (d.success) {
-      captureCount++;
-      document.getElementById('counter').textContent = captureCount;
-      toast('✓ 已保存: ' + d.filename, 'ok');
-      fetchGallery();
-    } else { toast('✗ ' + d.error, 'err'); }
-  }).catch(e => toast('✗ ' + e, 'err'));
-}
-
 function refreshCam() {
   const btn = document.getElementById('camRefreshBtn');
   btn.disabled = true;
@@ -1519,6 +1872,8 @@ function loadCameraDevices() {
     if (!sel) return;
     const devices = d.devices || [];
     cameraDevicesCache = devices;
+    currentCameraDevice = d.current_device != null ? Number(d.current_device) : null;
+    currentCameraSource = d.current_source || currentCameraSource;
     const backendSource = d.current_source || '';
     if (backendSource) selectedCameraSource = backendSource;
     const current = d.current_device;
@@ -1555,18 +1910,18 @@ function loadCameraDevices() {
 
 function switchCamera() {
   const sel = document.getElementById('cameraSelect');
-  if (!sel || !sel.value) { toast('请选择摄像头设备', 'err'); return; }
+  if (!sel || !sel.value) { toast('请选择摄像头设备', 'err'); return Promise.resolve(false); }
   const device = parseInt(sel.value, 10);
-  if (Number.isNaN(device)) { toast('设备号无效', 'err'); return; }
+  if (Number.isNaN(device)) { toast('设备号无效', 'err'); return Promise.resolve(false); }
 
   const selectedDevice = cameraDevicesCache.find(cam => cam.id === device);
-  const requestedSource = selectedDevice && selectedDevice.source
-    ? selectedDevice.source
+  const requestedSource = selectedCameraSource === 'auto'
+    ? ((selectedDevice && selectedDevice.source) ? selectedDevice.source : 'auto')
     : selectedCameraSource;
 
   sel.disabled = true;
   showStreamLoading('切换摄像头中，请稍候…');
-  fetch('/switch_camera', {
+  return fetch('/switch_camera', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({device, source:requestedSource})
@@ -1575,28 +1930,19 @@ function switchCamera() {
       const img = document.getElementById('stream');
       const feedUrl = (currentStreamTab === 'detect' ? '/detect_feed' : '/video_feed') + '?' + Date.now();
       img.src = feedUrl;
+      currentCameraDevice = device;
+      currentCameraSource = d.source || currentCameraSource;
       selectedCameraSource = d.source || selectedCameraSource;
       toast('✓ 已切换摄像头设备 ' + device + ' · ' + (CAMERA_SOURCE_TITLES[selectedCameraSource] || selectedCameraSource), 'ok');
       loadCameraDevices();
+      return true;
     } else {
       hideStreamLoading();
       toast('✗ ' + d.error, 'err');
+      return false;
     }
-  }).catch(e=>{ hideStreamLoading(); toast('✗ '+e,'err'); })
+  }).catch(e=>{ hideStreamLoading(); toast('✗ '+e,'err'); return false; })
   .finally(()=>{ sel.disabled = false; });
-}
-
-function fetchGallery() {
-  fetch('/recent_captures').then(r=>r.json()).then(items=>{
-    document.getElementById('galleryCount').textContent = items.length + ' / 8';
-    const g = document.getElementById('gallery');
-    if (!items.length) { g.innerHTML = '<div class="gallery-empty">暂无拍摄记录</div>'; return; }
-    g.innerHTML = items.map(it=>`
-      <div class="gallery-item" title="${it.filename}">
-        <img src="data:image/jpeg;base64,${it.thumb}">
-        <div class="g-lbl">${it.time} · ${it.size}</div>
-      </div>`).join('');
-  }).catch(()=>{});
 }
 
 // ── Chassis / Relay / ROS ──────────────────────────────────────────────────
@@ -2236,6 +2582,201 @@ function updateTelemetry() {
   }).catch(() => {});
 }
 
+function forceRefreshDesktopCapture() {
+  showStreamLoading('正在强制刷新窗口目标…');
+  apiJson('/desktop_capture/force_refresh', {method: 'POST'}).then(d => {
+    if (!d.success) throw new Error(d.error || '刷新失败');
+    renderDesktopTarget(d.target);
+    refreshStreamFeed();
+    toast('✓ 已强制刷新当前窗口抓取', 'ok');
+  }).catch(e => {
+    hideStreamLoading();
+    toast('✗ ' + e, 'err');
+  });
+}
+
+function renderSerialTermPorts(ports = [], preferred = 'COM13') {
+  const sel = document.getElementById('serialTermPortSelect');
+  if (!sel) return;
+  if (!ports.length) {
+    sel.innerHTML = `<option value="${preferred || 'COM13'}">${preferred || 'COM13'}</option>`;
+    return;
+  }
+  sel.innerHTML = ports.map(item => {
+    const label = `${item.port} — ${item.desc || '未知设备'}`;
+    const selected = (item.port === preferred) ? 'selected' : '';
+    return `<option value="${item.port}" ${selected}>${label}</option>`;
+  }).join('');
+}
+
+function renderSerialTermLogs(rx = []) {
+  const area = document.getElementById('serialTermRxArea');
+  if (!area) return;
+  if (!rx.length) {
+    area.innerHTML = '<div class="mini-note">暂无串口输出</div>';
+    return;
+  }
+  area.innerHTML = rx.map(item => {
+    const text = item.text || item.hex || '';
+    const tail = item.partial ? ' [partial]' : '';
+    return `<div><span class="log-ts">${item.ts || '--:--:--'}</span><span class="log-rx">${text.replace(/</g, '&lt;')}</span><span style="font-size:.75em;color:var(--color-secondary);">${tail}</span></div>`;
+  }).join('');
+}
+
+function loadSerialTermPorts(showToast = false) {
+  return apiJson('/api/serial_term/ports').then(d => {
+    const ports = Array.isArray(d.ports) ? d.ports : [];
+    renderSerialTermPorts(ports, d.preferred || 'COM13');
+    if (showToast) toast('✓ 终端端口列表已刷新', 'ok');
+    return d;
+  }).catch(e => {
+    if (showToast) toast('✗ ' + e, 'err');
+    return {ports: []};
+  });
+}
+
+function loadSerialTermConfig() {
+  return apiJson('/api/serial_term/config').then(d => {
+    if (d.port != null) document.getElementById('serialTermPortSelect').value = d.port || 'COM13';
+    if (d.baud != null) document.getElementById('serialTermBaud').value = d.baud;
+    if (d.append_newline != null) document.getElementById('serialTermAppendNewline').checked = !!d.append_newline;
+    renderSerialTermPorts(Array.isArray(d.ports) ? d.ports : [], d.port || 'COM13');
+    serialTermConfigLoaded = true;
+    return d;
+  }).catch(() => ({success: false}));
+}
+
+function loadSerialTermStatus(silent = true) {
+  return apiJson('/api/serial_term/status').then(d => {
+    const badge = document.getElementById('serialTermBadge');
+    const hint = document.getElementById('serialTermHint');
+    if (badge) {
+      badge.textContent = d.connected ? '已连接' : '未连接';
+      badge.style.background = d.connected ? 'var(--color-success)' : 'var(--color-surface-hover)';
+      badge.style.color = d.connected ? '#fff' : 'var(--color-secondary)';
+    }
+    if (hint) {
+      hint.textContent = d.connected
+        ? `当前已连接 ${d.port} @ ${d.baud}，可直接发送 CLI 命令或 test_echo`
+        : '优先选择 COM13 / USB-HiSpeed-SERIAL-A / CH347F，或点“自动连接”。';
+    }
+    if (d.port) document.getElementById('serialTermPortSelect').value = d.port;
+    if (d.baud) document.getElementById('serialTermBaud').value = d.baud;
+    renderSerialTermLogs(Array.isArray(d.latest_lines) ? d.latest_lines : []);
+    return d;
+  }).catch(e => {
+    if (!silent) toast('✗ ' + e, 'err');
+    return {success: false, error: String(e)};
+  });
+}
+
+function autoConnectSerialTerm() {
+  const baud = parseInt(document.getElementById('serialTermBaud').value || '115200', 10);
+  apiJson('/api/serial_term/auto_connect', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({baud})
+  }).then(d => {
+    if (d.success) {
+      toast(`✓ 已自动连接 ${d.port}`, 'ok');
+      loadSerialTermPorts(false);
+      loadSerialTermStatus(true);
+    } else {
+      toast('✗ ' + d.error, 'err');
+    }
+  }).catch(e => toast('✗ ' + e, 'err'));
+}
+
+function connectSerialTerm() {
+  const port = document.getElementById('serialTermPortSelect').value.trim();
+  const baud = parseInt(document.getElementById('serialTermBaud').value || '115200', 10);
+  const append_newline = document.getElementById('serialTermAppendNewline').checked;
+  apiJson('/api/serial_term/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({port, baud, append_newline})
+  }).then(() => apiJson('/api/serial_term/connect', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({port, baud})
+  })).then(d => {
+    if (d.success) {
+      toast(`✓ 终端已连接 ${d.port}`, 'ok');
+      loadSerialTermStatus(true);
+    } else {
+      toast('✗ ' + d.error, 'err');
+    }
+  }).catch(e => toast('✗ ' + e, 'err'));
+}
+
+function disconnectSerialTerm() {
+  apiJson('/api/serial_term/disconnect', {method: 'POST'}).then(() => {
+    toast('终端已断开', 'info');
+    loadSerialTermStatus(true);
+  }).catch(e => toast('✗ ' + e, 'err'));
+}
+
+function sendSerialTerm() {
+  const text = document.getElementById('serialTermInput').value;
+  const hex_mode = document.getElementById('serialTermHexMode').checked;
+  const append_newline = document.getElementById('serialTermAppendNewline').checked;
+  apiJson('/api/serial_term/send', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({text, hex_mode, append_newline})
+  }).then(d => {
+    const hint = document.getElementById('serialTermTxHint');
+    if (d.success) {
+      if (hint) hint.textContent = `TX ${d.bytes_sent} bytes: ${d.hex}`;
+      toast('✓ 已发送到终端', 'ok');
+      document.getElementById('serialTermInput').value = '';
+      loadSerialTermStatus(true);
+    } else {
+      if (hint) hint.textContent = '发送失败: ' + d.error;
+      toast('✗ ' + d.error, 'err');
+    }
+  }).catch(e => toast('✗ ' + e, 'err'));
+}
+
+function sendSerialQuick(text) {
+  const input = document.getElementById('serialTermInput');
+  if (input) input.value = text;
+  sendSerialTerm();
+}
+
+function sendSerialTestEcho() {
+  const hint = document.getElementById('serialTermTxHint');
+  if (hint) hint.textContent = '正在通过 COM13 发送 test_echo 并等待回显…';
+  apiJson('/api/serial_term/send_test', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({command: 'test_echo', message: 'pc_frontend_test', auto_connect: true})
+  }).then(d => {
+    if (!d.success) {
+      if (hint) hint.textContent = '发送失败: ' + (d.error || '未知错误');
+      toast('✗ ' + (d.error || 'test_echo 失败'), 'err');
+      return;
+    }
+    const matched = d.matched && d.matched.text ? d.matched.text : '';
+    if (hint) hint.textContent = matched
+      ? `收到回显: ${matched}`
+      : `已发送测试指令，等待结果: ${d.message || '请查看实时输出'}`;
+    loadSerialTermStatus(true);
+    toast(matched ? '✓ 已收到串口 test_echo 回显' : '已发送 test_echo，请看终端输出', matched ? 'ok' : 'info');
+  }).catch(e => {
+    if (hint) hint.textContent = '发送失败: ' + e;
+    toast('✗ ' + e, 'err');
+  });
+}
+
+function clearSerialTermLogs() {
+  apiJson('/api/serial_term/clear', {method: 'POST'}).then(() => {
+    renderSerialTermLogs([]);
+    const hint = document.getElementById('serialTermTxHint');
+    if (hint) hint.textContent = '';
+  }).catch(() => {});
+}
+
 function hydrateRosConfig(config, force = false) {
   if (!config || (!force && rosConfigInitialized)) return;
   document.getElementById('rosPortInput').value = config.serial_port || document.getElementById('rosPortInput').value;
@@ -2443,10 +2984,14 @@ function updateRosSnapshotLoop() {
 setInterval(() => {
   fetch('/status').then(r=>r.json()).then(d=>{
     if (d.source) {
+      currentCameraSource = d.source;
       selectedCameraSource = d.source;
       syncSourceButtons();
       updateSourceHint();
       updateStreamSummary();
+    }
+    if (d.device != null) {
+      currentCameraDevice = Number(d.device);
     }
     if (d.model_name) {
       selectedDetectModel = d.model_name;
@@ -2464,6 +3009,7 @@ setInterval(pollLogs, 800);
 setInterval(() => loadChassisStatus(true), 2500);
 setInterval(() => loadRelayStatus(true), 2500);
 setInterval(() => loadRosStatus(true), 2500);
+setInterval(() => loadSerialTermStatus(true), 1200);
 
 // ── Keyboard shortcuts ──────────────────────────────────────────────────────
 const keyDirMap = {'w':0,'s':1,'d':2,'a':3,'arrowup':0,'arrowdown':1,'arrowright':2,'arrowleft':3};
@@ -2472,13 +3018,33 @@ document.addEventListener('keydown', e => {
   const tag = document.activeElement.tagName.toLowerCase();
   if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
   const k = e.key.toLowerCase();
-  if (k === '1') { capture('1280x720'); return; }
-  if (k === '2') { capture('640x360');  return; }
   if (k === 'r') { refreshCam();        return; }
   if (k === ' ') { e.preventDefault(); emergencyStop(); return; }
   if (k in keyDirMap) {
     e.preventDefault();
     if (!e.repeat) startMove(keyDirMap[k], 'key:' + k);
+  }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('serialTermInput');
+  if (input) {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendSerialTerm();
+      }
+    });
+  }
+  const cropLayer = document.getElementById('previewCropLayer');
+  if (cropLayer) {
+    cropLayer.addEventListener('mousedown', startPreviewCropDrag);
+    window.addEventListener('mousemove', movePreviewCropDrag);
+    window.addEventListener('mouseup', endPreviewCropDrag);
+  }
+  const stream = document.getElementById('stream');
+  if (stream) {
+    stream.addEventListener('load', () => updateDesktopCropOverlay());
   }
 });
 
@@ -2491,6 +3057,7 @@ document.addEventListener('keyup', e => {
 });
 
 window.addEventListener('blur', () => resetMotionState(true));
+window.addEventListener('resize', () => updateDesktopCropOverlay());
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) resetMotionState(true);
 });
@@ -2506,9 +3073,12 @@ function toast(msg, type = 'ok') {
 
 // ── Init ────────────────────────────────────────────────────────────────────
 refreshPorts();
-fetchGallery();
 loadCameraDevices();
+loadDesktopCaptureStatus();
+loadDesktopWindows(false);
 loadDetectModels();
+loadSerialTermPorts(false);
+loadSerialTermConfig().then(() => loadSerialTermStatus(true));
 loadRelayConfig().then(() => {
   loadRelayPorts(false);
   loadRelayStatus(true);

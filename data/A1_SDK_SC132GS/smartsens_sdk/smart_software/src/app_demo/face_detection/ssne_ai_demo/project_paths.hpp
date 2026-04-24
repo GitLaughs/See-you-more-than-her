@@ -21,9 +21,10 @@
 namespace cfg {
 
 // ─── 摄像头采集分辨率 ────────────────────────────────────────────────────────
-// SC132GS 传感器原生 1280×720 灰度 (Y8)
-constexpr int SENSOR_WIDTH  = 1280;
-constexpr int SENSOR_HEIGHT = 720;
+// 当前板端实际返回为竖屏 720×1280 灰度 (Y8)；
+// Aurora.exe 会在显示层做旋转，因此桌面看到的是转正后的画面。
+constexpr int SENSOR_WIDTH  = 720;
+constexpr int SENSOR_HEIGHT = 1280;
 
 // ─── 推理输入分辨率 ──────────────────────────────────────────────────────────
 // 将采集帧 1280×720 缩放至 640×360 送入 YOLOv8 模型 (保持 16:9, 无裁剪)
@@ -74,5 +75,9 @@ constexpr bool     LINK_TEST_ENABLED            = true;
 constexpr int16_t  LINK_TEST_FORWARD_VX         = 60;    // mm/s，故意放慢，避免联通性测试时车速过快
 constexpr uint64_t LINK_TEST_PERIOD_US          = 5000000ULL;
 constexpr uint64_t LINK_TEST_FORWARD_WINDOW_US  = 1000000ULL;
+
+// ─── PC ↔ A1 临时 TCP 测试模块（为后续深度信息回传铺路）──────────────────────
+constexpr bool     DEBUG_TEST_SERVER_ENABLED = false;
+constexpr uint16_t DEBUG_TEST_PORT           = 9091;
 
 } // namespace cfg

@@ -24,7 +24,7 @@
 # You shouldn't need to mess with anything beyond this point...
 #--------------------------------------------------------------
 
-# Delete default rules. We don't use them. This saves a bit of time.
+# Delete default rules. We do not use them. This saves a bit of time.
 .SUFFIXES:
 
 # we want bash as shell

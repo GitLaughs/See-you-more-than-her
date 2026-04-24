@@ -1,15 +1,18 @@
 #include <fstream>
 #include <iostream>
 #include <cstring>
+#include <chrono>
 #include <thread>
 #include <mutex>
 #include <fcntl.h>
 #include <regex>
 #include <dirent.h>
+#include <sstream>
 #include <unistd.h>
 #include <sys/time.h>
 #include "include/utils.hpp"
 #include "include/chassis_controller.hpp"
+#include "debug_server.hpp"
 #include "project_paths.hpp"
 
 using namespace std;
@@ -19,26 +22,96 @@ bool g_exit_flag = false;
 // 保护退出标志的互斥锁
 std::mutex g_mtx;
 
+std::string trim_copy(const std::string& input) {
+    const auto begin = input.find_first_not_of(" \t\r\n");
+    if (begin == std::string::npos) return "";
+    const auto end = input.find_last_not_of(" \t\r\n");
+    return input.substr(begin, end - begin + 1);
+}
+
+std::string json_escape(const std::string& text) {
+    std::ostringstream oss;
+    for (const unsigned char ch : text) {
+        switch (ch) {
+            case '\\': oss << "\\\\"; break;
+            case '"':  oss << "\\\""; break;
+            case '\n': oss << "\\n"; break;
+            case '\r': oss << "\\r"; break;
+            case '\t': oss << "\\t"; break;
+            default:   oss << ch; break;
+        }
+    }
+    return oss.str();
+}
+
+bool handle_console_command(const std::string& raw_input) {
+    const std::string input = trim_copy(raw_input);
+    if (input.empty()) {
+        return false;
+    }
+    if (input == "q" || input == "Q") {
+        std::lock_guard<std::mutex> lock(g_mtx);
+        g_exit_flag = true;
+        std::cout << "检测到退出指令，通知主线程退出..." << std::endl;
+        return true;
+    }
+
+    if (input == "help" || input == "HELP") {
+        std::cout
+            << "[A1_SERIAL] 可用命令: help | status | A1_TEST test_echo <msg> | q"
+            << std::endl;
+        return false;
+    }
+
+    if (input == "status" || input == "STATUS") {
+        std::cout
+            << "{\"success\":true,"
+            << "\"channel\":\"serial\","
+            << "\"message\":\"A1 串口调试在线\","
+            << "\"sensor_width\":" << cfg::SENSOR_WIDTH << ","
+            << "\"sensor_height\":" << cfg::SENSOR_HEIGHT << ","
+            << "\"link_test_enabled\":" << (cfg::LINK_TEST_ENABLED ? "true" : "false")
+            << "}" << std::endl;
+        return false;
+    }
+
+    if (input.find("A1_TEST") != std::string::npos || input.find("test_echo") != std::string::npos) {
+        std::cout
+            << "{\"success\":true,"
+            << "\"channel\":\"serial\","
+            << "\"command\":\"test_echo\","
+            << "\"message\":\"测试回传成功\","
+            << "\"echo\":\"" << json_escape(input) << "\"}"
+            << std::endl;
+        return false;
+    }
+
+    std::cout
+        << "{\"success\":false,"
+        << "\"channel\":\"serial\","
+        << "\"message\":\"未识别命令\","
+        << "\"echo\":\"" << json_escape(input) << "\"}"
+        << std::endl;
+    return false;
+}
+
 /**
  * @brief 键盘监听程序，用于结束demo
  */
 void keyboard_listener() {
     std::string input;
-    std::cout << "键盘监听线程已启动，输入 'q' 退出程序..." << std::endl;
+    std::cout << "键盘监听线程已启动，可输入: help | status | A1_TEST test_echo <msg> | q" << std::endl;
 
     while (true) {
-        // 读取键盘输入（会阻塞直到有输入）
-        std::cin >> input;
-
-        // 加锁修改退出标志
-        std::lock_guard<std::mutex> lock(g_mtx);
-        if (input == "q" || input == "Q") {
-            g_exit_flag = true;
-            std::cout << "检测到退出指令，通知主线程退出..." << std::endl;
+        if (!std::getline(std::cin, input)) {
+            if (std::cin.eof()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                std::cin.clear();
+                continue;
+            }
             break;
-        } else {
-            std::cout << "输入无效（仅 'q' 有效），请重新输入：" << std::endl;
         }
+        if (handle_console_command(input)) break;
     }
 }
 
@@ -72,9 +145,9 @@ int main() {
      ******************************************************************************************/
     
     // 图像尺寸配置
-    // 传感器采集: 1280×720 (16:9 Y8 灰度)
-    int img_width = 1280;   // 输入图像宽度
-    int img_height = 720;   // 输入图像高度
+    // 当前板端原始输出为竖屏 720×1280；Aurora.exe 显示层会再旋转。
+    int img_width = cfg::SENSOR_WIDTH;
+    int img_height = cfg::SENSOR_HEIGHT;
     
     // 模型配置参数
     // 推理输入: 640×360（由 RunAiPreprocessPipe 从 1280×720 缩放, 16:9 无裁剪）
@@ -98,6 +171,11 @@ int main() {
     
     IMAGEPROCESSOR processor;
     processor.Initialize(&img_shape);  // 初始化图像处理器（全分辨率 1280×720）
+    if (!processor.IsReady()) {
+        fprintf(stderr, "[FATAL] 在线图像 pipeline 初始化失败，终止 demo 以避免后续取图段错误\n");
+        ssne_release();
+        return 1;
+    }
     
     // YOLOv8 目标检测器初始化
     YOLOV8 detector;
@@ -125,6 +203,10 @@ int main() {
 
     const uint64_t link_test_start_us = monotonic_time_us();
     bool last_link_test_forward = false;
+    A1DebugServer debug_server;
+    if (cfg::DEBUG_TEST_SERVER_ENABLED) {
+        debug_server.Start(cfg::DEBUG_TEST_PORT);
+    }
 
     // 系统稳定等待
     cout << "sleep for 0.2 second!" << endl;
@@ -280,6 +362,7 @@ int main() {
     if (listener_thread.joinable()) {
         listener_thread.join();
     }
+    debug_server.Stop();
     
     /******************************************************************************************
      * 4. 资源释放

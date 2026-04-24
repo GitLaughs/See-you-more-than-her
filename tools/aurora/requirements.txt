@@ -5,3 +5,4 @@ flask
 pyserial
 onnxruntime
 ultralytics
+PySide6
