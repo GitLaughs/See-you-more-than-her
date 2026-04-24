@@ -31,11 +31,21 @@
 #include <cmath>
 #include <cstdio>
 #include <numeric>
+#include <sys/time.h>
 
 // ─── DFL/YOLOv8 专用常量 ─────────────────────────────────────────────────────
 static constexpr int kNumClasses  = cfg::YOLO_NUM_CLASSES;  // 训练类别数
 static constexpr int kRegBins     = cfg::YOLO_REG_BINS;     // DFL bins (16)
 static constexpr int kRegChannels = kRegBins * 4;           // = 64
+
+namespace {
+uint64_t monotonic_time_us() {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return static_cast<uint64_t>(tv.tv_sec) * 1000000ULL +
+           static_cast<uint64_t>(tv.tv_usec);
+}
+}
 
 // ─── 特征图尺寸计算辅助 ───────────────────────────────────────────────────────
 static inline int ceildiv(int a, int b) { return (a + b - 1) / b; }
@@ -154,16 +164,26 @@ void YOLOV8::Initialize(std::string&        model_path,
 void YOLOV8::Predict(ssne_tensor_t* img, FaceDetectionResult* result,
                      float conf_threshold)
 {
+    static uint64_t last_error_log_us = 0;
+    static uint64_t last_detect_log_us = 0;
     // ── 1. 硬件预处理: 1280×720 → 640×360 ────────────────────────────────
     int ret = RunAiPreprocessPipe(pipe_offline, *img, inputs[0]);
     if (ret != 0) {
-        printf("[YOLOV8][ERROR] RunAiPreprocessPipe failed, ret=%d\n", ret);
+        const uint64_t now_us = monotonic_time_us();
+        if (now_us - last_error_log_us >= 5000000ULL) {
+            printf("[YOLOV8][ERROR] RunAiPreprocessPipe failed, ret=%d\n", ret);
+            last_error_log_us = now_us;
+        }
         return;
     }
 
     // ── 2. NPU 推理 ───────────────────────────────────────────────────────
     if (ssne_inference(model_id, 1, inputs) != 0) {
-        fprintf(stderr, "[YOLOV8][ERROR] ssne_inference failed\n");
+        const uint64_t now_us = monotonic_time_us();
+        if (now_us - last_error_log_us >= 5000000ULL) {
+            fprintf(stderr, "[YOLOV8][ERROR] ssne_inference failed\n");
+            last_error_log_us = now_us;
+        }
         return;
     }
 
@@ -221,8 +241,12 @@ void YOLOV8::Predict(ssne_tensor_t* img, FaceDetectionResult* result,
         result->boxes[i][3] *= h_scale;
     }
 
-    printf("[YOLOV8] 检测到 %d 个目标 (conf>=%.2f)\n",
-           final_count, conf_threshold);
+    const uint64_t now_us = monotonic_time_us();
+    if (now_us - last_detect_log_us >= 5000000ULL) {
+        printf("[YOLOV8] 检测到 %d 个目标 (conf>=%.2f)\n",
+               final_count, conf_threshold);
+        last_detect_log_us = now_us;
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

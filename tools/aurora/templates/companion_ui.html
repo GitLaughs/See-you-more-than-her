@@ -284,8 +284,8 @@ body{
 }
 .card-body{padding:var(--space-3);}
 
-.preview-wrap{position:relative;background:#000;line-height:0;min-height:280px;}
-.preview-wrap img{width:100%;display:block;}
+.preview-wrap{position:relative;background:#000;line-height:0;min-height:280px;overflow:hidden;}
+.preview-wrap img{width:100%;display:block;transform:rotate(var(--preview-rotate, 0deg));transform-origin:center center;transition:transform .12s ease-out;}
 .preview-main-card{display:flex;flex-direction:column;min-height:0;}
 .preview-main-card .preview-wrap{flex:1 1 auto;min-height:420px;display:flex;align-items:stretch;}
 .preview-main-card .preview-wrap img{height:100%;object-fit:contain;}
@@ -577,29 +577,42 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
     </div>
 
     <div class="card" style="flex: 0 0 auto;">
-      <div class="card-head">窗口抓取与输入切换</div>
+      <div class="card-head">摄像头输入</div>
       <div class="card-body">
         <div class="form-row" style="margin-bottom:6px;">
-          <label>设备</label>
+          <label>摄像头</label>
           <select id="cameraSelect">
             <option value="">加载中...</option>
           </select>
         </div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="loadCameraDevices()">列表</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <button class="btn btn-ghost" style="justify-content:center;" onclick="loadCameraDevices(true, true)">扫描摄像头</button>
           <button class="btn btn-blue" style="flex:1;justify-content:center;" onclick="switchCamera()">切换</button>
+          <button class="btn btn-ghost" style="justify-content:center;" onclick="setCameraSource('a1')">切到 A1</button>
+          <button class="btn btn-ghost" style="justify-content:center;" onclick="setCameraSource('windows')">切到 Windows</button>
         </div>
         <div class="divider"></div>
         <div style="font-size:.72em;color:var(--color-secondary);margin-bottom:6px;">优先源</div>
         <div class="source-switch" id="cameraSourceSwitch">
           <button class="source-chip active" type="button" data-source="windows" onclick="setCameraSource('windows')">Windows</button>
           <button class="source-chip" type="button" data-source="a1" onclick="setCameraSource('a1')">A1</button>
-          <button class="source-chip" type="button" data-source="aurora_window" onclick="setCameraSource('aurora_window')">Aurora</button>
           <button class="source-chip" type="button" data-source="auto" onclick="setCameraSource('auto')">Auto</button>
         </div>
         <div id="cameraSourceHint" class="source-desc">优先级：找不到首选时自动降级。</div>
         <div class="divider"></div>
-        <div style="font-size:.72em;color:var(--color-secondary);margin-bottom:6px;">桌面窗口抓取工具</div>
+        <div style="font-size:.72em;color:var(--color-secondary);margin-bottom:6px;">预览旋转</div>
+        <div class="source-switch" id="previewRotationSwitch">
+          <button class="source-chip active" type="button" data-rotation="0" onclick="setPreviewRotation(0)">0°</button>
+          <button class="source-chip" type="button" data-rotation="90" onclick="setPreviewRotation(90)">90°</button>
+          <button class="source-chip" type="button" data-rotation="180" onclick="setPreviewRotation(180)">180°</button>
+          <button class="source-chip" type="button" data-rotation="270" onclick="setPreviewRotation(270)">270°</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="flex: 0 0 auto; display:none;">
+      <div class="card-head">电脑窗口截获</div>
+      <div class="card-body">
         <div class="mini-note" id="desktopCaptureSummary" style="margin-bottom:8px;">当前抓取目标：Aurora 自动窗口</div>
         <div class="form-row" style="margin-bottom:6px;">
           <label>窗口列表</label>
@@ -608,24 +621,23 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
           </select>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
-          <button class="btn btn-ghost" onclick="loadDesktopWindows(false)">刷新窗口</button>
+          <button class="btn btn-blue" onclick="startAuroraAndCapture()">启动/抓取 Aurora</button>
+          <button class="btn btn-ghost" onclick="loadDesktopWindows(true)">扫描窗口</button>
           <button class="btn btn-blue" onclick="useSelectedDesktopWindow()">使用所选窗口</button>
           <button class="btn btn-blue" onclick="pickDesktopWindowInteractive()">点选窗口</button>
           <button class="btn btn-ghost" onclick="pickDesktopRegionInteractive()">框选区域</button>
+          <button class="btn btn-ghost" onclick="resetDesktopCaptureTarget()">自动 Aurora</button>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
           <button class="btn btn-ghost" onclick="forceRefreshDesktopCapture()">强制刷新目标</button>
           <button class="btn btn-ghost" onclick="refreshStreamFeed()">重读当前画面</button>
         </div>
-        <button class="btn btn-ghost btn-full" onclick="resetDesktopCaptureTarget()" style="margin-bottom:8px;">
-          <label>恢复 Aurora 自动<small>重新自动寻找 Aurora 主窗口</small></label>
-        </button>
         <div id="desktopCaptureHint" class="source-desc">如果 Aurora 的视频区不是独立窗口，请用“框选区域”直接框住 device 里的视频画面。</div>
         <div class="divider"></div>
-        <div style="font-size:.72em;color:var(--color-secondary);margin-bottom:6px;">预览微调裁剪</div>
-        <div class="mini-note" id="desktopCropHint" style="margin-bottom:8px;">先点击“开启预览框选”，再直接在左侧预览图上拖拽要保留的区域；拖完后会立即生效。</div>
+        <div style="font-size:.72em;color:var(--color-secondary);margin-bottom:6px;">裁剪窗口/画面</div>
+        <div class="mini-note" id="desktopCropHint" style="margin-bottom:8px;">先切到 Aurora 窗口抓取，再点击“拖拽裁剪”。直接在左侧预览画面拖出要保留的区域，松手后立即刷新。</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
-          <button class="btn btn-blue" id="cropEditBtn" onclick="togglePreviewCropEdit()">开启预览框选</button>
+          <button class="btn btn-blue" id="cropEditBtn" onclick="togglePreviewCropEdit()">拖拽裁剪</button>
           <button class="btn btn-ghost" onclick="resetDesktopCrop()">重置裁剪</button>
         </div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;">
@@ -840,44 +852,31 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
 
     <div class="page" id="page-chassis">
       <section class="workflow-hero">
-        <div class="workflow-eyebrow">A1 Relay 工作流</div>
+        <div class="workflow-eyebrow">COM13 工作流</div>
         <h2>经由 A1 到 STM32</h2>
-        <p>这一页聚焦 PC → A1 Relay → STM32 的远端链路。先完成 A1 Companion 地址和远端串口配置，再进入共享操作区执行联通测试与控制。</p>
+        <p>这一页聚焦 PC → COM13 → A1_TEST → STM32 的本地串口链路。所有经由 A1 的测试和底盘控制都统一走 COM13 终端。</p>
         <div class="workflow-points">
           <div class="workflow-point">
-            <strong>1. 配置 A1 地址</strong>
-            <span>保存 Companion 地址和超时，先确认 A1 Relay 可达。</span>
+            <strong>1. 连接 COM13</strong>
+            <span>优先自动连接 USB-HiSpeed-SERIAL-A / CH347F 对应的 COM13。</span>
           </div>
           <div class="workflow-point">
-            <strong>2. 连接远端串口</strong>
-            <span>选择 A1 侧实际连接 STM32 的串口与波特率，再建立 relay。</span>
+            <strong>2. 发送 A1_TEST</strong>
+            <span>通过 A1 demo 内置 CLI 下发 debug_status、move、stop 等命令。</span>
           </div>
           <div class="workflow-point">
             <strong>3. 在共享区控制</strong>
-            <span>联通测试、遥测、运动控制和日志会自动改为 relay 目标。</span>
+            <span>联通测试、运动控制和日志会自动改为 COM13 目标。</span>
           </div>
         </div>
       </section>
 
       <div class="workflow-grid">
         <div class="card chs-relay">
-          <div class="card-head">A1 Relay 连接</div>
+          <div class="card-head">COM13 / A1_TEST 连接</div>
           <div class="card-body">
             <div class="form-row">
-              <label>地址</label>
-              <input type="text" id="relayUrl" value="" placeholder="http://A1-IP:5803">
-            </div>
-            <div class="form-row">
-              <label>超时</label>
-              <input type="number" id="relayTimeout" value="2.5" min="0.5" step="0.5">
-            </div>
-            <div style="display:flex;gap:8px;margin-top:6px;">
-              <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="saveRelayConfig()">保存地址</button>
-              <button class="btn btn-blue" style="flex:1;justify-content:center;" onclick="loadRelayStatus(false)">检测 Relay</button>
-            </div>
-            <div class="divider"></div>
-            <div class="form-row">
-              <label>远端口</label>
+              <label>端口</label>
               <select id="relayPortSelect"></select>
               <button class="btn btn-ghost" style="padding:5px 10px;" onclick="loadRelayPorts(true)" title="刷新端口">⟳</button>
             </div>
@@ -891,14 +890,14 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
               </select>
             </div>
             <div style="display:flex;gap:8px;margin-top:6px;">
-              <button class="btn btn-green" id="relayConnectBtn" onclick="connectRelay()" style="flex:1;">连接 Relay</button>
-              <button class="btn btn-red" id="relayDisconnectBtn" onclick="disconnectRelay()" style="flex:1;" disabled>断开</button>
+              <button class="btn btn-green" id="relayConnectBtn" onclick="connectRelay()" style="flex:1;">连接 COM13</button>
+              <button class="btn btn-red" id="relayDisconnectBtn" onclick="disconnectRelay()" style="flex:1;" disabled>释放目标</button>
             </div>
             <div id="relayConnMsg" style="font-size:.75em;color:var(--color-secondary);margin-top:8px;"></div>
             <div class="divider"></div>
-            <div class="state-line">Relay 状态：<b id="relayReachability">未检测</b></div>
-            <div class="state-line">远端模型：<b id="relayModelName">—</b></div>
-            <div class="mini-note" style="margin-top:8px;">左侧预览建议切到 A1 板端 OSD，这样可以同时观察远端视觉输入和 relay 链路状态。</div>
+            <div class="state-line">COM13 状态：<b id="relayReachability">未检测</b></div>
+            <div class="state-line">命令通道：<b id="relayModelName">A1_TEST</b></div>
+            <div class="mini-note" style="margin-top:8px;">左侧预览建议切到 A1 板端 OSD；底盘命令会通过 COM13 发送到 A1 demo，再由 A1 UART0 控制 STM32。</div>
           </div>
         </div>
 
@@ -906,10 +905,10 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
           <div class="card-head">经由 A1 的工作顺序</div>
           <div class="card-body">
             <div class="stm32-steps">
-              <div class="stm32-step"><b>1.</b> 先保存 A1 Companion 地址，再点击“检测 Relay”确认网络可达。</div>
-              <div class="stm32-step"><b>2.</b> 选择 A1 侧实际接 STM32 的远端串口并建立连接。</div>
-              <div class="stm32-step"><b>3.</b> 到下方共享操作区执行联通测试，验证 PC → A1 → STM32 → A1 → PC 的完整链路。</div>
-              <div class="stm32-step"><b>4.</b> 链路通过后再使用运动控制、原始帧发送和日志面板持续调试。</div>
+              <div class="stm32-step"><b>1.</b> 点击“连接 COM13”，确认 A1 demo 的串口终端在线。</div>
+              <div class="stm32-step"><b>2.</b> 到下方共享操作区执行联通测试，发送 A1_TEST debug_status。</div>
+              <div class="stm32-step"><b>3.</b> 使用运动控制时会发送 A1_TEST move vx vy vz，松开或急停会发送 A1_TEST stop。</div>
+              <div class="stm32-step"><b>4.</b> 如需看详细回传，直接查看 A1 串口终端实时输出。</div>
             </div>
           </div>
         </div>
@@ -923,7 +922,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
             </div>
           </div>
           <div class="card-body">
-            <div id="wiringViewNote" style="font-size:.75em;color:var(--color-secondary);margin-bottom:8px;">A1 Relay 场景下，A1 通过 UART0 与 STM32 UART3 直连并共地。</div>
+            <div id="wiringViewNote" style="font-size:.75em;color:var(--color-secondary);margin-bottom:8px;">COM13 控制场景下，PC 通过 A1 串口终端下发 A1_TEST，A1 通过 UART0 与 STM32 UART3 直连并共地。</div>
             <table class="wire-table">
               <thead>
                 <tr><th>场景</th><th>发送端 (TX)</th><th>→</th><th>接收端 (RX)</th><th>说明</th></tr>
@@ -994,7 +993,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
           <h3>联通测试、遥测、运动控制和日志会自动跟随当前页面目标</h3>
           <p id="sharedTargetLabel">当前目标：电脑直连 STM32</p>
         </div>
-        <div class="mini-note">顶部页面决定 direct / relay 目标，不再需要额外切换按钮。</div>
+        <div class="mini-note">顶部页面决定 direct / COM13 目标，不再需要额外切换按钮。</div>
       </div>
 
       <div class="workflow-grid">
@@ -1011,7 +1010,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
             </div>
             <pre id="pingResult" style="background:var(--color-surface-hover);border-radius:6px;padding:8px 10px;font-size:.72em;color:var(--color-primary);font-family:monospace;white-space:pre-wrap;min-height:40px;margin:0;"></pre>
             <div class="divider"></div>
-            <div style="font-size:.72em;color:var(--color-secondary);">直连模式测试的是 PC → STM32；Relay 模式测试的是 PC → A1 → STM32。</div>
+            <div style="font-size:.72em;color:var(--color-secondary);">直连模式测试的是 PC → STM32；COM13 模式测试的是 PC → COM13 → A1_TEST。</div>
           </div>
         </div>
 
@@ -1039,11 +1038,16 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
               <button class="btn btn-green" style="flex:1;" onclick="connectSerialTerm()">连接终端</button>
               <button class="btn btn-red" style="flex:1;" onclick="disconnectSerialTerm()">断开</button>
             </div>
-            <div id="serialTermHint" class="mini-note" style="margin-bottom:8px;">优先选择 `COM13 / USB-HiSpeed-SERIAL-A / CH347F`。如果 TCP 测试服务不可用，请直接使用下面的串口测试按钮。</div>
+            <div id="serialTermHint" class="mini-note" style="margin-bottom:8px;">优先选择 `COM13 / USB-HiSpeed-SERIAL-A / CH347F`。A1 测试命令统一通过这个终端发送。</div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
               <button class="btn btn-ghost" onclick="sendSerialQuick('help')">help</button>
               <button class="btn btn-ghost" onclick="sendSerialQuick('status')">status</button>
-              <button class="btn btn-blue" onclick="sendSerialTestEcho()">test_echo</button>
+              <button class="btn btn-blue" onclick="sendSerialTestCommand('test_echo')">test_echo</button>
+              <button class="btn btn-ghost" onclick="sendSerialTestCommand('debug_status')">debug_status</button>
+              <button class="btn btn-ghost" onclick="sendSerialTestCommand('debug_frame')">debug_frame</button>
+              <button class="btn btn-ghost" onclick="sendSerialTestCommand('debug_last')">debug_last</button>
+              <button class="btn btn-ghost" onclick="sendSerialTestCommand('link_test', 'off', ['&quot;command&quot;:&quot;link_test&quot;'])">link off</button>
+              <button class="btn btn-ghost" onclick="sendSerialTestCommand('link_test', 'on', ['&quot;command&quot;:&quot;link_test&quot;'])">link on</button>
             </div>
             <div class="divider"></div>
             <div style="font-size:.72em;color:var(--color-secondary);margin-bottom:4px;">实时输出</div>
@@ -1234,18 +1238,18 @@ let desktopCaptureTargetCache = null;
 let cropEditMode = false;
 let cropDragState = null;
 let _streamLoadingTimer = null;
+let _streamReconnectTimer = null;
+let previewRotation = parseInt(localStorage.getItem('auroraPreviewRotation') || '0', 10) || 0;
 
 const CAMERA_SOURCE_TITLES = {
   windows: 'Windows 纯预览',
   a1: 'A1 板端 OSD',
-  aurora_window: 'Aurora 窗口',
   auto: '自动识别',
 };
 
 const CAMERA_SOURCE_DESCRIPTIONS = {
   windows: '预览保持原图，不叠加检测框；YOLOv8 只在 Windows 本地运行。',
   a1: '预览对应 A1 板端输入/OSD 画面，适合查看板侧检测结果。',
-  aurora_window: '抓取桌面上已显示的窗口内容；可自动找 Aurora，也可点选窗口或框选区域。',
   auto: '根据当前设备特性自动匹配 Windows 纯预览或 A1 板端源。',
 };
 
@@ -1276,6 +1280,7 @@ function hideStreamLoading() {
 }
 
 function onStreamLoad() {
+  clearTimeout(_streamReconnectTimer);
   hideStreamLoading();
   setCamOnline(true);
   updateDesktopCropOverlay();
@@ -1284,6 +1289,13 @@ function onStreamLoad() {
 function onStreamError() {
   hideStreamLoading();
   setCamOnline(false);
+  clearTimeout(_streamReconnectTimer);
+  _streamReconnectTimer = setTimeout(() => {
+    if (!document.hidden) {
+      showStreamLoading('视频流断开，正在重新同步…');
+      refreshStreamFeed();
+    }
+  }, 900);
 }
 
 function setCamOnline(ok) {
@@ -1303,7 +1315,18 @@ function updateSourceHint() {
 
 function syncSourceButtons() {
   document.querySelectorAll('.source-chip').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.source === selectedCameraSource);
+    if (btn.dataset.source) btn.classList.toggle('active', btn.dataset.source === selectedCameraSource);
+  });
+}
+
+function setPreviewRotation(deg) {
+  const normalized = [0, 90, 180, 270].includes(Number(deg)) ? Number(deg) : 0;
+  previewRotation = normalized;
+  localStorage.setItem('auroraPreviewRotation', String(previewRotation));
+  const wrap = document.querySelector('.preview-wrap');
+  if (wrap) wrap.style.setProperty('--preview-rotate', previewRotation + 'deg');
+  document.querySelectorAll('#previewRotationSwitch .source-chip').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.rotation) === previewRotation);
   });
 }
 
@@ -1352,7 +1375,7 @@ function updateDesktopCropOverlay(target = desktopCaptureTargetCache) {
 function updateDesktopCropSummary(target = desktopCaptureTargetCache) {
   const el = document.getElementById('desktopCropSummary');
   const btn = document.getElementById('cropEditBtn');
-  if (btn) btn.textContent = cropEditMode ? '关闭预览框选' : '开启预览框选';
+  if (btn) btn.textContent = cropEditMode ? '结束裁剪' : '拖拽裁剪';
   if (!el) return;
   if (!target || !target.crop_norm) {
     el.textContent = '当前未启用额外裁剪。';
@@ -1412,9 +1435,13 @@ function ensureDesktopCaptureActive(reloadDevices = false) {
     return Promise.resolve();
   }
   if (reloadDevices) {
-    loadCameraDevices();
+    return loadCameraDevices(true, false).then(() => {
+      const nextAuroraDevice = cameraDevicesCache.find(cam => Number(cam.id) === -100);
+      if (sel && nextAuroraDevice) sel.value = String(nextAuroraDevice.id);
+      return switchCamera(-100, 'aurora_window');
+    });
   }
-  return switchCamera();
+  return switchCamera(-100, 'aurora_window');
 }
 
 function loadDesktopCaptureStatus() {
@@ -1424,8 +1451,9 @@ function loadDesktopCaptureStatus() {
   }).catch(() => null);
 }
 
-function loadDesktopWindows(showToast = false) {
-  return apiJson('/desktop_windows').then(d => {
+function loadDesktopWindows(showToast = false, startAurora = false) {
+  const url = startAurora ? '/desktop_windows?start_aurora=1' : '/desktop_windows';
+  return apiJson(url).then(d => {
     renderDesktopWindowOptions(d.items || [], d.current_target || null);
     if (showToast) toast('✓ 窗口列表已刷新', 'ok');
     return d;
@@ -1599,7 +1627,10 @@ function pickBestDeviceForSource(source) {
   const currentSel = document.getElementById('cameraSelect');
   const currentValue = currentSel && currentSel.value ? parseInt(currentSel.value, 10) : null;
   const normalized = source || 'auto';
-  if (normalized === 'auto') return currentValue !== null && !Number.isNaN(currentValue) ? currentValue : cameraDevicesCache[0].id;
+  if (normalized === 'auto') {
+    const nonWindow = cameraDevicesCache.find(cam => cam.source !== 'aurora_window');
+    return nonWindow ? nonWindow.id : (currentValue !== null && !Number.isNaN(currentValue) ? currentValue : cameraDevicesCache[0].id);
+  }
   const match = cameraDevicesCache.find(cam => cam.source === normalized);
   if (match) return match.id;
   return currentValue !== null && !Number.isNaN(currentValue) ? currentValue : cameraDevicesCache[0].id;
@@ -1782,7 +1813,7 @@ function displayModelName(value) {
 }
 
 function setCameraSource(source, autoSwitch = true) {
-  selectedCameraSource = ['windows', 'a1', 'aurora_window', 'auto'].includes(source) ? source : 'auto';
+  selectedCameraSource = ['windows', 'a1', 'auto'].includes(source) ? source : 'auto';
   syncSourceButtons();
   updateSourceHint();
   updateStreamSummary();
@@ -1792,7 +1823,11 @@ function setCameraSource(source, autoSwitch = true) {
     sel.value = String(best);
   }
   if (autoSwitch) {
-    switchCamera();
+    const selectedDevice = cameraDevicesCache.find(cam => String(cam.id) === String(sel && sel.value));
+    const source = selectedDevice && selectedDevice.source && selectedDevice.source !== 'aurora_window'
+      ? selectedDevice.source
+      : selectedCameraSource;
+    switchCamera(null, source);
   }
 }
 
@@ -1865,9 +1900,14 @@ function refreshCam() {
 }
 
 let _camDeviceRetryTimer = null;
-function loadCameraDevices() {
+function loadCameraDevices(forceScan = false, showToast = false) {
   if (_camDeviceRetryTimer) { clearTimeout(_camDeviceRetryTimer); _camDeviceRetryTimer = null; }
-  fetch('/camera_devices').then(r=>r.json()).then(d=>{
+  const initialSelect = document.getElementById('cameraSelect');
+  if (initialSelect && forceScan) {
+    initialSelect.disabled = true;
+    initialSelect.innerHTML = '<option value="">— 正在扫描输入设备… —</option>';
+  }
+  return fetch('/camera_devices' + (forceScan ? '?refresh=1' : '')).then(r=>r.json()).then(d=>{
     const sel = document.getElementById('cameraSelect');
     if (!sel) return;
     const devices = d.devices || [];
@@ -1892,34 +1932,54 @@ function loadCameraDevices() {
       return;
     }
     sel.innerHTML = devices.map(cam =>
-      `<option value="${cam.id}" ${cam.id===current?'selected':''}>${cam.label} · ${cam.source_label || cam.source || 'unknown'}</option>`
+      `<option value="${cam.id}" ${Number(cam.id)===Number(current)?'selected':''}>${cam.label} · ${cam.source_label || cam.source || 'unknown'}</option>`
     ).join('');
-    const active = devices.find(cam => cam.id === current) || devices[0];
-    if (!backendSource && active && active.source) selectedCameraSource = active.source;
+    const active = devices.find(cam => Number(cam.id) === Number(current)) || devices[0];
+    if (backendSource && backendSource !== 'aurora_window') {
+      selectedCameraSource = backendSource;
+    } else if (!backendSource && active && active.source && active.source !== 'aurora_window') {
+      selectedCameraSource = active.source;
+    }
     syncSourceButtons();
     updateSourceHint();
     updateStreamSummary();
+    if (showToast) toast(`✓ 已扫描到 ${devices.length} 个输入源`, 'ok');
+    if (d.scan_error && showToast) toast('⚠ ' + d.scan_error, 'info');
+    if (d.bootstrapping) {
+      _camDeviceRetryTimer = setTimeout(() => loadCameraDevices(false, false), 1000);
+    }
   }).catch(()=>{
     // 网络/500 错误时，若仍在探测状态则继续轮询
     const sel = document.getElementById('cameraSelect');
     if (sel && sel.options[0] && sel.options[0].text.includes('探测')) {
       _camDeviceRetryTimer = setTimeout(loadCameraDevices, 1500);
     }
+  }).finally(() => {
+    const sel = document.getElementById('cameraSelect');
+    if (sel) sel.disabled = false;
   });
 }
 
-function switchCamera() {
+function switchCamera(deviceOverride = null, sourceOverride = null) {
   const sel = document.getElementById('cameraSelect');
-  if (!sel || !sel.value) { toast('请选择摄像头设备', 'err'); return Promise.resolve(false); }
-  const device = parseInt(sel.value, 10);
+  if ((deviceOverride === null || deviceOverride === undefined) && (!sel || !sel.value)) {
+    toast('请选择摄像头设备', 'err');
+    return Promise.resolve(false);
+  }
+  const device = deviceOverride !== null && deviceOverride !== undefined
+    ? parseInt(deviceOverride, 10)
+    : parseInt(sel.value, 10);
   if (Number.isNaN(device)) { toast('设备号无效', 'err'); return Promise.resolve(false); }
 
-  const selectedDevice = cameraDevicesCache.find(cam => cam.id === device);
-  const requestedSource = selectedCameraSource === 'auto'
+  const selectedDevice = cameraDevicesCache.find(cam => Number(cam.id) === Number(device));
+  const selectedSource = sourceOverride || selectedCameraSource;
+  const requestedSource = selectedSource === 'auto'
     ? ((selectedDevice && selectedDevice.source) ? selectedDevice.source : 'auto')
-    : selectedCameraSource;
+    : ((selectedDevice && selectedDevice.source && selectedDevice.source !== 'aurora_window')
+        ? selectedDevice.source
+        : selectedSource);
 
-  sel.disabled = true;
+  if (sel) sel.disabled = true;
   showStreamLoading('切换摄像头中，请稍候…');
   return fetch('/switch_camera', {
     method:'POST',
@@ -1934,7 +1994,7 @@ function switchCamera() {
       currentCameraSource = d.source || currentCameraSource;
       selectedCameraSource = d.source || selectedCameraSource;
       toast('✓ 已切换摄像头设备 ' + device + ' · ' + (CAMERA_SOURCE_TITLES[selectedCameraSource] || selectedCameraSource), 'ok');
-      loadCameraDevices();
+      loadCameraDevices(false, false);
       return true;
     } else {
       hideStreamLoading();
@@ -1942,7 +2002,7 @@ function switchCamera() {
       return false;
     }
   }).catch(e=>{ hideStreamLoading(); toast('✗ '+e,'err'); return false; })
-  .finally(()=>{ sel.disabled = false; });
+  .finally(()=>{ if (sel) sel.disabled = false; });
 }
 
 // ── Chassis / Relay / ROS ──────────────────────────────────────────────────
@@ -1973,7 +2033,7 @@ function normalizeLogResponse(data) {
 }
 
 function targetLabel(target = controlTarget) {
-  return target === 'relay' ? 'A1 Relay' : '电脑直连 STM32';
+  return target === 'relay' ? 'COM13 经由 A1' : '电脑直连 STM32';
 }
 
 function targetApiBase(target = controlTarget) {
@@ -1986,7 +2046,7 @@ function targetConnected(target = controlTarget) {
 
 function setChsStatus(online, port, target = controlTarget) {
   const dot = document.getElementById('chsDot');
-  const prefix = target === 'relay' ? 'Relay' : '直连';
+  const prefix = target === 'relay' ? 'COM13' : '直连';
   dot.className = 'chassis-dot ' + (online ? 'on' : 'off');
   document.getElementById('chsStatus').textContent = online ? `${prefix} ${port || '在线'}` : `${prefix} 未连接`;
 }
@@ -2016,7 +2076,7 @@ function setWiringView(view) {
   if (note) {
     note.textContent = wiringView === 'pc'
       ? 'PC 调试场景下，USB 串口直接连接 STM32 UART3，并保持和 STM32 共地。'
-      : 'A1 Relay 场景下，A1 通过 UART0 与 STM32 UART3 直连并共地。';
+      : 'COM13 控制场景下，PC 通过 A1 串口终端下发 A1_TEST，A1 通过 UART0 与 STM32 UART3 直连并共地。';
   }
 }
 
@@ -2128,7 +2188,7 @@ function renderRelayPortOptions(ports, markNew = false) {
   if (!sel) return;
   const cur = sel.value;
   if (!ports.length) {
-    sel.innerHTML = '<option value="">— 无可用远端口 —</option>';
+    sel.innerHTML = '<option value="">— 未发现 COM13 —</option>';
     return;
   }
   const previous = new Set(knownRelayPorts);
@@ -2142,23 +2202,19 @@ function renderRelayPortOptions(ports, markNew = false) {
 
 function loadRelayConfig() {
   return apiJson('/api/relay/config').then(d => {
-    if (d.base_url) document.getElementById('relayUrl').value = d.base_url;
-    if (d.timeout_sec != null) document.getElementById('relayTimeout').value = d.timeout_sec;
     relayConfigLoaded = true;
   }).catch(() => {});
 }
 
 function saveRelayConfig(showToast = true) {
-  const base_url = document.getElementById('relayUrl').value.trim();
-  const timeout_sec = parseFloat(document.getElementById('relayTimeout').value || '2.5');
   return apiJson('/api/relay/config', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({base_url, timeout_sec})
+    body: JSON.stringify({})
   }).then(d => {
     if (d.success) {
       relayConfigLoaded = true;
-      if (showToast) toast('Relay 地址已保存', 'ok');
+      if (showToast) toast('COM13 配置已确认', 'ok');
       return d;
     }
     if (showToast) toast('✗ ' + d.error, 'err');
@@ -2170,11 +2226,6 @@ function saveRelayConfig(showToast = true) {
 }
 
 function loadRelayPorts(markNew = false) {
-  const baseUrl = document.getElementById('relayUrl').value.trim();
-  if (!baseUrl) {
-    document.getElementById('relayPortSelect').innerHTML = '';
-    return Promise.resolve({ports: []});
-  }
   return apiJson('/api/relay/ports').then(d => {
     const ports = normalizePortResponse(d);
     renderRelayPortOptions(ports, markNew);
@@ -2183,20 +2234,6 @@ function loadRelayPorts(markNew = false) {
 }
 
 function loadRelayStatus(silent = true) {
-  const baseUrl = document.getElementById('relayUrl').value.trim();
-  if (!baseUrl) {
-    relayConnected = false;
-    relayPort = null;
-    const reach = document.getElementById('relayReachability');
-    reach.textContent = '未配置';
-    reach.style.color = 'var(--color-secondary)';
-    document.getElementById('relayModelName').textContent = '—';
-    document.getElementById('relayConnMsg').textContent = '未配置 A1 Companion 地址';
-    document.getElementById('relayConnectBtn').disabled = true;
-    document.getElementById('relayDisconnectBtn').disabled = true;
-    if (controlTarget === 'relay') setChsStatus(false, null, 'relay');
-    return Promise.resolve({success: false, reachable: false, error: 'A1 Companion 地址未配置'});
-  }
   return apiJson('/api/relay/status').then(d => {
     relayConnected = !!d.connected;
     relayPort = d.port || null;
@@ -2213,9 +2250,9 @@ function loadRelayStatus(silent = true) {
     document.getElementById('relayConnectBtn').disabled = relayConnected;
     document.getElementById('relayDisconnectBtn').disabled = !relayConnected;
     if (d.connected) {
-      document.getElementById('relayConnMsg').textContent = '已连接远端 ' + (d.port || '串口');
+      document.getElementById('relayConnMsg').textContent = '已连接 ' + (d.port || 'COM13') + '，命令将走 A1_TEST';
     } else if (!d.reachable) {
-      document.getElementById('relayConnMsg').textContent = d.error || 'A1 Relay 不可达';
+      document.getElementById('relayConnMsg').textContent = d.error || 'COM13 未连接';
     }
     if (controlTarget === 'relay') setChsStatus(relayConnected, d.port, 'relay');
     return d;
@@ -2235,7 +2272,7 @@ function connectRelay() {
   const port = document.getElementById('relayPortSelect').value;
   const baud = parseInt(document.getElementById('relayBaudSelect').value, 10);
   if (!port) {
-    toast('请选择远端串口', 'err');
+    toast('请选择 COM13 端口', 'err');
     return;
   }
   saveRelayConfig(false).then(() => apiJson('/api/relay/connect', {
@@ -2246,11 +2283,11 @@ function connectRelay() {
     if (d.success) {
       relayConnected = true;
       relayPort = d.port || port;
-      document.getElementById('relayConnMsg').textContent = '已连接远端 ' + d.port + ' @ ' + d.baud;
+      document.getElementById('relayConnMsg').textContent = '已连接 ' + (d.port || 'COM13') + ' @ ' + (d.baud || 115200);
       document.getElementById('relayConnectBtn').disabled = true;
       document.getElementById('relayDisconnectBtn').disabled = false;
       if (controlTarget === 'relay') setChsStatus(true, d.port, 'relay');
-      toast('✓ A1 Relay 已连接', 'ok');
+      toast('✓ COM13 已连接', 'ok');
       loadRelayStatus(true);
     } else {
       toast('✗ ' + d.error, 'err');
@@ -2260,13 +2297,8 @@ function connectRelay() {
 
 function disconnectRelay() {
   apiJson('/api/relay/disconnect', {method: 'POST'}).then(() => {
-    relayConnected = false;
-    relayPort = null;
-    document.getElementById('relayConnectBtn').disabled = false;
-    document.getElementById('relayDisconnectBtn').disabled = true;
-    document.getElementById('relayConnMsg').textContent = '远端底盘已断开';
-    if (controlTarget === 'relay') setChsStatus(false, null, 'relay');
-    toast('A1 Relay 已断开', 'info');
+    loadRelayStatus(true);
+    toast('COM13 目标已释放，终端连接保持可用', 'info');
   }).catch(() => {});
 }
 
@@ -2406,7 +2438,7 @@ function runPingTest(scope = 'chassis') {
         `⚠️ 目标链路: ${targetLabel()}\n` +
         `控制已发送，未收到遥测回传\n\n` +
         `发送帧: ${d.frame_tx}\n\n` +
-        (d.note || '请检查回传链路或远端串口状态');
+        (d.note || '请检查 COM13 / A1_TEST 回传状态');
     }
   }).catch(e => {
     btn.disabled = false;
@@ -2657,7 +2689,7 @@ function loadSerialTermStatus(silent = true) {
     }
     if (hint) {
       hint.textContent = d.connected
-        ? `当前已连接 ${d.port} @ ${d.baud}，可直接发送 CLI 命令或 test_echo`
+        ? `当前已连接 ${d.port} @ ${d.baud}，可直接发送 CLI / A1_TEST 调试命令`
         : '优先选择 COM13 / USB-HiSpeed-SERIAL-A / CH347F，或点“自动连接”。';
     }
     if (d.port) document.getElementById('serialTermPortSelect').value = d.port;
@@ -2745,16 +2777,20 @@ function sendSerialQuick(text) {
 }
 
 function sendSerialTestEcho() {
+  sendSerialTestCommand('test_echo');
+}
+
+function sendSerialTestCommand(command, message = 'pc_frontend_test', wait_tokens = null) {
   const hint = document.getElementById('serialTermTxHint');
-  if (hint) hint.textContent = '正在通过 COM13 发送 test_echo 并等待回显…';
+  if (hint) hint.textContent = `正在通过 COM13 发送 ${command} 并等待回显…`;
   apiJson('/api/serial_term/send_test', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({command: 'test_echo', message: 'pc_frontend_test', auto_connect: true})
+    body: JSON.stringify({command, message, wait_tokens, auto_connect: true})
   }).then(d => {
     if (!d.success) {
       if (hint) hint.textContent = '发送失败: ' + (d.error || '未知错误');
-      toast('✗ ' + (d.error || 'test_echo 失败'), 'err');
+      toast('✗ ' + (d.error || `${command} 失败`), 'err');
       return;
     }
     const matched = d.matched && d.matched.text ? d.matched.text : '';
@@ -2762,9 +2798,28 @@ function sendSerialTestEcho() {
       ? `收到回显: ${matched}`
       : `已发送测试指令，等待结果: ${d.message || '请查看实时输出'}`;
     loadSerialTermStatus(true);
-    toast(matched ? '✓ 已收到串口 test_echo 回显' : '已发送 test_echo，请看终端输出', matched ? 'ok' : 'info');
+    toast(matched ? `✓ 已收到串口 ${command} 回显` : `已发送 ${command}，请看终端输出`, matched ? 'ok' : 'info');
   }).catch(e => {
     if (hint) hint.textContent = '发送失败: ' + e;
+    toast('✗ ' + e, 'err');
+  });
+}
+
+function startAuroraAndCapture() {
+  showStreamLoading('正在启动 Aurora 并切换到窗口抓取…');
+  apiJson('/desktop_capture/start_aurora', {method: 'POST'}).then(d => {
+    if (!d.success && d.error) throw new Error(d.error);
+    renderDesktopWindowOptions(d.items || [], d.target || null);
+    return apiJson('/desktop_capture/reset', {method: 'POST'});
+  }).then(d => {
+    if (!d.success) throw new Error(d.error || '恢复 Aurora 自动窗口失败');
+    renderDesktopTarget(d.target);
+    return ensureDesktopCaptureActive(true);
+  }).then(() => {
+    toast('✓ 已切换到 Aurora 窗口抓取', 'ok');
+    loadDesktopWindows(false);
+  }).catch(e => {
+    hideStreamLoading();
     toast('✗ ' + e, 'err');
   });
 }
@@ -3073,9 +3128,8 @@ function toast(msg, type = 'ok') {
 
 // ── Init ────────────────────────────────────────────────────────────────────
 refreshPorts();
+setPreviewRotation(previewRotation);
 loadCameraDevices();
-loadDesktopCaptureStatus();
-loadDesktopWindows(false);
 loadDetectModels();
 loadSerialTermPorts(false);
 loadSerialTermConfig().then(() => loadSerialTermStatus(true));

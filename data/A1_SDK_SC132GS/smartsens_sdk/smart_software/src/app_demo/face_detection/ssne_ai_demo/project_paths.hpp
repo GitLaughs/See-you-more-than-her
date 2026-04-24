@@ -2,8 +2,8 @@
  * project_paths.hpp — ssne_ai_demo 全局配置
  *
  * 分辨率设计说明:
- *   - 传感器采集: 1280 × 720 (16:9, Y8 灰度)
- *   - 推理输入:   640  × 360 (16:9, RunAiPreprocessPipe 直接缩放, 无裁剪)
+ *   - 传感器采集: 当前板端返回 720 × 1280 (Y8 灰度, Aurora 显示层会旋转)
+ *   - 推理输入:   640 × 360 (RunAiPreprocessPipe 直接缩放, 无裁剪)
  *   旧的 crop_shape / crop_offset_y 已废弃.
  *
  * 模型说明:
@@ -27,13 +27,13 @@ constexpr int SENSOR_WIDTH  = 720;
 constexpr int SENSOR_HEIGHT = 1280;
 
 // ─── 推理输入分辨率 ──────────────────────────────────────────────────────────
-// 将采集帧 1280×720 缩放至 640×360 送入 YOLOv8 模型 (保持 16:9, 无裁剪)
+// 将采集帧缩放至 640×360 送入 YOLOv8 模型
 constexpr int DET_WIDTH  = 640;
 constexpr int DET_HEIGHT = 360;
 
 // ─── 模型文件路径 ────────────────────────────────────────────────────────────
 // YOLOv8 head6 模型: 在 Detect Head 切分, 后处理在 CPU 完成
-inline const std::string MODEL_PATH =
+const std::string MODEL_PATH =
     "/app_demo/app_assets/models/best_a1_formal_head6.m1model";
 
 // ─── YOLOv8 模型参数 ─────────────────────────────────────────────────────────
@@ -75,9 +75,5 @@ constexpr bool     LINK_TEST_ENABLED            = true;
 constexpr int16_t  LINK_TEST_FORWARD_VX         = 60;    // mm/s，故意放慢，避免联通性测试时车速过快
 constexpr uint64_t LINK_TEST_PERIOD_US          = 5000000ULL;
 constexpr uint64_t LINK_TEST_FORWARD_WINDOW_US  = 1000000ULL;
-
-// ─── PC ↔ A1 临时 TCP 测试模块（为后续深度信息回传铺路）──────────────────────
-constexpr bool     DEBUG_TEST_SERVER_ENABLED = false;
-constexpr uint16_t DEBUG_TEST_PORT           = 9091;
 
 } // namespace cfg

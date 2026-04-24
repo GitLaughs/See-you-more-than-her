@@ -81,15 +81,9 @@ except ImportError:
 try:
     from relay_comm import relay_bp
     app.register_blueprint(relay_bp)
-    print("[INFO] A1 Relay 模块已加载")
+    print("[INFO] COM13 经由 A1 控制模块已加载")
 except ImportError:
-    print("[WARN] relay_comm 未找到，A1 Relay 功能不可用")
-try:
-    from a1_test_comm import a1_test_bp
-    app.register_blueprint(a1_test_bp)
-    print("[INFO] A1 测试模块已加载")
-except ImportError:
-    print("[WARN] a1_test_comm 未找到，A1 测试模块不可用")
+    print("[WARN] relay_comm 未找到，COM13 经由 A1 控制不可用")
 try:
     from serial_terminal import serial_term_bp
     app.register_blueprint(serial_term_bp)
@@ -112,6 +106,9 @@ device_id_global = 0
 camera_source_global = "auto"
 camera_bootstrap_active = False
 camera_devices_snapshot: list = []
+camera_scan_active = False
+camera_scan_error = ""
+camera_scan_started_at = 0.0
 output_dir: str = ""
 capture_count = 0
 recent_captures: deque = deque(maxlen=8)
@@ -138,7 +135,9 @@ _last_reconnect_time = 0.0
 
 MAX_DEVICE_SCAN = 5
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
+PREFERRED_SOURCE_FILE = Path(__file__).with_name(".a1_camera_source")
 AURORA_EXE_PATH = Path(__file__).resolve().parents[2] / "Aurora-2.0.0-ciciec.16" / "Aurora.exe"
+PREFERRED_A1_CAMERA_NAME = "Smartsens-FlyingChip-A1-1"
 QT_BRIDGE_SCRIPT = Path(__file__).with_name("qt_camera_bridge.py")
 QT_BRIDGE_PORT = 5911
 QT_BRIDGE_HOST = "127.0.0.1"
@@ -209,9 +208,17 @@ def _suppress_c_stderr():
 
 def _open_raw_camera(device_id: int) -> cv2.VideoCapture:
     with _suppress_c_stderr():
-        cap = cv2.VideoCapture(device_id, cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_V4L2)
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(device_id)
+        if sys.platform == "win32":
+            backends = [cv2.CAP_MSMF, cv2.CAP_DSHOW, cv2.CAP_ANY]
+        else:
+            backends = [cv2.CAP_V4L2, cv2.CAP_ANY]
+        cap = cv2.VideoCapture()
+        for backend in backends:
+            trial = cv2.VideoCapture(device_id, backend)
+            if trial.isOpened():
+                cap = trial
+                break
+            trial.release()
     return cap
 
 
@@ -961,7 +968,14 @@ def _normalize_frame_for_display(frame: np.ndarray) -> np.ndarray:
     if frame is None:
         return frame
     if len(frame.shape) >= 2:
+        current_source = camera_source_global
         height, width = frame.shape[:2]
+        if current_source == CAMERA_SOURCE_A1:
+            # Aurora/Qt 将 A1 的 UYVY 灰度流暴露为 360x1280；横向按打包宽度还原为 720x1280，
+            # 并保持与 Aurora 一致的竖向画面，旋转交给网页端预览控制。
+            if height >= 1000 and width <= 400:
+                frame = cv2.resize(frame, (width * 2, height), interpolation=cv2.INTER_LINEAR)
+            return frame
         if height > width:
             frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
         if frame.shape[:2] != (CAMERA_HEIGHT, CAMERA_WIDTH):
@@ -1009,33 +1023,13 @@ def _frame_to_gray(frame: np.ndarray) -> np.ndarray:
 
 
 def _configure_camera_for_source(cap: cv2.VideoCapture, source: str) -> bool:
-    """按源类型配置摄像头，返回是否成功锁定灰度格式。"""
+    """按源类型配置摄像头；OpenCV 只作为兜底，不强行改写驱动像素格式。"""
     if source == CAMERA_SOURCE_AURORA_WINDOW:
         return False
-    if source != CAMERA_SOURCE_A1:
-        cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
-        return False
-
-    gray_fourccs = [
-        cv2.VideoWriter_fourcc(*"Y800"),
-        cv2.VideoWriter_fourcc(*"GREY"),
-        cv2.VideoWriter_fourcc(*"Y8  "),
-        cv2.VideoWriter_fourcc(*"Y16 "),
-    ]
-    format_set = False
-    for fourcc in gray_fourccs:
-        cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-        if int(cap.get(cv2.CAP_PROP_FOURCC)) == fourcc:
-            fourcc_str = "".join([chr((fourcc >> (8 * i)) & 0xFF) for i in range(4)])
-            print(f"[INFO] 摄像头格式设置为: {fourcc_str}")
-            format_set = True
-            break
-    if format_set:
-        cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
-    else:
-        cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
-        print("[INFO] A1 源未锁定到灰度格式，将以彩色模式读取后转灰度")
-    return format_set
+    cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
+    if source == CAMERA_SOURCE_A1:
+        print("[INFO] A1 OpenCV 兜底以驱动默认格式读取，随后按 Aurora 风格转灰度")
+    return False
 
 
 def load_preferred_device() -> Optional[int]:
@@ -1053,6 +1047,13 @@ def load_preferred_device() -> Optional[int]:
 def save_preferred_device(device_id: int) -> None:
     try:
         PREFERRED_DEVICE_FILE.write_text(str(device_id), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def save_preferred_source(source: str) -> None:
+    try:
+        PREFERRED_SOURCE_FILE.write_text(str(source), encoding="utf-8")
     except Exception:
         pass
 
@@ -1077,22 +1078,93 @@ def _qt_bridge_status(timeout: float = 1.0) -> Optional[dict]:
         return None
 
 
+def _python_has_module(python_exe: str, module_name: str) -> bool:
+    try:
+        result = subprocess.run(
+            [python_exe, "-c", f"import importlib.util; raise SystemExit(0 if importlib.util.find_spec({module_name!r}) else 1)"],
+            cwd=str(Path(__file__).resolve().parent),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _select_qt_bridge_python() -> str:
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        repo_root / "venv_39" / "Scripts" / "python.exe",
+        Path(sys.executable),
+        repo_root / ".venv39" / "Scripts" / "python.exe",
+    ]
+    if sys.platform == "win32":
+        candidates.append(Path("python"))
+    seen = set()
+    for candidate in candidates:
+        key = str(candidate).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if str(candidate) != "python" and not candidate.exists():
+            continue
+        python_exe = str(candidate)
+        if _python_has_module(python_exe, "PySide6"):
+            return python_exe
+    return sys.executable
+
+
+def _stop_stale_qt_bridge_on_port() -> None:
+    if sys.platform != "win32":
+        return
+    script = rf"""
+$connections = Get-NetTCPConnection -LocalPort {QT_BRIDGE_PORT} -State Listen -ErrorAction SilentlyContinue
+foreach ($conn in $connections) {{
+    $procId = [int]$conn.OwningProcess
+    if ($procId -le 0) {{ continue }}
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$procId" -ErrorAction SilentlyContinue
+    if (-not $proc) {{ continue }}
+    $cmd = [string]$proc.CommandLine
+    if ($cmd -match "qt_camera_bridge\.py") {{
+        Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+    }}
+}}
+"""
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=6,
+            check=False,
+        )
+    except Exception:
+        pass
+
+
 def ensure_qt_bridge_running(timeout: float = 8.0) -> dict:
     global _qt_bridge_process
 
     status = _qt_bridge_status(timeout=0.6)
-    if status is not None:
+    if status is not None and status.get("available", False):
         return status
+    if status is not None:
+        _stop_stale_qt_bridge_on_port()
 
     with _qt_bridge_lock:
         status = _qt_bridge_status(timeout=0.6)
-        if status is not None:
+        if status is not None and status.get("available", False):
             return status
+        if status is not None:
+            _stop_stale_qt_bridge_on_port()
 
         if not QT_BRIDGE_SCRIPT.exists():
             raise RuntimeError(f"Qt 相机桥脚本不存在: {QT_BRIDGE_SCRIPT}")
 
         if _qt_bridge_process is None or _qt_bridge_process.poll() is not None:
+            bridge_python = _select_qt_bridge_python()
             kwargs: Dict[str, Any] = {
                 "cwd": str(Path(__file__).resolve().parent),
                 "stdout": subprocess.DEVNULL,
@@ -1101,7 +1173,7 @@ def ensure_qt_bridge_running(timeout: float = 8.0) -> dict:
             if sys.platform == "win32":
                 kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             _qt_bridge_process = subprocess.Popen(
-                [sys.executable, str(QT_BRIDGE_SCRIPT), "--host", QT_BRIDGE_HOST, "--port", str(QT_BRIDGE_PORT)],
+                [bridge_python, str(QT_BRIDGE_SCRIPT), "--host", QT_BRIDGE_HOST, "--port", str(QT_BRIDGE_PORT)],
                 **kwargs,
             )
 
@@ -1128,7 +1200,13 @@ def _qt_bridge_devices() -> list:
         payload = _qt_bridge_request("/devices", timeout=4.0)
         if not payload.get("success", False):
             return []
-        return payload.get("devices", []) or []
+        devices = payload.get("devices", []) or []
+        devices.sort(key=lambda item: (
+            PREFERRED_A1_CAMERA_NAME.lower() in str(item.get("device_name") or "").lower(),
+            item.get("source") == CAMERA_SOURCE_A1,
+            int(item.get("score") or 0),
+        ), reverse=True)
+        return devices
     except Exception:
         return []
 
@@ -1143,15 +1221,21 @@ def _qt_bridge_probe_device(device_id: int) -> Optional[dict]:
 def _qt_bridge_fetch_frame(mode: str = "color", timeout: float = 2.5) -> Optional[np.ndarray]:
     query = urllib_parse.urlencode({"mode": mode})
     req = urllib_request.Request(f"{QT_BRIDGE_URL}/frame.jpg?{query}", method="GET")
-    try:
-        with urllib_request.urlopen(req, timeout=timeout) as resp:
-            if resp.status != 200:
-                return None
-            raw = resp.read()
-    except urllib_error.URLError:
-        return None
-    except Exception:
-        return None
+    raw = b""
+    for _ in range(2):
+        try:
+            with urllib_request.urlopen(req, timeout=timeout) as resp:
+                if resp.status != 200:
+                    raw = b""
+                else:
+                    raw = resp.read()
+            if raw:
+                break
+        except urllib_error.URLError:
+            raw = b""
+        except Exception:
+            raw = b""
+        time.sleep(0.03)
     if not raw:
         return None
     flags = cv2.IMREAD_GRAYSCALE if mode == "gray" else cv2.IMREAD_COLOR
@@ -1274,20 +1358,8 @@ def probe_camera_device(device_id: int) -> dict:
         }
 
     with _suppress_c_stderr():
-        gray_fourccs = [
-            cv2.VideoWriter_fourcc(*"Y800"),
-            cv2.VideoWriter_fourcc(*"GREY"),
-            cv2.VideoWriter_fourcc(*"Y8  "),
-            cv2.VideoWriter_fourcc(*"Y16 "),
-        ]
         supports_gray_fourcc = False
-        for fourcc in gray_fourccs:
-            cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-            actual = int(cap.get(cv2.CAP_PROP_FOURCC))
-            if actual == fourcc:
-                supports_gray_fourcc = True
-                break
-
+        cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
         # 丢弃前几帧：DirectShow 管道初始化期间第 1 帧通常为全黑
@@ -1369,11 +1441,8 @@ def probe_camera_device(device_id: int) -> dict:
 
 
 def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
-    """串行探测摄像头设备（避免并行 DirectShow 调用干扰驱动状态）。"""
+    """串行探测摄像头设备（优先 QtMultimedia，OpenCV 仅兜底）。"""
     devices = []
-    aurora_info = probe_aurora_window_source()
-    if aurora_info["opened"]:
-        devices.append(aurora_info)
     bridge_devices = _qt_bridge_devices()
     if bridge_devices:
         devices.extend(bridge_devices)
@@ -1385,23 +1454,64 @@ def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
     return devices
 
 
+def _scan_camera_devices_background() -> None:
+    global camera_devices_snapshot, camera_scan_active, camera_scan_error
+    try:
+        devices = list_camera_devices()
+        camera_devices_snapshot = list(devices)
+        camera_scan_error = ""
+    except Exception as exc:
+        camera_scan_error = str(exc)
+    finally:
+        camera_scan_active = False
+
+
+def _start_aurora_desktop() -> Dict[str, Any]:
+    if sys.platform != "win32":
+        return {"started": False, "running": False, "error": "Aurora.exe 启动仅支持 Windows"}
+    if not AURORA_EXE_PATH.exists():
+        return {"started": False, "running": False, "error": f"未找到 Aurora.exe: {AURORA_EXE_PATH}"}
+    hwnd = _find_aurora_window_handle()
+    if hwnd is not None:
+        try:
+            _user32.SetForegroundWindow(wintypes.HWND(hwnd))
+        except Exception:
+            pass
+        return {"started": False, "running": True, "path": str(AURORA_EXE_PATH), "hwnd": int(hwnd)}
+    kwargs: Dict[str, Any] = {"cwd": str(AURORA_EXE_PATH.parent)}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    subprocess.Popen([str(AURORA_EXE_PATH)], **kwargs)
+    deadline = time.time() + 8.0
+    while time.time() < deadline:
+        hwnd = _find_aurora_window_handle()
+        if hwnd is not None:
+            try:
+                _user32.SetForegroundWindow(wintypes.HWND(hwnd))
+            except Exception:
+                pass
+            return {"started": True, "running": True, "path": str(AURORA_EXE_PATH), "hwnd": int(hwnd)}
+        time.sleep(0.25)
+    return {"started": True, "running": False, "path": str(AURORA_EXE_PATH), "error": "Aurora.exe 已启动，但暂未发现窗口"}
+
+
 def choose_camera_device(requested_device: int) -> Tuple[int, list]:
     """返回 (device_id, candidates)。requested_device=-1 时自动优先 A1。"""
     if requested_device >= 0:
         return requested_device, list_camera_devices()
 
-    if camera_source_global == CAMERA_SOURCE_AURORA_WINDOW:
-        aurora_info = probe_aurora_window_source()
-        if aurora_info["opened"]:
-            return AURORA_WINDOW_DEVICE_ID, [aurora_info]
+    candidates = list_camera_devices()
 
     preferred = load_preferred_device()
     if preferred is not None:
-        preferred_info = probe_camera_device(preferred)
+        preferred_info = next((c for c in candidates if int(c.get("id", -999)) == int(preferred)), None)
+        if preferred_info is None:
+            preferred_info = probe_camera_device(preferred)
         if preferred_info["opened"] and (preferred_info.get("has_content") or preferred_info.get("supports_gray_fourcc")):
-            return preferred, [preferred_info]
+            if not any(int(c.get("id", -999)) == int(preferred) for c in candidates):
+                candidates.append(preferred_info)
+            return preferred, candidates
 
-    candidates = list_camera_devices()
     if not candidates:
         return 0, []
 
@@ -1442,8 +1552,15 @@ def open_camera(device_id: int, source: str = CAMERA_SOURCE_AUTO) -> Optional[An
     elif source == CAMERA_SOURCE_A1 and not format_set:
         print("[INFO] A1 摄像头以兼容模式读取")
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+    if source == CAMERA_SOURCE_A1:
+        probe = _qt_bridge_probe_device(device_id) or {}
+        target_w = int(probe.get("actual_width") or 360)
+        target_h = int(probe.get("actual_height") or 1280)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, target_w)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, target_h)
+    else:
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
 
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -2094,7 +2211,7 @@ def generate_frames():
             _frame_count = 0
             _fps_ts = now
 
-        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 97])
         yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
                + buf.tobytes() + b"\r\n")
 
@@ -2157,14 +2274,28 @@ def index():
 
 @app.route("/video_feed")
 def video_feed():
-    return Response(generate_frames(),
-                    mimetype="multipart/x-mixed-replace; boundary=frame")
+    return Response(
+        generate_frames(),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.route("/detect_feed")
 def detect_feed():
-    return Response(_generate_detect_frames(),
-                    mimetype="multipart/x-mixed-replace; boundary=frame")
+    return Response(
+        _generate_detect_frames(),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.route("/detect_status")
@@ -2285,12 +2416,24 @@ def refresh_camera():
 
 @app.route("/camera_devices")
 def camera_devices():
-    global camera_devices_snapshot
+    global camera_devices_snapshot, camera_scan_active, camera_scan_error, camera_scan_started_at
 
+    force_refresh = str(request.args.get("refresh") or "").lower() in {"1", "true", "yes"}
+    if camera_scan_active and time.time() - camera_scan_started_at > 20.0:
+        camera_scan_active = False
+        camera_scan_error = "摄像头扫描超过 20 秒，已保留当前列表；可稍后再次扫描"
     bootstrapping = False
-    if camera_devices_snapshot:
+    if force_refresh:
+        if not camera_scan_active:
+            camera_scan_active = True
+            camera_scan_started_at = time.time()
+            camera_scan_error = ""
+            threading.Thread(target=_scan_camera_devices_background, daemon=True, name="camera-device-scan").start()
         devices = list(camera_devices_snapshot)
-    elif camera_bootstrap_active:
+        bootstrapping = True
+    elif camera_devices_snapshot:
+        devices = list(camera_devices_snapshot)
+    elif camera_bootstrap_active or camera_scan_active:
         devices = []
         bootstrapping = True
     else:
@@ -2329,7 +2472,8 @@ def camera_devices():
         "current_device": device_id_global,
         "current_source": camera_source_global,
         "devices": items,
-        "bootstrapping": bootstrapping,
+        "bootstrapping": bootstrapping or camera_scan_active,
+        "scan_error": camera_scan_error,
         "qt_bridge": _qt_bridge_status(timeout=0.5),
     })
 
@@ -2341,9 +2485,23 @@ def desktop_capture_status():
 
 @app.route("/desktop_windows")
 def desktop_windows():
+    force_start = str(request.args.get("start_aurora") or "").lower() in {"1", "true", "yes"}
+    launch_info = _start_aurora_desktop() if force_start else None
     return jsonify({
         "items": _list_desktop_windows(),
         "current_target": _serialize_capture_target(),
+        "aurora": launch_info,
+    })
+
+
+@app.route("/desktop_capture/start_aurora", methods=["POST"])
+def desktop_capture_start_aurora():
+    result = _start_aurora_desktop()
+    return jsonify({
+        "success": bool(result.get("running")),
+        **result,
+        "items": _list_desktop_windows(),
+        "target": _serialize_capture_target(),
     })
 
 
@@ -2504,6 +2662,7 @@ def switch_camera():
         _consecutive_failures = 0
         camera_connected = True
         save_preferred_device(new_device)
+        save_preferred_source(requested_source)
         print(f"[INFO] 已切换到摄像头设备 {new_device} ({requested_source})")
         return jsonify({"success": True, "device": new_device, "source": requested_source})
     except Exception as e:

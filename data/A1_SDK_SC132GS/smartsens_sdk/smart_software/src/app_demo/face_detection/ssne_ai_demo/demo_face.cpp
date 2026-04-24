@@ -2,17 +2,18 @@
 #include <iostream>
 #include <cstring>
 #include <chrono>
+#include <cstdlib>
 #include <thread>
 #include <mutex>
 #include <fcntl.h>
 #include <regex>
 #include <dirent.h>
 #include <sstream>
+#include <vector>
 #include <unistd.h>
 #include <sys/time.h>
 #include "include/utils.hpp"
 #include "include/chassis_controller.hpp"
-#include "debug_server.hpp"
 #include "project_paths.hpp"
 
 using namespace std;
@@ -21,6 +22,24 @@ using namespace std;
 bool g_exit_flag = false;
 // 保护退出标志的互斥锁
 std::mutex g_mtx;
+std::mutex g_debug_mtx;
+
+struct DebugRuntimeState {
+    uint64_t frame_index = 0;
+    size_t det_count = 0;
+    size_t person_count = 0;
+    size_t forward_count = 0;
+    size_t stop_count = 0;
+    size_t obstacle_count = 0;
+    size_t backward_count = 0;
+    bool chassis_ok = false;
+    bool link_test_enabled = cfg::LINK_TEST_ENABLED;
+    bool link_test_forward = false;
+};
+
+DebugRuntimeState g_debug_state;
+bool g_link_test_enabled = cfg::LINK_TEST_ENABLED;
+ChassisController* g_chassis = nullptr;
 
 std::string trim_copy(const std::string& input) {
     const auto begin = input.find_first_not_of(" \t\r\n");
@@ -44,6 +63,46 @@ std::string json_escape(const std::string& text) {
     return oss.str();
 }
 
+std::vector<std::string> split_tokens(const std::string& input) {
+    std::istringstream iss(input);
+    std::vector<std::string> tokens;
+    std::string token;
+    while (iss >> token) {
+        tokens.push_back(token);
+    }
+    return tokens;
+}
+
+bool input_has_command(const std::string& input, const std::string& command) {
+    return input == command ||
+           input.find(" " + command) != std::string::npos ||
+           input.find("A1_TEST " + command) != std::string::npos;
+}
+
+DebugRuntimeState snapshot_debug_state() {
+    std::lock_guard<std::mutex> lock(g_debug_mtx);
+    return g_debug_state;
+}
+
+void print_debug_snapshot(const std::string& command) {
+    const DebugRuntimeState s = snapshot_debug_state();
+    std::cout
+        << "{\"success\":true,"
+        << "\"channel\":\"serial\","
+        << "\"command\":\"" << command << "\","
+        << "\"frame_index\":" << s.frame_index << ","
+        << "\"det_count\":" << s.det_count << ","
+        << "\"person_count\":" << s.person_count << ","
+        << "\"forward_count\":" << s.forward_count << ","
+        << "\"stop_count\":" << s.stop_count << ","
+        << "\"obstacle_count\":" << s.obstacle_count << ","
+        << "\"backward_count\":" << s.backward_count << ","
+        << "\"chassis_ok\":" << (s.chassis_ok ? "true" : "false") << ","
+        << "\"link_test_enabled\":" << (s.link_test_enabled ? "true" : "false") << ","
+        << "\"link_test_forward\":" << (s.link_test_forward ? "true" : "false")
+        << "}" << std::endl;
+}
+
 bool handle_console_command(const std::string& raw_input) {
     const std::string input = trim_copy(raw_input);
     if (input.empty()) {
@@ -58,7 +117,9 @@ bool handle_console_command(const std::string& raw_input) {
 
     if (input == "help" || input == "HELP") {
         std::cout
-            << "[A1_SERIAL] 可用命令: help | status | A1_TEST test_echo <msg> | q"
+            << "[A1_SERIAL] 可用命令: help | status | A1_TEST test_echo <msg> | "
+            << "A1_TEST debug_status | A1_TEST debug_frame | A1_TEST debug_last | "
+            << "A1_TEST link_test on/off | A1_TEST move <vx> <vy> <vz> | A1_TEST stop | q"
             << std::endl;
         return false;
     }
@@ -70,8 +131,106 @@ bool handle_console_command(const std::string& raw_input) {
             << "\"message\":\"A1 串口调试在线\","
             << "\"sensor_width\":" << cfg::SENSOR_WIDTH << ","
             << "\"sensor_height\":" << cfg::SENSOR_HEIGHT << ","
-            << "\"link_test_enabled\":" << (cfg::LINK_TEST_ENABLED ? "true" : "false")
+            << "\"link_test_enabled\":" << (g_link_test_enabled ? "true" : "false")
             << "}" << std::endl;
+        return false;
+    }
+
+    if (input_has_command(input, "debug_status") ||
+        input_has_command(input, "debug_frame") ||
+        input_has_command(input, "debug_last")) {
+        const std::vector<std::string> tokens = split_tokens(input);
+        std::string command = "debug_status";
+        for (const std::string& token : tokens) {
+            if (token == "debug_frame" || token == "debug_last" || token == "debug_status") {
+                command = token;
+                break;
+            }
+        }
+        print_debug_snapshot(command);
+        return false;
+    }
+
+    if (input_has_command(input, "link_test") ||
+        input_has_command(input, "link_test_on") ||
+        input_has_command(input, "link_test_off")) {
+        const bool enable = input.find(" off") == std::string::npos &&
+                            input.find("_off") == std::string::npos;
+        {
+            std::lock_guard<std::mutex> lock(g_debug_mtx);
+            g_link_test_enabled = enable;
+            g_debug_state.link_test_enabled = enable;
+        }
+        std::cout
+            << "{\"success\":true,"
+            << "\"channel\":\"serial\","
+            << "\"command\":\"link_test\","
+            << "\"enabled\":" << (enable ? "true" : "false") << ","
+            << "\"message\":\"link_test 已" << (enable ? "开启" : "关闭") << "\"}"
+            << std::endl;
+        return false;
+    }
+
+    if (input_has_command(input, "stop")) {
+        {
+            std::lock_guard<std::mutex> lock(g_debug_mtx);
+            g_link_test_enabled = false;
+            g_debug_state.link_test_enabled = false;
+            g_debug_state.link_test_forward = false;
+        }
+        if (g_chassis != nullptr && g_chassis->is_connected()) {
+            g_chassis->SendVelocity(cfg::VX_STOP, 0, 0);
+        }
+        std::cout
+            << "{\"success\":true,"
+            << "\"channel\":\"serial\","
+            << "\"command\":\"stop\","
+            << "\"message\":\"已发送停车指令\"}"
+            << std::endl;
+        return false;
+    }
+
+    if (input_has_command(input, "move")) {
+        const std::vector<std::string> tokens = split_tokens(input);
+        int move_index = -1;
+        for (size_t i = 0; i < tokens.size(); ++i) {
+            if (tokens[i] == "move") {
+                move_index = static_cast<int>(i);
+                break;
+            }
+        }
+        if (move_index >= 0 && move_index + 3 < static_cast<int>(tokens.size())) {
+            const int vx = std::atoi(tokens[move_index + 1].c_str());
+            const int vy = std::atoi(tokens[move_index + 2].c_str());
+            const int vz = std::atoi(tokens[move_index + 3].c_str());
+            {
+                std::lock_guard<std::mutex> lock(g_debug_mtx);
+                g_link_test_enabled = false;
+                g_debug_state.link_test_enabled = false;
+                g_debug_state.link_test_forward = false;
+            }
+            if (g_chassis != nullptr && g_chassis->is_connected()) {
+                g_chassis->SendVelocity(static_cast<int16_t>(vx),
+                                        static_cast<int16_t>(vy),
+                                        static_cast<int16_t>(vz));
+            }
+            std::cout
+                << "{\"success\":true,"
+                << "\"channel\":\"serial\","
+                << "\"command\":\"move\","
+                << "\"vx\":" << vx << ","
+                << "\"vy\":" << vy << ","
+                << "\"vz\":" << vz << ","
+                << "\"message\":\"已发送手动运动指令并关闭 link_test\"}"
+                << std::endl;
+            return false;
+        }
+        std::cout
+            << "{\"success\":false,"
+            << "\"channel\":\"serial\","
+            << "\"command\":\"move\","
+            << "\"message\":\"用法: A1_TEST move <vx> <vy> <vz>\"}"
+            << std::endl;
         return false;
     }
 
@@ -100,7 +259,7 @@ bool handle_console_command(const std::string& raw_input) {
  */
 void keyboard_listener() {
     std::string input;
-    std::cout << "键盘监听线程已启动，可输入: help | status | A1_TEST test_echo <msg> | q" << std::endl;
+    std::cout << "键盘监听线程已启动，可输入 help 查看串口调试命令" << std::endl;
 
     while (true) {
         if (!std::getline(std::cin, input)) {
@@ -150,7 +309,7 @@ int main() {
     int img_height = cfg::SENSOR_HEIGHT;
     
     // 模型配置参数
-    // 推理输入: 640×360（由 RunAiPreprocessPipe 从 1280×720 缩放, 16:9 无裁剪）
+    // 推理输入: 640×360（由 RunAiPreprocessPipe 从当前传感器帧缩放）
     array<int, 2> det_shape = {cfg::DET_WIDTH, cfg::DET_HEIGHT};  // 640×360
     string path_det = cfg::MODEL_PATH;  // YOLOv8 head6 模型路径
     
@@ -164,10 +323,10 @@ int main() {
     }
     
     // 图像处理器初始化
-    array<int, 2> img_shape = {img_width, img_height};  // 原始图像尺寸 1280×720
+    array<int, 2> img_shape = {img_width, img_height};  // 原始图像尺寸，当前为 720×1280
     // 废弃旧裁剪参数 crop_shape / crop_offset_y
-    // 新方案: sensor 1280×720 → RunAiPreprocessPipe 缩放 → 640×360 推理
-    // img_shape 同时作为检测器坐标系参考（使 w_scale=2.0, h_scale=2.0）
+    // 新方案: sensor 当前输出 → RunAiPreprocessPipe 缩放 → 640×360 推理
+    // img_shape 同时作为检测器坐标系参考，避免前后端再使用旧裁剪偏移。
     
     IMAGEPROCESSOR processor;
     processor.Initialize(&img_shape);  // 初始化图像处理器（全分辨率 1280×720）
@@ -182,7 +341,7 @@ int main() {
     detector.nms_threshold = cfg::DET_NMS_THRESH;
     detector.keep_top_k    = cfg::DET_KEEP_TOP_K;
     detector.top_k         = cfg::DET_TOP_K;
-    // in_img_shape 传入原图 1280×720，使 Postprocess 坐标系与显示分辨率一致（scale=2.0）
+    // in_img_shape 传入原始传感器尺寸，使 Postprocess 坐标系与板端 OSD 一致。
     detector.Initialize(path_det, &img_shape, &det_shape);  // 初始化检测器
     
     // 人物检测结果初始化
@@ -195,6 +354,12 @@ int main() {
     // 底盘控制器初始化（A1 UART TX0/RX0 ↔ STM32 UART3，115200 baud）
     ChassisController chassis;
     bool chassis_ok = chassis.Init();
+    g_chassis = &chassis;
+    {
+        std::lock_guard<std::mutex> lock(g_debug_mtx);
+        g_debug_state.chassis_ok = chassis_ok;
+        g_debug_state.link_test_enabled = g_link_test_enabled;
+    }
     if (chassis_ok) {
         printf("[INFO] 底盘控制器初始化成功 (UART 115200)\n");
     } else {
@@ -203,16 +368,13 @@ int main() {
 
     const uint64_t link_test_start_us = monotonic_time_us();
     bool last_link_test_forward = false;
-    A1DebugServer debug_server;
-    if (cfg::DEBUG_TEST_SERVER_ENABLED) {
-        debug_server.Start(cfg::DEBUG_TEST_PORT);
-    }
+    uint64_t last_detect_log_us = 0;
 
     // 系统稳定等待
     cout << "sleep for 0.2 second!" << endl;
-    sleep(0.2);  // 等待系统稳定
+    usleep(200000);  // 等待系统稳定
     
-    uint16_t num_frames = 0;  // 帧计数器
+    uint64_t num_frames = 0;  // 帧计数器
     ssne_tensor_t img_sensor;  // 图像tensor定义
 
     // 创建键盘监听线程
@@ -229,6 +391,7 @@ int main() {
         
         // 目标检测模型推理（YOLOv8, 置信度阈值来自 cfg::DET_CONF_THRESH）
         detector.Predict(&img_sensor, det_result, cfg::DET_CONF_THRESH);
+        num_frames += 1;
 
         /**********************************************************************************
          * 3.0 A1 ↔ STM32 联通性测试模块（临时）
@@ -250,10 +413,22 @@ int main() {
          * 注意：这个测试模块只改变底盘控制，不屏蔽检测与 OSD。也就是说，板端仍然会继续
          * 跑 YOLOv8 并继续画框，所以可以同时观察“链路是否通”和“OSD 是否真正有检测框”。
          **********************************************************************************/
-        if (cfg::LINK_TEST_ENABLED) {
+        bool link_test_enabled_snapshot = false;
+        {
+            std::lock_guard<std::mutex> lock(g_debug_mtx);
+            link_test_enabled_snapshot = g_link_test_enabled;
+            g_debug_state.frame_index = num_frames;
+            g_debug_state.link_test_enabled = link_test_enabled_snapshot;
+        }
+
+        if (link_test_enabled_snapshot) {
             const uint64_t elapsed_us = monotonic_time_us() - link_test_start_us;
             const uint64_t phase_us = elapsed_us % cfg::LINK_TEST_PERIOD_US;
             const bool should_forward = phase_us < cfg::LINK_TEST_FORWARD_WINDOW_US;
+            {
+                std::lock_guard<std::mutex> lock(g_debug_mtx);
+                g_debug_state.link_test_forward = should_forward;
+            }
 
             if (should_forward != last_link_test_forward) {
                 if (should_forward) {
@@ -272,6 +447,9 @@ int main() {
                     chassis.SendVelocity(cfg::VX_STOP, 0, 0);
                 }
             }
+        } else {
+            std::lock_guard<std::mutex> lock(g_debug_mtx);
+            g_debug_state.link_test_forward = false;
         }
         
         /**********************************************************************************
@@ -301,10 +479,11 @@ int main() {
             size_t stop_count = 0;
             size_t obstacle_count = 0;
             size_t backward_count = 0;
+            size_t person_count = 0;
 
             // 遍历所有检测框进行坐标转换
             for (size_t i = 0; i < det_result->boxes.size(); i++) {
-                // 检测器已经通过 w_scale=2.0/h_scale=2.0 将坐标映射到 1280×720 空间
+                // 检测器已经将坐标映射到原始传感器空间。
                 // 不再需要 crop_offset_y 偏移（废弃旧裁剪方案）
                 float x1_orig = det_result->boxes[i][0];
                 float y1_orig = det_result->boxes[i][1];
@@ -328,6 +507,8 @@ int main() {
                 } else if (cls_id == cfg::TARGET_CLASS_BACKWARD) {
                     has_backward = true;
                     backward_count++;
+                } else {
+                    person_count++;
                 }
             }
             
@@ -340,29 +521,53 @@ int main() {
              * 3.4 调试打印：保留类别统计，帮助判断“没有 OSD”究竟是没有检测框，还是 OSD
              *     绘制链路异常。
              **********************************************************************************/
-            printf("[DET] count=%zu person=%zu forward=%zu stop=%zu obstacle=%zu backward=%zu\n",
-                   det_result->boxes.size(),
-                   det_result->boxes.size() - forward_count - stop_count - obstacle_count - backward_count,
-                   forward_count,
-                   stop_count,
-                   obstacle_count,
-                   backward_count);
+            const uint64_t now_log_us = monotonic_time_us();
+            if (now_log_us - last_detect_log_us >= 5000000ULL) {
+                printf("[DET] count=%zu person=%zu forward=%zu stop=%zu obstacle=%zu backward=%zu\n",
+                       det_result->boxes.size(),
+                       person_count,
+                       forward_count,
+                       stop_count,
+                       obstacle_count,
+                       backward_count);
+                last_detect_log_us = now_log_us;
+            }
+            {
+                std::lock_guard<std::mutex> lock(g_debug_mtx);
+                g_debug_state.det_count = det_result->boxes.size();
+                g_debug_state.person_count = person_count;
+                g_debug_state.forward_count = forward_count;
+                g_debug_state.stop_count = stop_count;
+                g_debug_state.obstacle_count = obstacle_count;
+                g_debug_state.backward_count = backward_count;
+            }
         }
         else {
             // 未检测到目标时清空 OSD。底盘动作由上方 LINK_TEST 模块统一负责。
-            cout << "[DET] 未检测到目标，已清空 OSD 检测框" << endl;
+            const uint64_t now_log_us = monotonic_time_us();
+            if (now_log_us - last_detect_log_us >= 5000000ULL) {
+                cout << "[DET] 未检测到目标，已清空 OSD 检测框" << endl;
+                last_detect_log_us = now_log_us;
+            }
             std::vector<std::array<float, 4>> empty_boxes;
             visualizer.Draw(empty_boxes);  // 传入空向量清除显示
+            {
+                std::lock_guard<std::mutex> lock(g_debug_mtx);
+                g_debug_state.det_count = 0;
+                g_debug_state.person_count = 0;
+                g_debug_state.forward_count = 0;
+                g_debug_state.stop_count = 0;
+                g_debug_state.obstacle_count = 0;
+                g_debug_state.backward_count = 0;
+            }
         }
-        
-        //num_frames += 1;  // 帧计数器递增
     }
 
     // 等待监听线程退出，释放资源
     if (listener_thread.joinable()) {
         listener_thread.join();
     }
-    debug_server.Stop();
+    g_chassis = nullptr;
     
     /******************************************************************************************
      * 4. 资源释放

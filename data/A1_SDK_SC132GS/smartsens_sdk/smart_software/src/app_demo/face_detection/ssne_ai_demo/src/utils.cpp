@@ -43,8 +43,6 @@ void VISUALIZER::Draw() {
  * @description 将所有检测到的目标框绘制到OSD显示层
  */
 void VISUALIZER::Draw(const std::vector<std::array<float, 4>>& boxes) {
-    printf("Drawing %zu detection boxes\n", boxes.size());
-    
     std::vector<sst::device::osd::OsdQuadRangle> quad_rangle_vec;  // OSD矩形框向量
 
     // 遍历所有检测框，转换为OSD矩形格式
@@ -57,7 +55,12 @@ void VISUALIZER::Draw(const std::vector<std::array<float, 4>>& boxes) {
         int xmax = static_cast<int>(boxes[i][2]);  // 右下角x坐标
         int ymax = static_cast<int>(boxes[i][3]);  // 右下角y坐标
         
-        q.box = {xmin, ymin, xmax, ymax};  // 设置矩形框坐标
+        q.box = {
+            static_cast<float>(xmin),
+            static_cast<float>(ymin),
+            static_cast<float>(xmax),
+            static_cast<float>(ymax)
+        };  // 设置矩形框坐标
         
         // 设置矩形框样式参数
         q.color = 1;                         // 颜色索引1（不同于测试框）
@@ -79,4 +82,3 @@ void VISUALIZER::Draw(const std::vector<std::array<float, 4>>& boxes) {
 void VISUALIZER::Release() {
     osd_device.Release();  // 释放OSD设备资源
 }
-

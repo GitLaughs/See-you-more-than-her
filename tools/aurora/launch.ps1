@@ -1,7 +1,7 @@
 param(
     [int]$Device = -1,
     [int]$Port = 5801,
-    [string]$Source = "aurora_window",
+    [string]$Source = "auto",
     [string]$ListenHost = "127.0.0.1",
     [switch]$SkipAurora
 )
@@ -20,10 +20,10 @@ function Initialize-Utf8Console {
 
 function Get-PythonExecutable {
     $candidates = @(
-        (Resolve-Path "..\..\venv_39\Scripts\python.exe" -ErrorAction SilentlyContinue),
-        (Resolve-Path "..\..\.venv39\Scripts\python.exe" -ErrorAction SilentlyContinue),
+        (Join-Path $ScriptDir "..\..\venv_39\Scripts\python.exe"),
+        (Join-Path $ScriptDir "..\..\.venv39\Scripts\python.exe"),
         "python"
-    ) | Where-Object { $_ }
+    ) | Where-Object { Test-Path $_ }
     foreach ($candidate in $candidates) {
         try {
             $version = & $candidate --version 2>&1
@@ -109,11 +109,98 @@ function Resolve-AvailablePort {
     throw "无法找到可用端口（起始端口: $PreferredPort）"
 }
 
+function Stop-StaleCompanionOnPort {
+    param(
+        [int]$BindPort
+    )
+    try {
+        $connections = Get-NetTCPConnection -LocalPort $BindPort -State Listen -ErrorAction SilentlyContinue
+        foreach ($conn in $connections) {
+            $pid = [int]$conn.OwningProcess
+            if ($pid -le 0 -or $pid -eq $PID) { continue }
+            $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pid" -ErrorAction SilentlyContinue
+            if (-not $proc) { continue }
+            $cmd = [string]$proc.CommandLine
+            if ($cmd -match "aurora_companion\.py") {
+                Write-Host "[Aurora] 释放旧 Companion 端口 $BindPort (PID $pid)"
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {}
+}
+
+function Stop-StaleQtBridge {
+    $QtBridgePort = 5911
+    $killedPids = @()
+    try {
+        $connections = Get-NetTCPConnection -LocalPort $QtBridgePort -State Listen -ErrorAction SilentlyContinue
+        foreach ($conn in $connections) {
+            $pid = [int]$conn.OwningProcess
+            if ($pid -le 0 -or $pid -eq $PID) { continue }
+            $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pid" -ErrorAction SilentlyContinue
+            if (-not $proc) { continue }
+            $cmd = [string]$proc.CommandLine
+            if ($cmd -match "qt_camera_bridge\.py") {
+                Write-Host "[Aurora] 终止旧 Qt 相机桥 (PID $pid)"
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+                $killedPids += $pid
+            }
+        }
+    } catch {}
+    try {
+        $bridgeProcs = Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue
+        foreach ($proc in $bridgeProcs) {
+            $pid = [int]$proc.ProcessId
+            if ($pid -le 0 -or $pid -eq $PID -or $killedPids -contains $pid) { continue }
+            $cmd = [string]$proc.CommandLine
+            if ($cmd -match "qt_camera_bridge\.py") {
+                Write-Host "[Aurora] 终止旧 Qt 相机桥进程 (PID $pid)"
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+                $killedPids += $pid
+            }
+        }
+    } catch {}
+    if ($killedPids.Count -gt 0) {
+        $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            $allGone = $true
+            foreach ($kpid in $killedPids) {
+                if (Get-Process -Id $kpid -ErrorAction SilentlyContinue) {
+                    $allGone = $false
+                    break
+                }
+            }
+            if ($allGone) { break }
+            Start-Sleep -Milliseconds 200
+        }
+        Start-Sleep -Milliseconds 500
+    }
+}
+
+function Wait-PortReleased {
+    param(
+        [string]$BindHost,
+        [int]$BindPort,
+        [int]$TimeoutSeconds = 5
+    )
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if (Test-PortAvailable -BindHost $BindHost -BindPort $BindPort) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    return $false
+}
+
 Initialize-Utf8Console
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
 $Python = Get-PythonExecutable
+Stop-StaleCompanionOnPort -BindPort $Port
+Stop-StaleQtBridge
+Wait-PortReleased -BindHost $ListenHost -BindPort $Port -TimeoutSeconds 5 | Out-Null
 $ResolvedPort = Resolve-AvailablePort -BindHost $ListenHost -PreferredPort $Port
 $browserUrl = "http://127.0.0.1:$ResolvedPort"
 

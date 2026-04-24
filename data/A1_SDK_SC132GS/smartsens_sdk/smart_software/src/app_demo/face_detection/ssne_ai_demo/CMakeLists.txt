@@ -25,8 +25,15 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 message([<mode>] "message to display" ${TARGET})
 
 
-# 添加source文件夹下的所有cpp文件
-file(GLOB SRC_FILES "${CMAKE_SOURCE_DIR}/${SRC_DIR}/*.cpp")
+# 添加 source 文件，不再通过 glob 自动编译历史调试文件。
+set(SRC_FILES
+    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/chassis_controller.cpp"
+    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/osd-device.cpp"
+    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/pipeline_image.cpp"
+    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/scrfd_gray.cpp"
+    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/utils.cpp"
+    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/yolov8_gray.cpp"
+)
 target_sources(ssne_ai_demo PRIVATE ${SRC_FILES})
 
 target_link_libraries(${PROJECT_NAME} 
