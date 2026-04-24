@@ -12,6 +12,7 @@
 void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape) 
 {
     img_shape = *in_img_shape;      // 保存原始图像尺寸
+    online_ready_ = false;
     
     // 在线图像配置参数
     uint16_t img_width = static_cast<uint16_t>(img_shape[0]);   // 原始图像宽度
@@ -30,6 +31,7 @@ void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
         printf("ret: %d\n", res0);
         return;
     }
+    online_ready_ = true;
     printf("[INFO] open online pipe0: %d \n", res0);
 }
 
@@ -38,6 +40,10 @@ void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
  * @param img_sensor 输出参数：存储从pipe0获取的图像（1280×720 Y8）
  */
 void IMAGEPROCESSOR::GetImage(ssne_tensor_t* img_sensor) {
+    if (!online_ready_) {
+        printf("[IMAGEPROCESSOR] online pipeline 未就绪，跳过取图\n");
+        return;
+    }
     int capture_code = -1;  // pipe0采集返回码
     
     // 从pipe0获取裁剪后的图像数据
@@ -55,7 +61,9 @@ void IMAGEPROCESSOR::GetImage(ssne_tensor_t* img_sensor) {
  */
 void IMAGEPROCESSOR::Release()
 {
-    CloseOnlinePipeline(kPipeline0);  // 关闭pipe0（裁剪图像通道）
-    printf("[INFO] OnlinePipe closed!\n");
+    if (online_ready_) {
+        CloseOnlinePipeline(kPipeline0);  // 关闭pipe0（裁剪图像通道）
+        printf("[INFO] OnlinePipe closed!\n");
+    }
+    online_ready_ = false;
 }
-

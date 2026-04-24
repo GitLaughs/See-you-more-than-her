@@ -1,6 +1,9 @@
-﻿param(
+param(
     [int]$Device = -1,
-    [int]$Port = 5801
+    [int]$Port = 5801,
+    [string]$Source = "aurora_window",
+    [string]$ListenHost = "127.0.0.1",
+    [switch]$SkipAurora
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,7 +20,7 @@ function Initialize-Utf8Console {
 
 function Get-PythonExecutable {
     $candidates = @(
-        (Resolve-Path "..\..\\.venv39\Scripts\python.exe" -ErrorAction SilentlyContinue),
+        (Resolve-Path "..\..\venv_39\Scripts\python.exe" -ErrorAction SilentlyContinue),
         (Resolve-Path "..\..\.venv39\Scripts\python.exe" -ErrorAction SilentlyContinue),
         "python"
     ) | Where-Object { $_ }
@@ -61,17 +64,62 @@ while ([DateTime]::UtcNow -lt $deadline) {
     } catch {}
 }
 
+function Start-AuroraDesktop {
+    $auroraExe = Resolve-Path "..\..\Aurora-2.0.0-ciciec.16\Aurora.exe" -ErrorAction SilentlyContinue
+    if (-not $auroraExe) {
+        return
+    }
+    $alreadyRunning = Get-Process -Name "Aurora" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($alreadyRunning) {
+        return
+    }
+    $auroraDir = Split-Path -Parent $auroraExe.Path
+    Start-Process -FilePath $auroraExe.Path -WorkingDirectory $auroraDir | Out-Null
+    Start-Sleep -Milliseconds 1200
+}
+
+function Test-PortAvailable {
+    param(
+        [string]$BindHost,
+        [int]$BindPort
+    )
+    try {
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse($BindHost), $BindPort)
+        $listener.Start()
+        $listener.Stop()
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Resolve-AvailablePort {
+    param(
+        [string]$BindHost,
+        [int]$PreferredPort
+    )
+    if (Test-PortAvailable -BindHost $BindHost -BindPort $PreferredPort) {
+        return $PreferredPort
+    }
+    for ($candidate = $PreferredPort + 1; $candidate -le $PreferredPort + 30; $candidate++) {
+        if (Test-PortAvailable -BindHost $BindHost -BindPort $candidate) {
+            return $candidate
+        }
+    }
+    throw "无法找到可用端口（起始端口: $PreferredPort）"
+}
+
 Initialize-Utf8Console
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
 $Python = Get-PythonExecutable
-Write-Host "[INFO] Python: $Python" -ForegroundColor DarkGray
+$ResolvedPort = Resolve-AvailablePort -BindHost $ListenHost -PreferredPort $Port
+$browserUrl = "http://127.0.0.1:$ResolvedPort"
 
-$browserUrl = "http://127.0.0.1:$Port"
-Write-Host "=== Aurora Companion ===" -ForegroundColor Cyan
-Write-Host "Starting Aurora Companion..." -ForegroundColor Green
-Write-Host "Web UI: $browserUrl" -ForegroundColor Yellow
+if (-not $SkipAurora) {
+    Start-AuroraDesktop
+}
 
-Start-BrowserWhenReady -ReadyPort $Port -Url $browserUrl
-& $Python aurora_companion.py --device $Device --port $Port
+Start-BrowserWhenReady -ReadyPort $ResolvedPort -Url $browserUrl
+& $Python aurora_companion.py --device $Device --port $ResolvedPort --host $ListenHost --source $Source

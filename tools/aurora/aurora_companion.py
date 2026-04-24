@@ -18,18 +18,26 @@ Aurora Companion — Windows/A1 摄像头可视化采集伴侣
 import argparse
 import base64
 import contextlib
+import ctypes
+import json
 import os
 import shutil
+import subprocess
 import sys
 import threading
 import time
+import tkinter as tk
 from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+from urllib import error as urllib_error
+from urllib import parse as urllib_parse
+from urllib import request as urllib_request
 
 import cv2
 import numpy as np
+from PIL import ImageGrab, ImageTk
 from flask import Flask, Response, jsonify, render_template, request
 
 # 可选：onnxruntime（用于 YOLOv8 检测流）
@@ -77,6 +85,18 @@ try:
 except ImportError:
     print("[WARN] relay_comm 未找到，A1 Relay 功能不可用")
 try:
+    from a1_test_comm import a1_test_bp
+    app.register_blueprint(a1_test_bp)
+    print("[INFO] A1 测试模块已加载")
+except ImportError:
+    print("[WARN] a1_test_comm 未找到，A1 测试模块不可用")
+try:
+    from serial_terminal import serial_term_bp
+    app.register_blueprint(serial_term_bp)
+    print("[INFO] A1 终端模块已加载")
+except ImportError:
+    print("[WARN] serial_terminal 未找到，A1 终端模块不可用")
+try:
     from ros_bridge import handle_yolo_detections, ros_bp
 
     _ros_detection_hook = handle_yolo_detections
@@ -86,7 +106,7 @@ except ImportError:
     print("[WARN] ros_bridge 未找到，ROS 联动功能不可用")
 
 # ─── 全局状态 ─────────────────────────────────────────────────────────────────
-camera: Optional[cv2.VideoCapture] = None
+camera: Optional[Any] = None
 camera_lock = threading.Lock()
 device_id_global = 0
 camera_source_global = "auto"
@@ -95,6 +115,18 @@ camera_devices_snapshot: list = []
 output_dir: str = ""
 capture_count = 0
 recent_captures: deque = deque(maxlen=8)
+desktop_capture_lock = threading.Lock()
+desktop_capture_target: Dict[str, Any] = {
+    "mode": "auto_aurora",
+    "label": "Aurora 自动窗口",
+    "hwnd": None,
+    "bbox": None,
+    "crop_norm": None,
+    "process_name": "Aurora.exe",
+    "title": "Aurora",
+    "class_name": "",
+    "use_client_area": True,
+}
 
 _frame_count = 0
 _fps_ts = time.time()
@@ -106,14 +138,24 @@ _last_reconnect_time = 0.0
 
 MAX_DEVICE_SCAN = 5
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
+AURORA_EXE_PATH = Path(__file__).resolve().parents[2] / "Aurora-2.0.0-ciciec.16" / "Aurora.exe"
+QT_BRIDGE_SCRIPT = Path(__file__).with_name("qt_camera_bridge.py")
+QT_BRIDGE_PORT = 5911
+QT_BRIDGE_HOST = "127.0.0.1"
+QT_BRIDGE_URL = f"http://{QT_BRIDGE_HOST}:{QT_BRIDGE_PORT}"
+AURORA_WINDOW_DEVICE_ID = -100
 CAMERA_SOURCE_WINDOWS = "windows"
 CAMERA_SOURCE_A1 = "a1"
+CAMERA_SOURCE_AURORA_WINDOW = "aurora_window"
 CAMERA_SOURCE_AUTO = "auto"
 SOURCE_LABELS = {
     CAMERA_SOURCE_WINDOWS: "Windows 摄像头",
     CAMERA_SOURCE_A1: "A1 开发板",
+    CAMERA_SOURCE_AURORA_WINDOW: "Aurora 窗口",
     CAMERA_SOURCE_AUTO: "自动识别",
 }
+_qt_bridge_process: Optional[subprocess.Popen] = None
+_qt_bridge_lock = threading.Lock()
 
 # ─── YOLOv8 检测器（PC 端 ONNX 推理）────────────────────────────────────────
 MODEL_ROOT = Path(__file__).parent.parent.parent / "models"
@@ -173,11 +215,739 @@ def _open_raw_camera(device_id: int) -> cv2.VideoCapture:
     return cap
 
 
+if sys.platform == "win32":
+    from ctypes import wintypes
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    GA_ROOT = 2
+    GWL_STYLE = -16
+    WS_CHILD = 0x40000000
+    SM_XVIRTUALSCREEN = 76
+    SM_YVIRTUALSCREEN = 77
+    SM_CXVIRTUALSCREEN = 78
+    SM_CYVIRTUALSCREEN = 79
+    VK_ESCAPE = 0x1B
+    VK_LBUTTON = 0x01
+    SRCCOPY = 0x00CC0020
+    BI_RGB = 0
+    DIB_RGB_COLORS = 0
+    PW_RENDERFULLCONTENT = 0x00000002
+    _user32 = ctypes.windll.user32
+    _kernel32 = ctypes.windll.kernel32
+    _gdi32 = ctypes.windll.gdi32
+    _query_full_process_image_name = _kernel32.QueryFullProcessImageNameW
+    _query_full_process_image_name.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)
+    ]
+    _query_full_process_image_name.restype = wintypes.BOOL
+
+    class _RECT(ctypes.Structure):
+        _fields_ = [
+            ("left", wintypes.LONG),
+            ("top", wintypes.LONG),
+            ("right", wintypes.LONG),
+            ("bottom", wintypes.LONG),
+        ]
+
+    class _POINT(ctypes.Structure):
+        _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+
+
+    class _BITMAPINFOHEADER(ctypes.Structure):
+        _fields_ = [
+            ("biSize", wintypes.DWORD),
+            ("biWidth", wintypes.LONG),
+            ("biHeight", wintypes.LONG),
+            ("biPlanes", wintypes.WORD),
+            ("biBitCount", wintypes.WORD),
+            ("biCompression", wintypes.DWORD),
+            ("biSizeImage", wintypes.DWORD),
+            ("biXPelsPerMeter", wintypes.LONG),
+            ("biYPelsPerMeter", wintypes.LONG),
+            ("biClrUsed", wintypes.DWORD),
+            ("biClrImportant", wintypes.DWORD),
+        ]
+
+
+    class _RGBQUAD(ctypes.Structure):
+        _fields_ = [
+            ("rgbBlue", ctypes.c_ubyte),
+            ("rgbGreen", ctypes.c_ubyte),
+            ("rgbRed", ctypes.c_ubyte),
+            ("rgbReserved", ctypes.c_ubyte),
+        ]
+
+
+    class _BITMAPINFO(ctypes.Structure):
+        _fields_ = [
+            ("bmiHeader", _BITMAPINFOHEADER),
+            ("bmiColors", _RGBQUAD * 1),
+        ]
+
+
+def _window_process_name(hwnd: int) -> str:
+    if sys.platform != "win32":
+        return ""
+    pid = wintypes.DWORD()
+    _user32.GetWindowThreadProcessId(wintypes.HWND(hwnd), ctypes.byref(pid))
+    if pid.value == 0:
+        return ""
+    handle = _kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+    if not handle:
+        return ""
+    try:
+        size = wintypes.DWORD(1024)
+        buf = ctypes.create_unicode_buffer(size.value)
+        if _query_full_process_image_name(handle, 0, buf, ctypes.byref(size)):
+            return Path(buf.value).name
+        return ""
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+def _window_text(hwnd: int) -> str:
+    if sys.platform != "win32":
+        return ""
+    length = _user32.GetWindowTextLengthW(wintypes.HWND(hwnd))
+    buf = ctypes.create_unicode_buffer(max(1, length + 1))
+    _user32.GetWindowTextW(wintypes.HWND(hwnd), buf, len(buf))
+    return buf.value
+
+
+def _client_bbox(hwnd: int) -> Optional[Tuple[int, int, int, int]]:
+    if sys.platform != "win32":
+        return None
+    rect = _RECT()
+    if not _user32.GetClientRect(wintypes.HWND(hwnd), ctypes.byref(rect)):
+        return None
+    left_top = _POINT(rect.left, rect.top)
+    right_bottom = _POINT(rect.right, rect.bottom)
+    if not _user32.ClientToScreen(wintypes.HWND(hwnd), ctypes.byref(left_top)):
+        return None
+    if not _user32.ClientToScreen(wintypes.HWND(hwnd), ctypes.byref(right_bottom)):
+        return None
+    width = right_bottom.x - left_top.x
+    height = right_bottom.y - left_top.y
+    if width < 64 or height < 64:
+        return None
+    return (left_top.x, left_top.y, right_bottom.x, right_bottom.y)
+
+
+def _window_rect(hwnd: int) -> Optional[Tuple[int, int, int, int]]:
+    if sys.platform != "win32":
+        return None
+    rect = _RECT()
+    if not _user32.GetWindowRect(wintypes.HWND(hwnd), ctypes.byref(rect)):
+        return None
+    width = rect.right - rect.left
+    height = rect.bottom - rect.top
+    if width < 64 or height < 64:
+        return None
+    return (rect.left, rect.top, rect.right, rect.bottom)
+
+
+def _window_class_name(hwnd: int) -> str:
+    if sys.platform != "win32":
+        return ""
+    buf = ctypes.create_unicode_buffer(256)
+    _user32.GetClassNameW(wintypes.HWND(hwnd), buf, len(buf))
+    return buf.value
+
+
+def _window_root(hwnd: int) -> int:
+    if sys.platform != "win32":
+        return hwnd
+    root = _user32.GetAncestor(wintypes.HWND(hwnd), GA_ROOT)
+    return int(root) if root else int(hwnd)
+
+
+def _window_style(hwnd: int) -> int:
+    if sys.platform != "win32":
+        return 0
+    return int(_user32.GetWindowLongW(wintypes.HWND(hwnd), GWL_STYLE))
+
+
+def _virtual_screen_bbox() -> Tuple[int, int, int, int]:
+    if sys.platform != "win32":
+        return (0, 0, CAMERA_WIDTH, CAMERA_HEIGHT)
+    left = int(_user32.GetSystemMetrics(SM_XVIRTUALSCREEN))
+    top = int(_user32.GetSystemMetrics(SM_YVIRTUALSCREEN))
+    width = int(_user32.GetSystemMetrics(SM_CXVIRTUALSCREEN))
+    height = int(_user32.GetSystemMetrics(SM_CYVIRTUALSCREEN))
+    return (left, top, left + width, top + height)
+
+
+def _point_on_desktop() -> Tuple[int, int]:
+    if sys.platform != "win32":
+        return (0, 0)
+    pt = _POINT()
+    _user32.GetCursorPos(ctypes.byref(pt))
+    return int(pt.x), int(pt.y)
+
+
+def _window_from_point(x: int, y: int) -> Optional[int]:
+    if sys.platform != "win32":
+        return None
+    pt = _POINT(x, y)
+    hwnd = _user32.WindowFromPoint(pt)
+    return int(hwnd) if hwnd else None
+
+
+def _describe_target_for_hwnd(hwnd: int, force_window_rect: bool = False) -> Optional[Dict[str, Any]]:
+    if sys.platform != "win32" or not hwnd or not _user32.IsWindow(wintypes.HWND(hwnd)):
+        return None
+    root = _window_root(hwnd)
+    style = _window_style(hwnd)
+    is_child = root != hwnd or bool(style & WS_CHILD)
+    use_client_area = not is_child and not force_window_rect
+    bbox = _client_bbox(hwnd) if use_client_area else _window_rect(hwnd)
+    if bbox is None:
+        bbox = _window_rect(root)
+        if bbox is None:
+            return None
+        use_client_area = False
+        hwnd = root
+    title = _window_text(hwnd).strip() or _window_text(root).strip() or "(无标题窗口)"
+    process_name = _window_process_name(hwnd) or _window_process_name(root)
+    class_name = _window_class_name(hwnd)
+    width = bbox[2] - bbox[0]
+    height = bbox[3] - bbox[1]
+    return {
+        "mode": "manual_window",
+        "label": f"{title} [{process_name or 'unknown'}]",
+        "hwnd": int(hwnd),
+        "root_hwnd": int(root),
+        "bbox": [int(b) for b in bbox],
+        "process_name": process_name,
+        "title": title,
+        "class_name": class_name,
+        "use_client_area": bool(use_client_area),
+        "width": width,
+        "height": height,
+    }
+
+
+def _serialize_capture_target() -> Dict[str, Any]:
+    with desktop_capture_lock:
+        target = dict(desktop_capture_target)
+    bbox = target.get("bbox")
+    base_bbox = _resolve_base_capture_bbox(dict(target))
+    resolved_bbox = _apply_target_crop(base_bbox, dict(target))
+    if base_bbox is not None:
+        target["base_bbox"] = [int(v) for v in base_bbox]
+    else:
+        target["base_bbox"] = None
+    if resolved_bbox is not None:
+        target["resolved_bbox"] = [int(v) for v in resolved_bbox]
+    else:
+        target["resolved_bbox"] = None
+    if bbox is None and resolved_bbox is not None:
+        bbox = resolved_bbox
+    if bbox:
+        target["bbox"] = [int(v) for v in bbox]
+        target["width"] = int(bbox[2] - bbox[0])
+        target["height"] = int(bbox[3] - bbox[1])
+    else:
+        target["width"] = 0
+        target["height"] = 0
+    target["opened"] = bool(_resolve_capture_bbox(dict(target)))
+    return target
+
+
+def _set_capture_target(target: Dict[str, Any]) -> None:
+    global desktop_capture_target, camera_devices_snapshot
+    normalized = dict(target)
+    bbox = normalized.get("bbox")
+    if bbox is not None:
+        normalized["bbox"] = [int(v) for v in bbox]
+    if normalized.get("hwnd") is not None:
+        normalized["hwnd"] = int(normalized["hwnd"])
+    if normalized.get("root_hwnd") is not None:
+        normalized["root_hwnd"] = int(normalized["root_hwnd"])
+    crop_norm = normalized.get("crop_norm")
+    if crop_norm is not None and len(crop_norm) == 4:
+        normalized["crop_norm"] = [float(v) for v in crop_norm]
+    else:
+        normalized["crop_norm"] = None
+    with desktop_capture_lock:
+        desktop_capture_target = normalized
+    camera_devices_snapshot = []
+
+
+def _resolve_base_capture_bbox(target: Optional[Dict[str, Any]] = None) -> Optional[Tuple[int, int, int, int]]:
+    if sys.platform != "win32":
+        return None
+    if target is None:
+        with desktop_capture_lock:
+            target = dict(desktop_capture_target)
+    mode = target.get("mode", "auto_aurora")
+    if mode == "manual_region":
+        bbox = target.get("bbox")
+        if bbox and len(bbox) == 4:
+            left, top, right, bottom = [int(v) for v in bbox]
+            if right - left >= 32 and bottom - top >= 32:
+                return (left, top, right, bottom)
+        return None
+    if mode == "manual_window":
+        hwnd = int(target.get("hwnd") or 0)
+        if not hwnd or not _user32.IsWindow(wintypes.HWND(hwnd)):
+            return None
+        if bool(target.get("use_client_area", False)):
+            bbox = _client_bbox(hwnd)
+            if bbox is not None:
+                return bbox
+        return _window_rect(hwnd)
+    hwnd = _find_aurora_window_handle()
+    if hwnd is None:
+        return None
+    return _client_bbox(hwnd)
+
+
+def _apply_target_crop(base_bbox: Optional[Tuple[int, int, int, int]],
+                       target: Optional[Dict[str, Any]] = None) -> Optional[Tuple[int, int, int, int]]:
+    if base_bbox is None:
+        return None
+    if target is None:
+        with desktop_capture_lock:
+            target = dict(desktop_capture_target)
+    crop_norm = target.get("crop_norm")
+    if not crop_norm or len(crop_norm) != 4:
+        return base_bbox
+    try:
+        x0, y0, x1, y1 = [float(v) for v in crop_norm]
+    except Exception:
+        return base_bbox
+    x0 = min(max(x0, 0.0), 1.0)
+    y0 = min(max(y0, 0.0), 1.0)
+    x1 = min(max(x1, 0.0), 1.0)
+    y1 = min(max(y1, 0.0), 1.0)
+    if x1 - x0 < 0.02 or y1 - y0 < 0.02:
+        return base_bbox
+    left, top, right, bottom = base_bbox
+    width = max(1, right - left)
+    height = max(1, bottom - top)
+    cropped = (
+        int(round(left + width * x0)),
+        int(round(top + height * y0)),
+        int(round(left + width * x1)),
+        int(round(top + height * y1)),
+    )
+    if cropped[2] - cropped[0] < 32 or cropped[3] - cropped[1] < 32:
+        return base_bbox
+    return cropped
+
+
+def _resolve_capture_bbox(target: Optional[Dict[str, Any]] = None) -> Optional[Tuple[int, int, int, int]]:
+    if target is None:
+        with desktop_capture_lock:
+            target = dict(desktop_capture_target)
+    base_bbox = _resolve_base_capture_bbox(dict(target))
+    return _apply_target_crop(base_bbox, dict(target))
+
+
+def _capture_window_bitmap(hwnd: int) -> Optional[np.ndarray]:
+    if sys.platform != "win32" or not hwnd or not _user32.IsWindow(wintypes.HWND(hwnd)):
+        return None
+    rect = _window_rect(hwnd)
+    if rect is None:
+        return None
+    width = int(rect[2] - rect[0])
+    height = int(rect[3] - rect[1])
+    if width < 2 or height < 2:
+        return None
+
+    hwnd_dc = _user32.GetWindowDC(wintypes.HWND(hwnd))
+    if not hwnd_dc:
+        return None
+
+    mem_dc = _gdi32.CreateCompatibleDC(hwnd_dc)
+    bitmap = _gdi32.CreateCompatibleBitmap(hwnd_dc, width, height)
+    old_obj = _gdi32.SelectObject(mem_dc, bitmap)
+
+    frame = None
+    try:
+        printed = int(_user32.PrintWindow(wintypes.HWND(hwnd), mem_dc, PW_RENDERFULLCONTENT))
+        if not printed:
+            _gdi32.BitBlt(mem_dc, 0, 0, width, height, hwnd_dc, 0, 0, SRCCOPY)
+
+        bmi = _BITMAPINFO()
+        bmi.bmiHeader.biSize = ctypes.sizeof(_BITMAPINFOHEADER)
+        bmi.bmiHeader.biWidth = width
+        bmi.bmiHeader.biHeight = -height
+        bmi.bmiHeader.biPlanes = 1
+        bmi.bmiHeader.biBitCount = 32
+        bmi.bmiHeader.biCompression = BI_RGB
+
+        buf = ctypes.create_string_buffer(width * height * 4)
+        rows = _gdi32.GetDIBits(mem_dc, bitmap, 0, height, buf, ctypes.byref(bmi), DIB_RGB_COLORS)
+        if rows == height:
+            arr = np.frombuffer(buf, dtype=np.uint8).reshape((height, width, 4))
+            frame = arr[:, :, :3].copy()
+    finally:
+        if old_obj:
+            _gdi32.SelectObject(mem_dc, old_obj)
+        if bitmap:
+            _gdi32.DeleteObject(bitmap)
+        if mem_dc:
+            _gdi32.DeleteDC(mem_dc)
+        _user32.ReleaseDC(wintypes.HWND(hwnd), hwnd_dc)
+    return frame
+
+
+def _crop_frame_to_bbox(frame: np.ndarray,
+                        origin_rect: Tuple[int, int, int, int],
+                        target_bbox: Tuple[int, int, int, int]) -> Optional[np.ndarray]:
+    if frame is None or origin_rect is None or target_bbox is None:
+        return None
+    left = max(0, int(target_bbox[0] - origin_rect[0]))
+    top = max(0, int(target_bbox[1] - origin_rect[1]))
+    right = min(frame.shape[1], int(target_bbox[2] - origin_rect[0]))
+    bottom = min(frame.shape[0], int(target_bbox[3] - origin_rect[1]))
+    if right - left < 2 or bottom - top < 2:
+        return None
+    return frame[top:bottom, left:right].copy()
+
+
+def _capture_target_frame(target: Optional[Dict[str, Any]] = None) -> Optional[np.ndarray]:
+    if sys.platform != "win32":
+        return None
+    if target is None:
+        with desktop_capture_lock:
+            target = dict(desktop_capture_target)
+    mode = target.get("mode", "auto_aurora")
+    bbox = _resolve_capture_bbox(dict(target))
+    if bbox is None:
+        return None
+
+    if mode == "manual_region":
+        try:
+            image = ImageGrab.grab(bbox=bbox, all_screens=True)
+        except Exception:
+            return None
+        frame_rgb = np.array(image)
+        if frame_rgb.size == 0:
+            return None
+        return cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR) if len(frame_rgb.shape) == 3 else frame_rgb
+
+    hwnd = None
+    root_hwnd = None
+    if mode == "manual_window":
+        hwnd = int(target.get("hwnd") or 0)
+        root_hwnd = int(target.get("root_hwnd") or _window_root(hwnd or 0) or 0)
+    else:
+        hwnd = _find_aurora_window_handle() or 0
+        root_hwnd = hwnd
+    if not hwnd or not root_hwnd:
+        return None
+
+    root_rect = _window_rect(root_hwnd)
+    frame = _capture_window_bitmap(root_hwnd)
+    if frame is None or root_rect is None:
+        return None
+    cropped = _crop_frame_to_bbox(frame, root_rect, bbox)
+    return cropped if cropped is not None else frame
+
+
+def _float01(value: Any, default: float = 0.0) -> float:
+    try:
+        out = float(value)
+    except Exception:
+        out = default
+    return min(max(out, 0.0), 1.0)
+
+
+def _float_signed(value: Any, default: float = 0.0, limit: float = 0.5) -> float:
+    try:
+        out = float(value)
+    except Exception:
+        out = default
+    return min(max(out, -limit), limit)
+
+
+def _update_capture_crop_norm(crop_norm: Optional[list]) -> Dict[str, Any]:
+    with desktop_capture_lock:
+        target = dict(desktop_capture_target)
+    target["crop_norm"] = crop_norm
+    _set_capture_target(target)
+    return _serialize_capture_target()
+
+
+def _pick_window_from_desktop(timeout_sec: float = 20.0) -> Dict[str, Any]:
+    if sys.platform != "win32":
+        raise RuntimeError("仅支持 Windows 桌面点选")
+    popup = tk.Tk()
+    popup.title("Aurora Companion - 点选窗口")
+    popup.attributes("-topmost", True)
+    popup.resizable(False, False)
+    popup.geometry("360x120+80+80")
+    tk.Label(
+        popup,
+        text="请在桌面上单击目标窗口或视频区域。\n支持直接点 Aurora 的 device 视频区。\nEsc 取消。",
+        justify="left",
+        padx=16,
+        pady=14,
+    ).pack(fill="both", expand=True)
+    popup.update_idletasks()
+    popup_hwnd = int(popup.winfo_id())
+    deadline = time.time() + timeout_sec
+    last_down = False
+    try:
+        while time.time() < deadline:
+            popup.update()
+            if _user32.GetAsyncKeyState(VK_ESCAPE) & 0x8000:
+                raise RuntimeError("已取消点选窗口")
+            is_down = bool(_user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000)
+            if is_down and not last_down:
+                time.sleep(0.05)
+                x, y = _point_on_desktop()
+                hwnd = _window_from_point(x, y)
+                if hwnd and _window_root(hwnd) != _window_root(popup_hwnd):
+                    info = _describe_target_for_hwnd(hwnd)
+                    if info is None:
+                        raise RuntimeError("未识别到可抓取窗口")
+                    return info
+            last_down = is_down
+            time.sleep(0.02)
+        raise RuntimeError("点选窗口超时")
+    finally:
+        popup.destroy()
+
+
+def _pick_screen_region(timeout_sec: float = 30.0) -> Dict[str, Any]:
+    if sys.platform != "win32":
+        raise RuntimeError("仅支持 Windows 桌面框选")
+    left, top, right, bottom = _virtual_screen_bbox()
+    width = right - left
+    height = bottom - top
+    overlay = tk.Tk()
+    overlay.title("Aurora Companion - 框选区域")
+    overlay.attributes("-topmost", True)
+    overlay.attributes("-alpha", 0.20)
+    overlay.overrideredirect(True)
+    overlay.geometry(f"{width}x{height}+{left}+{top}")
+    overlay.configure(bg="black")
+
+    canvas = tk.Canvas(overlay, width=width, height=height, bg="black", highlightthickness=0)
+    canvas.pack(fill="both", expand=True)
+    try:
+        screenshot = ImageGrab.grab(bbox=(left, top, right, bottom), all_screens=True)
+        photo = ImageTk.PhotoImage(screenshot)
+        canvas.create_image(0, 0, anchor="nw", image=photo)
+        canvas.image = photo
+    except Exception:
+        pass
+    canvas.create_text(
+        24,
+        24,
+        anchor="nw",
+        fill="white",
+        text="拖拽框选要抓取的视频区域，松开确认；Esc 取消。",
+        font=("Segoe UI", 14, "bold"),
+    )
+
+    state: Dict[str, Any] = {"start": None, "rect": None, "done": False, "bbox": None}
+
+    def on_press(event):
+        state["start"] = (event.x, event.y)
+        if state["rect"]:
+            canvas.delete(state["rect"])
+        state["rect"] = canvas.create_rectangle(event.x, event.y, event.x, event.y, outline="#ffffff", width=2)
+
+    def on_drag(event):
+        if not state["start"] or not state["rect"]:
+            return
+        x0, y0 = state["start"]
+        canvas.coords(state["rect"], x0, y0, event.x, event.y)
+
+    def on_release(event):
+        if not state["start"]:
+            return
+        x0, y0 = state["start"]
+        x1, y1 = event.x, event.y
+        l = min(x0, x1) + left
+        t = min(y0, y1) + top
+        r = max(x0, x1) + left
+        b = max(y0, y1) + top
+        if r - l < 32 or b - t < 32:
+            return
+        state["bbox"] = [int(l), int(t), int(r), int(b)]
+        state["done"] = True
+
+    def on_escape(_event):
+        state["done"] = True
+        state["bbox"] = None
+
+    canvas.bind("<ButtonPress-1>", on_press)
+    canvas.bind("<B1-Motion>", on_drag)
+    canvas.bind("<ButtonRelease-1>", on_release)
+    overlay.bind("<Escape>", on_escape)
+    overlay.focus_force()
+
+    deadline = time.time() + timeout_sec
+    try:
+        while time.time() < deadline and not state["done"]:
+            overlay.update()
+            time.sleep(0.01)
+    finally:
+        overlay.destroy()
+    if not state["bbox"]:
+        raise RuntimeError("已取消框选区域")
+    bbox = state["bbox"]
+    return {
+        "mode": "manual_region",
+        "label": f"手动框选区域 {bbox[2] - bbox[0]}x{bbox[3] - bbox[1]}",
+        "hwnd": None,
+        "bbox": bbox,
+        "process_name": "",
+        "title": "手动框选区域",
+        "class_name": "",
+        "use_client_area": False,
+        "width": bbox[2] - bbox[0],
+        "height": bbox[3] - bbox[1],
+    }
+
+
+def _list_desktop_windows(limit: int = 60) -> list:
+    if sys.platform != "win32":
+        return []
+    items = []
+    seen = set()
+
+    def push_info(info: Optional[Dict[str, Any]], child: bool = False) -> None:
+        if info is None:
+            return
+        key = (int(info.get("hwnd") or 0), tuple(info.get("bbox") or []))
+        if key in seen:
+            return
+        seen.add(key)
+        title = (info.get("title") or "").strip()
+        process_name = (info.get("process_name") or "").strip()
+        if not title and not process_name:
+            return
+        info["id"] = info["hwnd"]
+        info["score"] = info["width"] * info["height"] + (400000 if child else 0)
+        if child:
+            info["label"] = f"{title} [Aurora 子窗口]"
+            info["title"] = title + " [子窗口]"
+        items.append(info)
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def enum_proc(hwnd, _lparam):
+        if not _user32.IsWindowVisible(hwnd):
+            return True
+        info = _describe_target_for_hwnd(int(hwnd))
+        push_info(info, child=False)
+        process_name = (info.get("process_name") or "").lower() if info else ""
+        title = (info.get("title") or "").lower() if info else ""
+        if process_name == "aurora.exe" or "aurora" in title:
+            @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            def enum_child_proc(child_hwnd, _child_lparam):
+                child_info = _describe_target_for_hwnd(int(child_hwnd), force_window_rect=True)
+                push_info(child_info, child=True)
+                return True
+
+            _user32.EnumChildWindows(wintypes.HWND(hwnd), enum_child_proc, 0)
+        return len(items) < limit * 2
+
+    _user32.EnumWindows(enum_proc, 0)
+    items.sort(key=lambda item: (("aurora" in (item.get("title", "") + item.get("process_name", "")).lower()),
+                                 item.get("score", 0)), reverse=True)
+    return items[:limit]
+
+
+def _find_aurora_window_handle() -> Optional[int]:
+    if sys.platform != "win32":
+        return None
+
+    matches = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def enum_proc(hwnd, _lparam):
+        if not _user32.IsWindowVisible(hwnd):
+            return True
+        bbox = _client_bbox(hwnd)
+        if bbox is None:
+            return True
+        title = _window_text(hwnd).strip()
+        process_name = _window_process_name(hwnd).lower()
+        title_lower = title.lower()
+        if process_name != "aurora.exe" and "aurora" not in title_lower:
+            return True
+        width = bbox[2] - bbox[0]
+        height = bbox[3] - bbox[1]
+        score = width * height
+        if "aurora" in title_lower:
+            score += 1000000
+        matches.append((score, int(hwnd)))
+        return True
+
+    _user32.EnumWindows(enum_proc, 0)
+    if not matches:
+        return None
+    matches.sort(reverse=True)
+    return matches[0][1]
+
+
+class AuroraWindowCapture:
+    """从桌面已显示内容抓帧，可自动找 Aurora，也可手动点选窗口/框选区域。"""
+
+    def __init__(self):
+        self.hwnd: Optional[int] = None
+        self._last_refresh = 0.0
+        self._target_mode = "auto_aurora"
+        self._bbox: Optional[Tuple[int, int, int, int]] = None
+        self._target_signature: Optional[str] = None
+
+    def _refresh_handle(self, force: bool = False) -> Optional[int]:
+        now = time.time()
+        target = _serialize_capture_target()
+        signature = json.dumps({
+            "mode": target.get("mode"),
+            "hwnd": target.get("hwnd"),
+            "root_hwnd": target.get("root_hwnd"),
+            "bbox": target.get("bbox"),
+            "resolved_bbox": target.get("resolved_bbox"),
+            "crop_norm": target.get("crop_norm"),
+        }, ensure_ascii=False, sort_keys=True)
+        target_changed = signature != self._target_signature
+        if not force and not target_changed and self.hwnd and self._target_mode == "manual_window" and sys.platform == "win32" and _user32.IsWindow(wintypes.HWND(self.hwnd)):
+            return self.hwnd
+        if not force and not target_changed and now - self._last_refresh < 0.25:
+            return self.hwnd
+        self._last_refresh = now
+        self._target_signature = signature
+        self._target_mode = target.get("mode", "auto_aurora")
+        self._bbox = _resolve_capture_bbox(target)
+        if self._target_mode == "manual_window":
+            self.hwnd = int(target.get("hwnd") or 0) or None
+        else:
+            self.hwnd = _find_aurora_window_handle() if self._target_mode == "auto_aurora" else None
+        return self.hwnd
+
+    def isOpened(self) -> bool:
+        self._refresh_handle()
+        return self._bbox is not None
+
+    def release(self) -> None:
+        self.hwnd = None
+        self._bbox = None
+
+    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+        self._refresh_handle()
+        target = _serialize_capture_target()
+        frame = _capture_target_frame(target)
+        if frame is None or frame.size == 0:
+            return False, None
+        return True, frame
+
+
 def _source_label(source: str) -> str:
     return SOURCE_LABELS.get(source, source)
 
 
 def _infer_device_source(info: dict) -> str:
+    if info.get("source") == CAMERA_SOURCE_AURORA_WINDOW:
+        return CAMERA_SOURCE_AURORA_WINDOW
     if info.get("supports_gray_fourcc"):
         return CAMERA_SOURCE_A1
     # 仅当帧有实际内容时才凭灰度特征判断为 A1；全黑帧 (0==0==0) 不能作为依据
@@ -199,6 +969,35 @@ def _normalize_frame_for_display(frame: np.ndarray) -> np.ndarray:
     return frame
 
 
+def _is_effectively_grayscale(frame: np.ndarray) -> bool:
+    """判断 3 通道图像是否本质上仍是灰度。"""
+    if frame is None or len(frame.shape) != 3 or frame.shape[2] < 3:
+        return len(frame.shape) == 2 if frame is not None else False
+    sample = frame[::8, ::8, :3].astype(np.int16, copy=False)
+    bg = np.abs(sample[:, :, 0] - sample[:, :, 1])
+    gr = np.abs(sample[:, :, 1] - sample[:, :, 2])
+    return int(bg.max(initial=0)) <= 2 and int(gr.max(initial=0)) <= 2
+
+
+def _extract_best_mono_channel(frame: np.ndarray) -> np.ndarray:
+    """从异常伪彩帧中选取信息量最高的单通道作为亮度图。"""
+    if frame is None:
+        return frame
+    if len(frame.shape) == 2:
+        return frame
+    if frame.shape[2] == 1:
+        return frame[:, :, 0]
+    if frame.shape[2] == 2:
+        return frame[:, :, 0]
+
+    stats = []
+    for idx in range(min(frame.shape[2], 3)):
+        channel = frame[::8, ::8, idx].astype(np.float32, copy=False)
+        stats.append((float(np.std(channel)), idx))
+    best_idx = max(stats)[1] if stats else 0
+    return frame[:, :, best_idx]
+
+
 def _frame_to_gray(frame: np.ndarray) -> np.ndarray:
     if frame is None:
         return frame
@@ -211,6 +1010,8 @@ def _frame_to_gray(frame: np.ndarray) -> np.ndarray:
 
 def _configure_camera_for_source(cap: cv2.VideoCapture, source: str) -> bool:
     """按源类型配置摄像头，返回是否成功锁定灰度格式。"""
+    if source == CAMERA_SOURCE_AURORA_WINDOW:
+        return False
     if source != CAMERA_SOURCE_A1:
         cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
         return False
@@ -256,7 +1057,207 @@ def save_preferred_device(device_id: int) -> None:
         pass
 
 
+def _qt_bridge_request(path: str, method: str = "GET", payload: Optional[dict] = None, timeout: float = 2.5) -> dict:
+    url = QT_BRIDGE_URL + path
+    data = None
+    headers = {}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json; charset=utf-8"
+    req = urllib_request.Request(url, data=data, headers=headers, method=method)
+    with urllib_request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read()
+    return json.loads(raw.decode("utf-8")) if raw else {}
+
+
+def _qt_bridge_status(timeout: float = 1.0) -> Optional[dict]:
+    try:
+        return _qt_bridge_request("/status", timeout=timeout)
+    except Exception:
+        return None
+
+
+def ensure_qt_bridge_running(timeout: float = 8.0) -> dict:
+    global _qt_bridge_process
+
+    status = _qt_bridge_status(timeout=0.6)
+    if status is not None:
+        return status
+
+    with _qt_bridge_lock:
+        status = _qt_bridge_status(timeout=0.6)
+        if status is not None:
+            return status
+
+        if not QT_BRIDGE_SCRIPT.exists():
+            raise RuntimeError(f"Qt 相机桥脚本不存在: {QT_BRIDGE_SCRIPT}")
+
+        if _qt_bridge_process is None or _qt_bridge_process.poll() is not None:
+            kwargs: Dict[str, Any] = {
+                "cwd": str(Path(__file__).resolve().parent),
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+            }
+            if sys.platform == "win32":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            _qt_bridge_process = subprocess.Popen(
+                [sys.executable, str(QT_BRIDGE_SCRIPT), "--host", QT_BRIDGE_HOST, "--port", str(QT_BRIDGE_PORT)],
+                **kwargs,
+            )
+
+        deadline = time.time() + timeout
+        last_status = None
+        while time.time() < deadline:
+            last_status = _qt_bridge_status(timeout=0.8)
+            if last_status is not None:
+                return last_status
+            if _qt_bridge_process is not None and _qt_bridge_process.poll() is not None:
+                break
+            time.sleep(0.25)
+
+        if last_status is not None:
+            return last_status
+        raise RuntimeError("Qt 相机桥启动失败")
+
+
+def _qt_bridge_devices() -> list:
+    try:
+        status = ensure_qt_bridge_running()
+        if not status.get("available", False):
+            return []
+        payload = _qt_bridge_request("/devices", timeout=4.0)
+        if not payload.get("success", False):
+            return []
+        return payload.get("devices", []) or []
+    except Exception:
+        return []
+
+
+def _qt_bridge_probe_device(device_id: int) -> Optional[dict]:
+    for item in _qt_bridge_devices():
+        if int(item.get("id", -999)) == int(device_id):
+            return item
+    return None
+
+
+def _qt_bridge_fetch_frame(mode: str = "color", timeout: float = 2.5) -> Optional[np.ndarray]:
+    query = urllib_parse.urlencode({"mode": mode})
+    req = urllib_request.Request(f"{QT_BRIDGE_URL}/frame.jpg?{query}", method="GET")
+    try:
+        with urllib_request.urlopen(req, timeout=timeout) as resp:
+            if resp.status != 200:
+                return None
+            raw = resp.read()
+    except urllib_error.URLError:
+        return None
+    except Exception:
+        return None
+    if not raw:
+        return None
+    flags = cv2.IMREAD_GRAYSCALE if mode == "gray" else cv2.IMREAD_COLOR
+    arr = np.frombuffer(raw, dtype=np.uint8)
+    return cv2.imdecode(arr, flags)
+
+
+class QtBridgeCapture:
+    """使用独立 QtMultimedia 桥进程获取相机画面。"""
+
+    def __init__(self, device_id: int, source: str):
+        self.device_id = int(device_id)
+        self.source = source if source in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1} else CAMERA_SOURCE_AUTO
+        self._last_status: Dict[str, Any] = {}
+        self._open()
+
+    def _open(self) -> None:
+        status = ensure_qt_bridge_running()
+        if not status.get("available", False):
+            error_text = status.get("error") or "PySide6 / QtMultimedia 不可用"
+            raise RuntimeError(f"Qt 相机桥不可用: {error_text}")
+        payload = _qt_bridge_request(
+            "/switch",
+            method="POST",
+            payload={"device": self.device_id, "source": self.source},
+            timeout=6.0,
+        )
+        if not payload.get("success", False):
+            raise RuntimeError(payload.get("error") or "Qt 相机桥切换摄像头失败")
+        self._last_status = payload.get("status", {}) or {}
+
+    def isOpened(self) -> bool:
+        try:
+            status = _qt_bridge_status(timeout=0.8)
+            if status is None:
+                return False
+            self._last_status = status
+            return bool(status.get("connected"))
+        except Exception:
+            return False
+
+    def release(self) -> None:
+        return
+
+    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+        return self.read_color()
+
+    def read_color(self) -> Tuple[bool, Optional[np.ndarray]]:
+        frame = _qt_bridge_fetch_frame(mode="color")
+        return (frame is not None), frame
+
+    def read_gray(self) -> Tuple[bool, Optional[np.ndarray]]:
+        frame = _qt_bridge_fetch_frame(mode="gray")
+        return (frame is not None), frame
+
+
+def probe_aurora_window_source() -> dict:
+    cap = AuroraWindowCapture()
+    target = _serialize_capture_target()
+    opened = cap.isOpened()
+    ret, frame = cap.read() if opened else (False, None)
+    source_label = "桌面抓取"
+    if target.get("mode") == "auto_aurora":
+        source_label = "Aurora 自动窗口"
+    elif target.get("mode") == "manual_window":
+        source_label = "手动点选窗口"
+    elif target.get("mode") == "manual_region":
+        source_label = "手动框选区域"
+    if not ret or frame is None:
+        return {
+            "id": AURORA_WINDOW_DEVICE_ID,
+            "opened": opened,
+            "score": 18 if opened else -1,
+            "actual_width": CAMERA_WIDTH,
+            "actual_height": CAMERA_HEIGHT,
+            "is_grayscale": False,
+            "has_content": opened,
+            "supports_gray_fourcc": False,
+            "source": CAMERA_SOURCE_AURORA_WINDOW,
+            "source_label": source_label,
+            "target": target,
+        }
+
+    frame_h, frame_w = frame.shape[:2]
+    has_content = float(np.std(frame.astype(np.float32))) > 3.0
+    return {
+        "id": AURORA_WINDOW_DEVICE_ID,
+        "opened": True,
+        "score": 40 if has_content else 24,
+        "actual_width": frame_w,
+        "actual_height": frame_h,
+        "is_grayscale": _is_effectively_grayscale(frame),
+        "has_content": has_content,
+        "supports_gray_fourcc": False,
+        "source": CAMERA_SOURCE_AURORA_WINDOW,
+        "source_label": source_label,
+        "target": target,
+    }
+
+
 def probe_camera_device(device_id: int) -> dict:
+    if device_id == AURORA_WINDOW_DEVICE_ID:
+        return probe_aurora_window_source()
+    bridge_info = _qt_bridge_probe_device(device_id)
+    if bridge_info is not None:
+        return bridge_info
     cap = _open_raw_camera(device_id)
     if not cap.isOpened():
         return {
@@ -370,6 +1371,13 @@ def probe_camera_device(device_id: int) -> dict:
 def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
     """串行探测摄像头设备（避免并行 DirectShow 调用干扰驱动状态）。"""
     devices = []
+    aurora_info = probe_aurora_window_source()
+    if aurora_info["opened"]:
+        devices.append(aurora_info)
+    bridge_devices = _qt_bridge_devices()
+    if bridge_devices:
+        devices.extend(bridge_devices)
+        return devices
     for i in range(max_scan):
         info = probe_camera_device(i)
         if info["opened"]:
@@ -381,6 +1389,11 @@ def choose_camera_device(requested_device: int) -> Tuple[int, list]:
     """返回 (device_id, candidates)。requested_device=-1 时自动优先 A1。"""
     if requested_device >= 0:
         return requested_device, list_camera_devices()
+
+    if camera_source_global == CAMERA_SOURCE_AURORA_WINDOW:
+        aurora_info = probe_aurora_window_source()
+        if aurora_info["opened"]:
+            return AURORA_WINDOW_DEVICE_ID, [aurora_info]
 
     preferred = load_preferred_device()
     if preferred is not None:
@@ -396,14 +1409,32 @@ def choose_camera_device(requested_device: int) -> Tuple[int, list]:
     return candidates_sorted[0]["id"], candidates_sorted
 
 
-def open_camera(device_id: int, source: str = CAMERA_SOURCE_AUTO) -> Optional[cv2.VideoCapture]:
-    """打开摄像头，并按源类型配置预览/检测格式。"""
+def open_camera(device_id: int, source: str = CAMERA_SOURCE_AUTO) -> Optional[Any]:
+    """打开输入源，可为物理摄像头或 Aurora 窗口抓取。"""
+    if source == CAMERA_SOURCE_AUTO:
+        source = camera_source_global if camera_source_global != CAMERA_SOURCE_AUTO else CAMERA_SOURCE_WINDOWS
+
+    if source == CAMERA_SOURCE_AURORA_WINDOW or device_id == AURORA_WINDOW_DEVICE_ID:
+        cap = AuroraWindowCapture()
+        if cap.isOpened():
+            print("[INFO] Aurora 窗口抓取源已连接")
+        else:
+            print("[WARN] Aurora 窗口尚未就绪，将等待窗口出现")
+        return cap
+
+    try:
+        cap = QtBridgeCapture(device_id, source)
+        if cap.isOpened():
+            status = _qt_bridge_status(timeout=0.8) or {}
+            msg = status.get("message") or f"Qt 相机桥已连接设备 {device_id}"
+            print(f"[INFO] {msg}")
+            return cap
+    except Exception as exc:
+        print(f"[WARN] Qt 相机桥打开失败，回退 OpenCV: {exc}")
+
     cap = _open_raw_camera(device_id)
     if not cap.isOpened():
         raise RuntimeError(f"无法打开摄像头设备 {device_id}")
-
-    if source == CAMERA_SOURCE_AUTO:
-        source = camera_source_global if camera_source_global != CAMERA_SOURCE_AUTO else CAMERA_SOURCE_WINDOWS
 
     format_set = _configure_camera_for_source(cap, source)
     if source == CAMERA_SOURCE_WINDOWS:
@@ -464,7 +1495,9 @@ def bootstrap_camera(requested_device: int) -> None:
             opened_camera = None
 
         # 到这里 snapshot 已设置，/camera_devices 可正常应答，再做初始帧预热
-        if opened_camera is not None and opened_camera.isOpened():
+        if (opened_camera is not None and opened_camera.isOpened()
+                and selected_device != AURORA_WINDOW_DEVICE_ID
+                and not isinstance(opened_camera, QtBridgeCapture)):
             print("[INFO] 刷新 DirectShow 初始化队列帧...")
             with _suppress_c_stderr():
                 for _ in range(5):
@@ -490,9 +1523,12 @@ def bootstrap_camera(requested_device: int) -> None:
         camera_bootstrap_active = False
 
 
-def _read_display_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
+def _read_display_frame(cap: Any) -> Optional[np.ndarray]:
     with camera_lock:
-        ret, frame = cap.read()
+        if isinstance(cap, QtBridgeCapture):
+            ret, frame = cap.read_color()
+        else:
+            ret, frame = cap.read()
     if not ret or frame is None:
         return None
 
@@ -500,14 +1536,31 @@ def _read_display_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
     if corrected is None:
         return None
 
+    current_source = camera_source_global
     if len(corrected.shape) == 2:
         corrected = cv2.cvtColor(corrected, cv2.COLOR_GRAY2BGR)
     elif corrected.shape[2] == 1:
         corrected = cv2.cvtColor(corrected[:, :, 0], cv2.COLOR_GRAY2BGR)
+    elif current_source == CAMERA_SOURCE_A1:
+        # A1 源理论上应为单通道灰度；少数驱动会把 Y 通道伪装成 2/3 通道彩色帧。
+        mono = None
+        if corrected.shape[2] == 2:
+            mono = _extract_best_mono_channel(corrected)
+        elif corrected.shape[2] >= 3 and not _is_effectively_grayscale(corrected):
+            mono = _extract_best_mono_channel(corrected)
+        if mono is not None:
+            corrected = cv2.cvtColor(mono, cv2.COLOR_GRAY2BGR)
     return corrected
 
 
-def _read_gray(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
+def _read_gray(cap: Any) -> Optional[np.ndarray]:
+    if isinstance(cap, QtBridgeCapture):
+        with camera_lock:
+            ret, frame = cap.read_gray()
+        if not ret or frame is None:
+            return None
+        corrected = _normalize_frame_for_display(frame)
+        return _frame_to_gray(corrected)
     frame = _read_display_frame(cap)
     if frame is None:
         return None
@@ -1247,7 +2300,15 @@ def camera_devices():
     for d in devices:
         kind = "Gray" if d.get("is_grayscale") else "Color"
         y8 = "Y8" if d.get("supports_gray_fourcc") else "NoY8"
-        label = f"device {d['id']} - {d['actual_width']}x{d['actual_height']} {kind} {y8} score={d['score']}"
+        if d["id"] == AURORA_WINDOW_DEVICE_ID:
+            target = d.get("target") or {}
+            target_label = target.get("label") or "Aurora Window"
+            label = f"{target_label} - {d['actual_width']}x{d['actual_height']} score={d['score']}"
+        else:
+            device_name = str(d.get("device_name") or f"device {d['id']}").strip()
+            pixel_format = str(d.get("pixel_format") or "").strip()
+            format_suffix = f" {pixel_format}" if pixel_format else ""
+            label = f"{device_name} - {d['actual_width']}x{d['actual_height']} {kind} {y8}{format_suffix} score={d['score']}"
         items.append({
             "id": d["id"],
             "label": label,
@@ -1255,16 +2316,153 @@ def camera_devices():
             "actual_width": d["actual_width"],
             "actual_height": d["actual_height"],
             "is_grayscale": d.get("is_grayscale", False),
+            "has_content": d.get("has_content", False),
             "supports_gray_fourcc": d.get("supports_gray_fourcc", False),
             "source": d.get("source", CAMERA_SOURCE_WINDOWS),
             "source_label": d.get("source_label", _source_label(CAMERA_SOURCE_WINDOWS)),
+            "device_name": d.get("device_name"),
+            "pixel_format": d.get("pixel_format"),
+            "raw8_hint": d.get("raw8_hint", False),
+            "target": d.get("target"),
         })
     return jsonify({
         "current_device": device_id_global,
         "current_source": camera_source_global,
         "devices": items,
         "bootstrapping": bootstrapping,
+        "qt_bridge": _qt_bridge_status(timeout=0.5),
     })
+
+
+@app.route("/desktop_capture/status")
+def desktop_capture_status():
+    return jsonify(_serialize_capture_target())
+
+
+@app.route("/desktop_windows")
+def desktop_windows():
+    return jsonify({
+        "items": _list_desktop_windows(),
+        "current_target": _serialize_capture_target(),
+    })
+
+
+@app.route("/desktop_capture/select_window", methods=["POST"])
+def desktop_capture_select_window():
+    data = request.get_json(silent=True) or {}
+    info = None
+    raw_target = data.get("target")
+    if isinstance(raw_target, dict):
+        candidate = dict(raw_target)
+        try:
+            candidate["hwnd"] = int(candidate.get("hwnd"))
+        except (TypeError, ValueError):
+            candidate = None
+        if candidate:
+            info = candidate
+    if info is None:
+        try:
+            hwnd = int(data.get("hwnd"))
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "error": "hwnd 必须是整数"})
+        info = _describe_target_for_hwnd(hwnd)
+    if info is None:
+        return jsonify({"success": False, "error": "所选窗口无效或不可抓取"})
+    info["crop_norm"] = None
+    _set_capture_target(info)
+    return jsonify({"success": True, "target": _serialize_capture_target()})
+
+
+@app.route("/desktop_capture/pick_window", methods=["POST"])
+def desktop_capture_pick_window():
+    try:
+        info = _pick_window_from_desktop()
+        _set_capture_target(info)
+        return jsonify({"success": True, "target": _serialize_capture_target()})
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)})
+
+
+@app.route("/desktop_capture/pick_region", methods=["POST"])
+def desktop_capture_pick_region():
+    try:
+        info = _pick_screen_region()
+        _set_capture_target(info)
+        return jsonify({"success": True, "target": _serialize_capture_target()})
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)})
+
+
+@app.route("/desktop_capture/set_crop", methods=["POST"])
+def desktop_capture_set_crop():
+    data = request.get_json(silent=True) or {}
+    crop_norm = data.get("crop_norm")
+    if not crop_norm:
+        target = _update_capture_crop_norm(None)
+        return jsonify({"success": True, "target": target})
+    if not isinstance(crop_norm, list) or len(crop_norm) != 4:
+        return jsonify({"success": False, "error": "crop_norm 必须是 4 个归一化坐标"})
+    x0 = _float01(crop_norm[0])
+    y0 = _float01(crop_norm[1])
+    x1 = _float01(crop_norm[2], 1.0)
+    y1 = _float01(crop_norm[3], 1.0)
+    if x1 - x0 < 0.02 or y1 - y0 < 0.02:
+        return jsonify({"success": False, "error": "裁剪区域过小"})
+    target = _update_capture_crop_norm([x0, y0, x1, y1])
+    return jsonify({"success": True, "target": target})
+
+
+@app.route("/desktop_capture/nudge", methods=["POST"])
+def desktop_capture_nudge():
+    data = request.get_json(silent=True) or {}
+    dx = _float_signed(data.get("dx", 0.0), 0.0, 0.5)
+    dy = _float_signed(data.get("dy", 0.0), 0.0, 0.5)
+    dw = _float_signed(data.get("dw", 0.0), 0.0, 0.5)
+    dh = _float_signed(data.get("dh", 0.0), 0.0, 0.5)
+    with desktop_capture_lock:
+        target = dict(desktop_capture_target)
+    crop = target.get("crop_norm") or [0.0, 0.0, 1.0, 1.0]
+    x0, y0, x1, y1 = [float(v) for v in crop]
+    x0 = min(max(x0 + dx, 0.0), 0.98)
+    y0 = min(max(y0 + dy, 0.0), 0.98)
+    x1 = min(max(x1 + dx + dw, x0 + 0.02), 1.0)
+    y1 = min(max(y1 + dy + dh, y0 + 0.02), 1.0)
+    if x1 - x0 < 0.02 or y1 - y0 < 0.02:
+        return jsonify({"success": False, "error": "微调后裁剪区域过小"})
+    target = _update_capture_crop_norm([x0, y0, x1, y1])
+    return jsonify({"success": True, "target": target})
+
+
+@app.route("/desktop_capture/reset_crop", methods=["POST"])
+def desktop_capture_reset_crop():
+    target = _update_capture_crop_norm(None)
+    return jsonify({"success": True, "target": target})
+
+
+@app.route("/desktop_capture/reset", methods=["POST"])
+def desktop_capture_reset():
+    _set_capture_target({
+        "mode": "auto_aurora",
+        "label": "Aurora 自动窗口",
+        "hwnd": None,
+        "bbox": None,
+        "crop_norm": None,
+        "process_name": "Aurora.exe",
+        "title": "Aurora",
+        "class_name": "",
+        "use_client_area": True,
+    })
+    return jsonify({"success": True, "target": _serialize_capture_target()})
+
+
+@app.route("/desktop_capture/force_refresh", methods=["POST"])
+def desktop_capture_force_refresh():
+    with camera_lock:
+        if isinstance(camera, AuroraWindowCapture):
+            camera._target_signature = None
+            camera._last_refresh = 0.0
+            camera._refresh_handle(force=True)
+    return jsonify({"success": True, "target": _serialize_capture_target()})
 
 
 @app.route("/switch_camera", methods=["POST"])
@@ -1281,7 +2479,7 @@ def switch_camera():
         return jsonify({"success": False, "error": "device 必须是整数"})
 
     requested_source = str(data.get("source") or CAMERA_SOURCE_AUTO).strip().lower()
-    if requested_source not in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1, CAMERA_SOURCE_AUTO}:
+    if requested_source not in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1, CAMERA_SOURCE_AURORA_WINDOW, CAMERA_SOURCE_AUTO}:
         requested_source = CAMERA_SOURCE_AUTO
 
     try:
@@ -1331,6 +2529,8 @@ def status():
         "device": device_id_global,
         "source": camera_source_global,
         "source_label": _source_label(camera_source_global),
+        "capture_target": _serialize_capture_target(),
+        "qt_bridge": _qt_bridge_status(timeout=0.5),
         "model_name": _DETECT_MODEL_PATH.name,
         "model_path": str(_DETECT_MODEL_PATH),
         "model_mode": _DETECT_MODEL_MODE,
@@ -1344,17 +2544,34 @@ def main():
 
     parser = argparse.ArgumentParser(description="Aurora Companion — Windows/A1 摄像头可视化采集伴侣")
     parser.add_argument("--device", type=int, default=-1,   help="摄像头设备 ID (默认: -1 自动优先 A1)")
+    parser.add_argument("--source", type=str, default=CAMERA_SOURCE_AUTO,
+                        help="输入源: windows / a1 / aurora_window / auto")
     parser.add_argument("--output", type=str,
                         default="../../data/yolov8_dataset/raw/images",
                         help="拍照保存目录")
     parser.add_argument("--port",   type=int, default=5801, help="Web 服务端口 (默认: 5801)")
-    parser.add_argument("--host",   type=str, default="0.0.0.0", help="监听地址")
+    parser.add_argument("--host",   type=str, default="127.0.0.1", help="监听地址")
     args = parser.parse_args()
 
     script_dir = Path(__file__).parent
     output_dir = str((script_dir / args.output).resolve())
     os.makedirs(output_dir, exist_ok=True)
     print(f"[INFO] 输出目录: {output_dir}")
+
+    initial_source = str(args.source or CAMERA_SOURCE_AUTO).strip().lower()
+    if initial_source not in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1, CAMERA_SOURCE_AURORA_WINDOW, CAMERA_SOURCE_AUTO}:
+        initial_source = CAMERA_SOURCE_AUTO
+    camera_source_global = initial_source
+
+    if initial_source != CAMERA_SOURCE_AURORA_WINDOW:
+        try:
+            bridge_status = ensure_qt_bridge_running(timeout=2.0)
+            if bridge_status.get("available", False):
+                print(f"[INFO] Qt 相机桥已就绪: {QT_BRIDGE_URL}")
+            else:
+                print(f"[WARN] Qt 相机桥不可用，将自动回退 OpenCV: {bridge_status.get('error')}")
+        except Exception as exc:
+            print(f"[WARN] Qt 相机桥启动失败，将自动回退 OpenCV: {exc}")
 
     print(f"[INFO] Aurora Companion 正在启动 Web 服务: http://127.0.0.1:{args.port}")
     print(f"[INFO] 快捷键: 1=1280×720  2=640×360  R=刷新摄像头")
