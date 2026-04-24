@@ -4,7 +4,7 @@
 import threading
 import time
 from collections import deque
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request
 
@@ -191,7 +191,7 @@ def _auto_connect(baud: Optional[int] = None, timeout: Optional[float] = None) -
     return {"success": False, "error": last_error}
 
 
-def _wait_for_text(tokens: list[str], timeout_sec: float = 1.8, after_seq: Optional[int] = None) -> Dict[str, Any]:
+def _wait_for_text(tokens: List[str], timeout_sec: float = 1.8, after_seq: Optional[int] = None) -> Dict[str, Any]:
     deadline = time.time() + max(0.1, timeout_sec)
     start_seq = _rx_seq if after_seq is None else after_seq
     lowered = [token.lower() for token in tokens if token]
@@ -332,7 +332,11 @@ def send_test():
     command = str(data.get("command") or "test_echo").strip() or "test_echo"
     message = str(data.get("message") or "pc_frontend_test").strip() or "pc_frontend_test"
     timeout_sec = max(0.3, float(data.get("timeout_sec") or 1.8))
-    wait_tokens = data.get("wait_tokens") or ["测试回传成功", "\"success\":true", "\"command\":\"test_echo\""]
+    wait_tokens = data.get("wait_tokens") or [
+        "\"success\":true",
+        f"\"command\":\"{command}\"",
+        "测试回传成功",
+    ]
 
     with _ser_lock:
         connected = _ser is not None and _ser.is_open

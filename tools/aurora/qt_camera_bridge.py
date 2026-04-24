@@ -179,6 +179,7 @@ class CameraBridgeState:
         self.frame_height = 0
         self.frame_count = 0
         self.last_frame_ts = 0.0
+        self.last_encode_error_ts = 0.0
         self.fps = 0.0
         self.devices_cache: List[Dict[str, Any]] = []
         self.latest_color_jpeg: Optional[bytes] = None
@@ -224,7 +225,8 @@ class CameraBridgeState:
         qbytes = QByteArray()
         buffer = QBuffer(qbytes)
         buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-        image.save(buffer, b"JPEG", self._jpeg_quality)
+        if not image.save(buffer, "JPEG", self._jpeg_quality):
+            image.save(buffer, "JPG", self._jpeg_quality)
         buffer.close()
         return bytes(qbytes)
 
@@ -384,9 +386,15 @@ class CameraBridgeState:
             image = None
         if image is None or image.isNull():
             return
-        color = self._jpeg_bytes(image, grayscale=False)
-        gray = self._jpeg_bytes(image, grayscale=True)
         now = time.time()
+        try:
+            color = self._jpeg_bytes(image, grayscale=False)
+            gray = self._jpeg_bytes(image, grayscale=True)
+        except Exception as exc:
+            if now - self.last_encode_error_ts >= 5.0:
+                self.last_encode_error_ts = now
+                print(f"[WARN] Qt frame encode failed: {exc}")
+            return
         with self.lock:
             self.latest_color_jpeg = color
             self.latest_gray_jpeg = gray
