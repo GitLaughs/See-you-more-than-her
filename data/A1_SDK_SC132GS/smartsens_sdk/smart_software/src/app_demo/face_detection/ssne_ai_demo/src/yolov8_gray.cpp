@@ -32,6 +32,7 @@
 #include <cstdio>
 #include <numeric>
 #include <sys/time.h>
+#include <unistd.h>
 
 // ─── DFL/YOLOv8 专用常量 ─────────────────────────────────────────────────────
 static constexpr int kNumClasses  = cfg::YOLO_NUM_CLASSES;  // 训练类别数
@@ -146,10 +147,21 @@ void YOLOV8::Initialize(std::string&        model_path,
            img_shape[0], img_shape[1], det_shape[0], det_shape[1],
            w_scale, h_scale);
 
+    if (access(model_path.c_str(), F_OK) != 0) {
+        fprintf(stderr, "[YOLOV8][ERROR] 模型文件不存在: %s\n", model_path.c_str());
+    } else {
+        printf("[YOLOV8] 模型文件存在: %s\n", model_path.c_str());
+    }
+
     // 加载 NPU 模型
     char* path = const_cast<char*>(model_path.c_str());
     model_id   = ssne_loadmodel(path, SSNE_STATIC_ALLOC);
-    printf("[YOLOV8] 模型加载完成, model_id=%d\n", model_id);
+    if (model_id < 0) {
+        fprintf(stderr, "[YOLOV8][ERROR] ssne_loadmodel failed, model_id=%d, path=%s\n",
+                model_id, model_path.c_str());
+    } else {
+        printf("[YOLOV8] 模型加载完成, model_id=%d\n", model_id);
+    }
 
     // 创建推理输入 tensor (640×360 Y8)
     const uint32_t dw = static_cast<uint32_t>(det_shape[0]);
@@ -166,6 +178,15 @@ void YOLOV8::Predict(ssne_tensor_t* img, FaceDetectionResult* result,
 {
     static uint64_t last_error_log_us = 0;
     static uint64_t last_detect_log_us = 0;
+    if (model_id < 0) {
+        const uint64_t now_us = monotonic_time_us();
+        if (now_us - last_error_log_us >= 5000000ULL) {
+            fprintf(stderr, "[YOLOV8][ERROR] 跳过推理: model_id=%d (模型未成功加载)\n", model_id);
+            last_error_log_us = now_us;
+        }
+        return;
+    }
+
     // ── 1. 硬件预处理: 1280×720 → 640×360 ────────────────────────────────
     int ret = RunAiPreprocessPipe(pipe_offline, *img, inputs[0]);
     if (ret != 0) {
@@ -178,10 +199,12 @@ void YOLOV8::Predict(ssne_tensor_t* img, FaceDetectionResult* result,
     }
 
     // ── 2. NPU 推理 ───────────────────────────────────────────────────────
-    if (ssne_inference(model_id, 1, inputs) != 0) {
+    ret = ssne_inference(model_id, 1, inputs);
+    if (ret != 0) {
         const uint64_t now_us = monotonic_time_us();
         if (now_us - last_error_log_us >= 5000000ULL) {
-            fprintf(stderr, "[YOLOV8][ERROR] ssne_inference failed\n");
+            fprintf(stderr, "[YOLOV8][ERROR] ssne_inference failed, ret=%d, model_id=%d\n",
+                    ret, model_id);
             last_error_log_us = now_us;
         }
         return;

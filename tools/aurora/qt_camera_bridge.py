@@ -85,16 +85,20 @@ def _pixel_format_score(pixel_name: str, requested_source: str, device_source: s
     score = 0
     if requested_source == SOURCE_A1 or device_source == SOURCE_A1:
         if any(token in text for token in _RAW_HINTS):
-            score += 42
+            score += 56
         if any(token in text for token in _GRAY_HINTS):
-            score += 36
+            score += 44
         if any(token in text for token in _YUV_HINTS):
-            score += 12
+            score += 30
+        if "mjpeg" in text or "jpeg" in text:
+            score -= 16
         if any(token in text for token in _RGB_HINTS):
-            score -= 6
+            score -= 32
     else:
         if any(token in text for token in _RGB_HINTS):
             score += 24
+        if "mjpeg" in text or "jpeg" in text:
+            score += 18
         if any(token in text for token in _YUV_HINTS):
             score += 10
         if any(token in text for token in _GRAY_HINTS):
@@ -318,8 +322,22 @@ class CameraBridgeState:
 
         best_meta = None
         best_format = None
-        for idx, fmt in enumerate(device.videoFormats()):
-            meta = formats[idx]
+        candidates = list(zip(device.videoFormats(), formats))
+        if actual_source == SOURCE_A1:
+            preferred = []
+            fallback = []
+            for fmt, meta in candidates:
+                pixel_name = str(meta.get("pixel_format") or "").lower()
+                if any(token in pixel_name for token in _RAW_HINTS + _GRAY_HINTS + _YUV_HINTS):
+                    preferred.append((fmt, meta))
+                else:
+                    fallback.append((fmt, meta))
+            if preferred:
+                candidates = preferred
+            elif fallback:
+                candidates = fallback
+
+        for fmt, meta in candidates:
             score = meta["score_a1"] if actual_source == SOURCE_A1 else meta["score_windows"]
             if best_meta is None or score > best_meta["score"]:
                 best_meta = dict(meta)
@@ -396,10 +414,19 @@ class CameraBridgeState:
             return
         now = time.time()
         latest = image.copy()
+        color_jpeg = None
+        gray_jpeg = None
+        try:
+            color_jpeg = self._jpeg_bytes(latest, grayscale=False)
+            gray_jpeg = self._jpeg_bytes(latest, grayscale=True)
+        except Exception as exc:
+            if now - self.last_encode_error_ts >= 5.0:
+                self.last_encode_error_ts = now
+                print(f"[WARN] Qt frame encode failed: {exc}")
         with self.lock:
             self.latest_image = latest
-            self.latest_color_jpeg = None
-            self.latest_gray_jpeg = None
+            self.latest_color_jpeg = color_jpeg
+            self.latest_gray_jpeg = gray_jpeg
             self.frame_count += 1
             self.last_frame_ts = now
             if self.frame_count > 1 and self.started_at < now:
@@ -408,7 +435,10 @@ class CameraBridgeState:
 
     def frame_bytes(self, mode: str = "color") -> Optional[bytes]:
         with self.lock:
+            cached = self.latest_gray_jpeg if mode == "gray" else self.latest_color_jpeg
             image = self.latest_image.copy() if self.latest_image is not None else None
+        if cached:
+            return cached
         if image is None or image.isNull():
             return None
         now = time.time()

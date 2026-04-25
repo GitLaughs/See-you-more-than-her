@@ -1,52 +1,164 @@
 # Aurora Windows 工具包
 
-Aurora 是这个仓库的 Windows 侧测试与联调入口，不负责板端烧录。
-A1 EVB 的固件烧录请使用仓库根目录下的 `Aurora-2.0.0-ciciec.16\Aurora.exe`。
+Aurora 是这个项目的 Windows 侧测试与联调工具集合，用于摄像头预览、采集和底盘调试。
 
-## 目录
+## 目录结构
 
 ```text
 tools/aurora/
-├── aurora_capture.py       基础拍照工具
-├── aurora_companion.py     伴侣工具：源切换、预览、YOLOv8、底盘调试
-├── chassis_comm.py         PC 直连 STM32 底盘串口后端
-├── relay_comm.py           经由 A1 的 COM13 / A1_TEST 控制兼容层
-├── serial_terminal.py      COM13 / A1 调试串口终端
-├── qt_camera_bridge.py     QtMultimedia 摄像头桥
-├── launch.ps1              统一启动脚本
-└── templates/              前端页面
+├── aurora_companion.py     主工具：摄像头预览 + 底盘调试 UI（推荐）
+├── serial_terminal.py      A1 调试串口终端（A1_TEST 协议）
+├── qt_camera_bridge.py     QtMultimedia 摄像头桥接器
+├── relay_comm.py           串口通信中继模块
+├── launch.ps1              Windows 统一启动脚本
+├── templates/              前端 HTML 模板
+└── README.md               本文档
 ```
 
-## 启动模式
+## 快速启动
 
-- `launch.ps1` 默认启动 `aurora_companion.py`
-- 默认输入源为 `auto`，优先走 QtMultimedia 摄像头桥
-- `-Source a1` 优先打开 `Smartsens-FlyingChip-A1-1`
-- `-Source windows` 使用普通 Windows 摄像头
-- `-SkipAurora` 只启动 Companion，不拉起 Aurora.exe
+### Windows
 
-`launch.ps1` 只用于 Windows 侧测试与联调，不做烧录。
+```powershell
+# 使用默认配置启动（自动连接 A1 摄像头）
+cd tools/aurora
+.\launch.ps1
+```
 
-## 当前界面能力
+启动后访问 http://localhost:5001
 
-- Windows 纯预览：原始摄像头输入，不叠检测框
-- Windows 本地 YOLOv8：ONNX / PT 推理 + OSD 叠框，支持在页面内按原始文件名输入或切换模型
-- A1 摄像头输入：参考 Aurora 的 QtMultimedia 视频流方式枚举 `Smartsens-FlyingChip-A1-1`，失败时回退 OpenCV
-- 预览同步：只保留最新帧、MJPEG 禁缓存，支持网页端 0/90/180/270 度旋转
-- 串口扫描：刷新底盘串口列表并提示新增端口
-- 联通测试：直连页使用 PC ↔ STM32；经由 A1 页统一使用 COM13 发送 `A1_TEST debug_status`
-- 经由 A1 底盘控制：前端共享控制区通过 COM13 发送 `A1_TEST move <vx> <vy> <vz>` / `A1_TEST stop`
-- A1 调试终端：所有 `A1_TEST` 调试命令统一通过 COM13 发送，不再使用旧 TCP 测试桥
+### 启动参数
 
-## 烧录方式
+```powershell
+# 跳过启动 Aurora.exe，仅启动 Companion
+.\launch.ps1 -SkipAurora
 
-1. 编译出 `output/evb/latest/zImage.smartsens-m1-evb`
-2. 打开 `Aurora-2.0.0-ciciec.16\Aurora.exe`
-3. 选择镜像并执行烧录
-4. 烧录完成后重启板卡，再用 Aurora 或板端脚本验证
+# 强制使用 A1 摄像头源
+.\launch.ps1 -Source a1
 
-## 相关说明
+# 强制使用普通 Windows 摄像头
+.\launch.ps1 -Source windows
+```
 
-- `burn_log.txt` 可用于查看烧录日志
-- `aurora_companion.py` 使用 `127.0.0.1` 作为本地访问口径
-- PC 直连底盘协议由 `chassis_comm.py` 处理；经由 A1 的调试和底盘命令统一走 `serial_terminal.py` / COM13
+## Aurora Companion 功能
+
+### 摄像头功能
+
+- **实时预览**: 支持 A1 摄像头或普通 Windows 摄像头
+- **旋转控制**: 0° / 90° / 180° / 270° 旋转
+- **截图功能**: 保存当前帧为图像文件
+- **画廊浏览**: 查看已保存的截图
+- **自动重连**: 断线后自动尝试重新连接
+
+### 底盘调试（双模式）
+
+#### 模式一：直连 STM32
+
+- 直接连接 STM32 串口
+- WASD 键盘控制底盘运动
+- 速度调节滑块
+- 遥测数据显示
+
+#### 模式二：经由 A1（推荐）
+
+- 通过 COM13 连接 A1 调试串口
+- 使用 A1_TEST 协议与板端通信
+- 功能：
+  - 串口连接管理
+  - Link-Test 开关控制
+  - 手动运动控制（WASD / 滑块）
+  - 停车按钮
+  - 调试状态查询（debug_status / debug_frame）
+  - 回显测试（test_echo）
+  - 日志实时显示
+
+### A1 调试终端
+
+- 内置 serial_terminal.py 功能
+- 发送任意 A1_TEST 命令
+- 实时显示返回的 JSON 响应
+- Hex 视图和文本视图
+- 发送历史记录
+
+## A1_TEST 协议命令一览
+
+| 命令 | 说明 |
+|------|------|
+| `help` | 查看可用命令 |
+| `status` | 系统状态查询 |
+| `A1_TEST test_echo <msg>` | 回显测试 |
+| `A1_TEST debug_status` | 查询调试状态 |
+| `A1_TEST debug_frame` | 查询当前帧状态 |
+| `A1_TEST link_test on` | 开启联通测试 |
+| `A1_TEST link_test off` | 关闭联通测试 |
+| `A1_TEST stop` | 停车 |
+| `A1_TEST move <vx> <vy> <vz>` | 手动运动控制 |
+
+## 串口扫描与连接
+
+工具会自动扫描可用串口，优先提示：
+
+- 包含 "usb" 描述的串口
+- 默认端口：COM13（A1 调试串口）
+- 支持手动选择任意串口
+- 波特率默认：115200
+
+## 烧录说明
+
+**固件烧录不使用此工具**，请使用官方 Aurora.exe：
+
+1. 编译生成 `output/evb/<timestamp>/zImage.smartsens-m1-evb`
+2. 使用官方 Aurora.exe 工具选择镜像并烧录
+3. 烧录成功后重启 A1 开发板
+4. 使用本工具进行预览和调试
+
+## 技术说明
+
+### UTF-8 解码处理
+
+串口终端对 UTF-8 编码数据进行了特殊处理：
+- 使用 `errors="replace"` 避免解码崩溃
+- 按换行符 `\n` 分割数据帧
+- 处理被分包截断的 UTF-8 字符
+
+### 数据流架构
+
+```
+A1 摄像头 → QtMultimedia Bridge → Flask Server → Web UI (MJPEG)
+                                      ↑
+A1 调试串口 (COM13) ──────────────────┘
+         ↓
+  A1_TEST 协议处理
+         ↓
+  底盘控制 / 状态查询
+```
+
+## 常见问题
+
+1. **摄像头无法打开**
+   - 检查 Aurora.exe 是否在占用
+   - 尝试切换源模式（-Source a1 / windows）
+   - 检查设备管理器中的摄像头设备
+
+2. **串口连接失败**
+   - 确认波特率为 115200
+   - 检查串口号是否正确
+   - 确认 A1 板端程序正在运行
+
+3. **Link-Test 没有反应**
+   - 检查 A1↔STM32 接线
+   - 确认底盘电源已打开
+   - 在 A1 调试终端发送 `A1_TEST debug_status` 查看状态
+
+## 开发环境
+
+- Python 3.9+
+- PySide6 6.5.3+
+- Flask
+- pyserial
+- opencv-python
+
+安装依赖：
+```powershell
+pip install -r requirements.txt
+```

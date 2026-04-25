@@ -3,13 +3,13 @@
  *
  * 分辨率设计说明:
  *   - 传感器采集: 当前板端返回 720 × 1280 (Y8 灰度, Aurora 显示层会旋转)
- *   - 推理输入:   640 × 360 (RunAiPreprocessPipe 直接缩放, 无裁剪)
+ *   - 推理输入:   640 × 480 (RunAiPreprocessPipe 直接缩放, 无裁剪)
  *   旧的 crop_shape / crop_offset_y 已废弃.
  *
  * 模型说明:
- *   - 模型架构: YOLOv8 (head6 切分版, 后处理在 CPU 实现)
- *   - 训练分辨率: 640×360 灰度
- *   - 输出: 6 head (cv3×3 分类 + cv2×3 回归)
+ *   - 当前板端默认回退到历史 SCRFD 灰度人脸模型
+ *   - 模型路径: /app_demo/app_assets/models/face_640x480.m1model
+ *   - 若后续恢复 YOLOv8，需要重新提供可用的 YOLOv8 模型文件
  */
 
 #pragma once
@@ -26,15 +26,19 @@ namespace cfg {
 constexpr int SENSOR_WIDTH  = 720;
 constexpr int SENSOR_HEIGHT = 1280;
 
-// ─── 推理输入分辨率 ──────────────────────────────────────────────────────────
-// 将采集帧缩放至 640×360 送入 YOLOv8 模型
+// ─── 推理后端选择 ────────────────────────────────────────────────────────────
+// 当前默认回退到历史 face_640x480.m1model，并走 SCRFDGRAY 推理链路。
+constexpr bool USE_SCRFD_BACKEND = true;
+
+// ─── 当前模型推理输入分辨率 ──────────────────────────────────────────────────
+// 历史 face_640x480.m1model 对应 640×480 输入
 constexpr int DET_WIDTH  = 640;
-constexpr int DET_HEIGHT = 360;
+constexpr int DET_HEIGHT = 480;
 
 // ─── 模型文件路径 ────────────────────────────────────────────────────────────
-// YOLOv8 head6 模型: 在 Detect Head 切分, 后处理在 CPU 完成
+// 当前默认模型文件：旧版 SCRFD 人脸检测模型
 const std::string MODEL_PATH =
-    "/app_demo/app_assets/models/best_a1_formal_head6.m1model";
+    "/app_demo/app_assets/models/face_640x480.m1model";
 
 // ─── YOLOv8 模型参数 ─────────────────────────────────────────────────────────
 // 模型训练类别数 (与导出的 best_a1_formal.onnx 语义保持一致)

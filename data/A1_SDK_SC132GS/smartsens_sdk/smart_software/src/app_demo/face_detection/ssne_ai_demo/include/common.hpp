@@ -1,3 +1,10 @@
+/*
+ * @Filename: common.hpp
+ * @Author: Hongying He
+ * @Email: hongying.he@smartsenstech.com
+ * @Date: 2025-12-30 14-57-47
+ * @Copyright (c) 2025 SmartSens
+ */
 #pragma once
 
 #include <stdio.h>
@@ -7,7 +14,7 @@
 #include <math.h>
 #include "smartsoc/ssne_api.h"
 
-/*! @brief 检测结果的结构体定义。
+/*! @brief 人脸检测结果的结构体定义。
  */
 struct FaceDetectionResult {
   /** \brief All the detected object boxes for an input image.
@@ -26,10 +33,6 @@ struct FaceDetectionResult {
    */
   std::vector<float> scores;
   /** \brief
-   * Category ID for each detection. The number of elements is consistent with boxes.size().
-   */
-  std::vector<int> class_ids;
-  /** \brief
    * `landmarks_per_face` indicates the number of face landmarks for each detected face
    * if the model's output contains face landmarks (such as YOLOv5Face, SCRFD, ...)
   */
@@ -37,10 +40,10 @@ struct FaceDetectionResult {
 
   FaceDetectionResult() { landmarks_per_face = 0; }
   FaceDetectionResult(const FaceDetectionResult& res);
-  // 清空检测结果内的所有变量
+  // 清空FaceDetectionResult内的所有变量
   void Clear();
 
-  // 清空检测结果，释放内存
+  // 清空FaceDetectionResult，释放内存
   void Free();
   
   // 提前为结构体保留一定的空间 
@@ -74,7 +77,6 @@ class IMAGEPROCESSOR {
 
     // 释放资源
     void Release();
-    bool IsReady() const { return online_ready_; }
 
     // 前处理时，模型推理输入的原始待检测图像尺寸，（width，height）
     std::array<int, 2> img_shape;
@@ -82,7 +84,6 @@ class IMAGEPROCESSOR {
   private:
     // online setting
     uint8_t format_online;
-    bool online_ready_ = false;
 };
 
 class SCRFDGRAY {
@@ -157,6 +158,7 @@ class SCRFDGRAY {
     ssne_tensor_t outputs[6];
     // offline setting
     AiPreprocessPipe pipe_offline = GetAIPreprocessPipe();
+
     // 模型的锚点框
     std::vector<std::array<float, 4>> anchors;
     /* 根据锚点框，产生各个尺度下的所有预定义检测框 */
@@ -164,63 +166,6 @@ class SCRFDGRAY {
     /* 根据检测结果，对检测框进行坐标换算 */
     void DecodeBoxes(std::vector<std::array<float, 4>>& boxes);
     /* 检测结果后处理 */
-    void Postprocess(std::vector<std::array<float, 4>>* boxes, std::vector<float>* scores,
+    void Postprocess(std::vector<std::array<float, 4>>* boxes, std::vector<float>* scores, 
                      FaceDetectionResult* result, float* conf_threshold);
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// YOLOv8 灰度图目标检测器 (head6 切分模型, CPU 后处理)
-//
-// 推理流程:
-//   1280×720 Y8 → RunAiPreprocessPipe(缩放) → 640×360 Y8
-//   → ssne_inference (NPU) → ssne_getoutput (6 head)
-//   → DFL decode + sigmoid → NMS → 坐标映射回 1280×720
-// ─────────────────────────────────────────────────────────────────────────────
-class YOLOV8 {
-  public:
-    /** \brief 初始化 YOLOv8 检测器
-      * \param[in] model_path  板端模型路径 (.m1model)
-      * \param[in] in_img_shape 原始传感器图像尺寸 [宽, 高] (用于坐标映射)
-      * \param[in] in_det_shape  模型推理输入尺寸 [宽, 高]
-      */
-    void Initialize(std::string& model_path,
-                    std::array<int, 2>* in_img_shape,
-                    std::array<int, 2>* in_det_shape);
-
-    /** \brief 执行一帧推理
-      * \param[in]  img_in         传感器原始帧 (1280×720 Y8 tensor)
-      * \param[out] result         检测结果 (boxes 坐标已映射回 img_shape 尺寸)
-      * \param[in]  conf_threshold 置信度阈值
-      */
-    void Predict(ssne_tensor_t* img_in, FaceDetectionResult* result,
-                 float conf_threshold = 0.25f);
-
-    /** \brief 释放 NPU 资源 */
-    void Release();
-
-    float nms_threshold = 0.45f;  // NMS IoU 阈值
-    int   keep_top_k    = 30;     // NMS 后最终保留数
-    int   top_k         = 150;    // NMS 前最多候选数
-
-  private:
-    static float Sigmoid(float x) {
-        return 1.0f / (1.0f + std::exp(-x));
-    }
-
-    /** 解码单个 FPN 尺度的 cls+reg head 输出，追加到 boxes/scores/class_ids */
-    void DecodeHeadOutputs(const float* cls_head, const float* reg_head,
-                           int height, int width, int stride,
-                           float conf_threshold,
-                           std::vector<std::array<float, 4>>& boxes,
-                           std::vector<float>& scores,
-                           std::vector<int>&   class_ids);
-
-    int              model_id   = -1;
-    ssne_tensor_t    inputs[1];
-    ssne_tensor_t    outputs[6];
-    std::array<int, 2> det_shape = {640, 360};
-    std::array<int, 2> img_shape = {1280, 720};
-    float            w_scale    = 2.0f;
-    float            h_scale    = 2.0f;
-    AiPreprocessPipe pipe_offline = GetAIPreprocessPipe();
 };
