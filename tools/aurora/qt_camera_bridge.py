@@ -396,10 +396,19 @@ class CameraBridgeState:
             return
         now = time.time()
         latest = image.copy()
+        color_jpeg = None
+        gray_jpeg = None
+        try:
+            color_jpeg = self._jpeg_bytes(latest, grayscale=False)
+            gray_jpeg = self._jpeg_bytes(latest, grayscale=True)
+        except Exception as exc:
+            if now - self.last_encode_error_ts >= 5.0:
+                self.last_encode_error_ts = now
+                print(f"[WARN] Qt frame encode failed: {exc}")
         with self.lock:
             self.latest_image = latest
-            self.latest_color_jpeg = None
-            self.latest_gray_jpeg = None
+            self.latest_color_jpeg = color_jpeg
+            self.latest_gray_jpeg = gray_jpeg
             self.frame_count += 1
             self.last_frame_ts = now
             if self.frame_count > 1 and self.started_at < now:
@@ -408,7 +417,10 @@ class CameraBridgeState:
 
     def frame_bytes(self, mode: str = "color") -> Optional[bytes]:
         with self.lock:
+            cached = self.latest_gray_jpeg if mode == "gray" else self.latest_color_jpeg
             image = self.latest_image.copy() if self.latest_image is not None else None
+        if cached:
+            return cached
         if image is None or image.isNull():
             return None
         now = time.time()

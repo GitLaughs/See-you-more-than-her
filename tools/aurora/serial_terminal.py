@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """serial_terminal.py — A1 调试串口实时终端 / 简易 CLI。"""
 
+import codecs
 import threading
 import time
 from collections import deque
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Blueprint, jsonify, request
 
@@ -41,6 +42,7 @@ _latest_lines: deque = deque(maxlen=60)
 _rx_buffer = bytearray()
 _rx_seq = 0
 _rx_cond = threading.Condition()
+_rx_last_data_ts = 0.0
 
 
 def _snapshot_state() -> Dict[str, Any]:
@@ -78,7 +80,65 @@ def _list_ports() -> list:
 def _normalize_text(raw: bytes) -> str:
     if not raw:
         return ""
+    for encoding in ("utf-8", "gb18030"):
+        try:
+            return raw.decode(encoding, errors="strict").replace("\r", "")
+        except UnicodeDecodeError:
+            continue
     return raw.decode("utf-8", errors="replace").replace("\r", "")
+
+
+def _split_utf8_safe_prefix(raw: bytes) -> Tuple[bytes, bytes]:
+    if not raw:
+        return b"", b""
+    max_tail = min(3, len(raw))
+    for tail_len in range(0, max_tail + 1):
+        prefix = raw if tail_len == 0 else raw[:-tail_len]
+        if not prefix:
+            continue
+        try:
+            prefix.decode("utf-8", errors="strict")
+            return prefix, raw[len(prefix):]
+        except UnicodeDecodeError:
+            continue
+    return raw, b""
+
+
+def _pop_complete_lines() -> List[bytes]:
+    global _rx_buffer
+    lines: List[bytes] = []
+    start = 0
+    idx = 0
+    size = len(_rx_buffer)
+    while idx < size:
+        byte = _rx_buffer[idx]
+        if byte in (10, 13):  # \n or \r
+            lines.append(bytes(_rx_buffer[start:idx]))
+            if byte == 13 and idx + 1 < size and _rx_buffer[idx + 1] == 10:
+                idx += 1
+            start = idx + 1
+        idx += 1
+    if start > 0:
+        _rx_buffer = _rx_buffer[start:]
+    return lines
+
+
+def _flush_partial_buffer(force: bool = False) -> None:
+    global _rx_buffer
+    if not _rx_buffer:
+        return
+    if not force and len(_rx_buffer) < 2048:
+        return
+    safe_raw, tail = _split_utf8_safe_prefix(bytes(_rx_buffer))
+    if safe_raw:
+        text = _normalize_text(safe_raw).strip()
+        _append_rx_entry(safe_raw, text, partial=True)
+        _rx_buffer = bytearray(tail)
+        return
+    raw = bytes(_rx_buffer)
+    text = _normalize_text(raw).strip()
+    _append_rx_entry(raw, text, partial=True)
+    _rx_buffer.clear()
 
 
 def _append_rx_entry(raw: bytes, text: str, partial: bool = False) -> None:
@@ -107,7 +167,7 @@ def _append_tx_entry(text: str, payload: bytes, hex_mode: bool = False) -> None:
 
 
 def _rx_worker() -> None:
-    global _running, _rx_buffer
+    global _running, _rx_buffer, _rx_last_data_ts
     while _running:
         with _ser_lock:
             ser = _ser
@@ -118,42 +178,41 @@ def _rx_worker() -> None:
             waiting = getattr(ser, "in_waiting", 0)
             chunk = ser.read(max(1, min(waiting or 1, 256)))
             if not chunk:
+                if _rx_buffer and (time.monotonic() - _rx_last_data_ts) >= 0.20:
+                    _flush_partial_buffer(force=True)
                 continue
             _rx_buffer.extend(chunk)
-            while b"\n" in _rx_buffer:
-                line, _, rest = _rx_buffer.partition(b"\n")
-                _rx_buffer = bytearray(rest)
+            _rx_last_data_ts = time.monotonic()
+            for line in _pop_complete_lines():
                 text = _normalize_text(line).strip()
                 _append_rx_entry(bytes(line), text, partial=False)
-            if len(_rx_buffer) > 512:
-                raw = bytes(_rx_buffer)
-                text = _normalize_text(raw).strip()
-                _append_rx_entry(raw, text, partial=True)
-                _rx_buffer.clear()
+            _flush_partial_buffer(force=False)
         except Exception:
             time.sleep(0.05)
 
 
 def _connect_serial(port: str, baud: int, timeout: float) -> None:
-    global _ser, _running, _rx_thread, _rx_buffer
+    global _ser, _running, _rx_thread, _rx_buffer, _rx_last_data_ts
     with _ser_lock:
         if _ser and _ser.is_open:
             _ser.close()
         _ser = serial.Serial(port, baud, timeout=timeout)
     _rx_buffer = bytearray()
+    _rx_last_data_ts = 0.0
     _running = True
     _rx_thread = threading.Thread(target=_rx_worker, daemon=True, name="serial-term-rx")
     _rx_thread.start()
 
 
 def _disconnect_serial() -> None:
-    global _ser, _running, _rx_buffer
+    global _ser, _running, _rx_buffer, _rx_last_data_ts
     _running = False
     with _ser_lock:
         if _ser and _ser.is_open:
             _ser.close()
         _ser = None
     _rx_buffer = bytearray()
+    _rx_last_data_ts = 0.0
 
 
 def _send_payload(payload: bytes, text: str, hex_mode: bool = False) -> Dict[str, Any]:

@@ -1,121 +1,157 @@
 # A1 Vision Robot Stack
 
-基于 SmartSens A1 开发板的智能视觉机器人软件栈。当前阶段为摄像头人脸检测 + WHEELTEC 底盘控制的硬件兼容性验证。
+基于 SmartSens A1 开发板的智能视觉机器人软件栈。支持 SCRFD/YOLOv8 双推理后端、A1_TEST 串口调试协议、Link-Test 联通性测试。
 
 ## 当前功能
 
 | 模块 | 说明 | 状态 |
 |------|------|------|
-| SCRFD 人脸检测 | 灰度图多尺度人脸检测 (SSNE NPU 加速)（已被YOLOv8替代） | ⏸ 已弃用 |
+| SCRFD 人脸检测 | 灰度图多尺度人脸检测（SSNE NPU 加速） | ✅ 已完成（默认） |
+| YOLOv8 目标检测 | 640×360 缩放 + NPU 推理，head6 切分 + CPU 后处理 | ✅ 已完成（可选） |
 | OSD 硬件叠加 | DMA 硬件加速检测框渲染 | ✅ 已完成 |
 | 底盘控制 | A1 GPIO UART → STM32 WHEELTEC C50X 协议 | ✅ 已完成 |
-| Aurora 拍照工具 | SC132GS 摄像头采集 + 训练集制作 + **STM32 底盘调试 UI** | ✅ 已完成 |
+| A1_TEST 调试协议 | 通过 COM13 下发控制和查询状态 | ✅ 已完成 |
+| Link-Test 模式 | 周期前进停车，验证 A1↔STM32 通信链路 | ✅ 已完成 |
+| Aurora Companion | 摄像头采集预览 + 底盘调试 UI（双模式：直连/经由 A1） | ✅ 已完成 |
 | RPLidar 激光雷达 | 360° 点云采集与避障 | ⏸ 暂时禁用 |
-| YOLOv8 目标检测 | 1280×720 → 640×360缩放 → NPU推理，4类别，head6切分+CPU后处理 | ✅ 已完成 |
 | ROS2 底盘控制 | UART 底盘驱动 + 导航 + SLAM | ⏸ 后续集成 |
 
 ## 仓库结构
 
-> **注意**：`output/` 目录受 `.gitignore` 排除，不会进入版本库。EVB 固件产物（`ssne_ai_demo`、`zImage`）需在本地运行构建脚本生成，详见[协作与代码同步](#协作与代码同步)。
+> **注意**: `output/` 目录受 `.gitignore` 排除，不会进入版本库。EVB 固件产物（`ssne_ai_demo`、`zImage`）需在本地运行构建脚本生成，详见协作与代码同步。
 
 ```text
 ├── data/
 │   ├── A1_SDK_SC132GS/          # SmartSens SDK（Buildroot + NPU 工具链）
+│   │   └── smartsens_sdk/
+│   │       └── smart_software/
+│   │           └── src/
+│   │               └── app_demo/
+│   │                   └── face_detection/
+│   │                       └── ssne_ai_demo/   # 板端应用（核心）
 │   └── yolov8_dataset/          # YOLOv8 训练数据集模板
 ├── docker/                      # Docker 编译环境（a1-sdk-builder）
 ├── docs/                        # 开发文档
 ├── models/                      # 模型文件（.onnx / .m1model，已纳入版本库）
 ├── output/                      # ⚠ gitignored — 编译产物，不在版本库中
-│   └── evb/<YYYYMMDD_HHMMSS>/   #   每次构建的带时间戳产物目录
-│       ├── ssne_ai_demo         #     ARM ELF 应用二进制
+│   └── evb/<YYYYMMDD_HHMMSS/   # 每次构建的带时间戳产物目录
+│       ├── ssne_ai_demo         # ARM ELF 应用二进制
 │       └── zImage.smartsens-m1-evb  # 完整内核镜像（内嵌应用，可直接烧录）
-├── scripts/                     # 构建脚本（6 个，见下方说明）
+├── scripts/                     # 构建脚本
 ├── src/
-│   ├── app_demo/ → data/.../app_demo  # SDK app_demo 挂载（核心应用）
-│   │   └── face_detection/
-│   │       └── ssne_ai_demo/
-│   │           ├── demo_face.cpp      #   入口（主循环：采图→检测→底盘控制→OSD）
-│   │           ├── project_paths.hpp  #   全局配置（模型路径、YOLOv8常量、阈值、波特率等）
-│   │           ├── include/           #   头文件
-│   │           │   ├── chassis_controller.hpp # WHEELTEC 协议控制器
-│   │           │   ├── common.hpp             # YOLOV8/SCRFD 类型定义
-│   │           │   ├── osd-device.hpp         # VISUALIZER OSD 绘制类
-│   │           │   └── utils.hpp              # NMS / 排序工具
-│   │           ├── src/               #   源文件
-│   │           │   ├── chassis_controller.cpp # GPIO UART 底盘通信
-│   │           │   ├── yolov8_gray.cpp        # YOLOv8 head6 + DFL decode + NMS
-│   │           │   ├── scrfd_gray.cpp         # SCRFD 人脸检测（保留备用）
-│   │           │   ├── pipeline_image.cpp     # 全分辨率采集 1280×720（无裁剪）
-│   │           │   ├── osd-device.cpp         # OSD 绘制实现
-│   │           │   └── utils.cpp              # NMS / 排序工具实现
-│   │           ├── app_assets/        #   板端资源（模型 + OSD LUT）
-│   │           └── cmake_config/      #   交叉编译路径配置
 │   ├── buildroot_pkg/           # Buildroot 外部包定义
 │   ├── ros2_ws/                 # ROS2 工作区（后续集成）
 │   └── stm32_akm_driver/       # STM32 AKM 控制板文档
+├── tools/
+│   └── aurora/                  # Aurora 工具集合
+│       ├── aurora_companion.py    # 主工具（摄像头预览 + 底盘调试 UI）
+│       ├── serial_terminal.py      # A1 调试串口终端
+│       └── ...
 ├── third_party/
 │   └── ultralytics/             # YOLOv8 训练框架（⚠ gitignored）
-├── tools/
-│   ├── aurora/                  # Aurora 拍照工具（SC132GS 摄像头采集）
-│   └── yolov8/                  # 标注、划分、训练脚本
 └── WHEELTEC_C50X_2025.12.26/    # WHEELTEC 小车 STM32 固件（⚠ gitignored）
 ```
 
-### scripts/ 目录说明
+## 板端应用（ssne_ai_demo）
 
-| 脚本 | 用途 |
+### 核心特性
+
+- **双推理后端**：SCRFD（默认）/ YOLOv8，通过 `USE_SCRFD_BACKEND` 切换
+- **A1_TEST 串口协议**：支持调试和控制
+- **Link-Test 联通性测试**：周期前进停车
+- **OSD 硬件叠加**：检测框渲染
+- **WHEELTEC 底盘控制**：0x7B 协议帧
+
+### 关键配置
+
+配置位于 `project_paths.hpp`：
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `SENSOR_WIDTH / SENSOR_HEIGHT` | 720 × 1280 | 传感器竖屏采集分辨率（Y8） |
+| `DET_WIDTH / DET_HEIGHT` | 640 × 360 | 推理输入分辨率 |
+| `USE_SCRFD_BACKEND` | true | 使用 SCRFD 后端 |
+| `MODEL_PATH` | `/app_demo/app_assets/models/best_a1_formal_head6.m1model` | 板端模型路径 |
+| `DET_CONF_THRESH` | 0.4f | 检测置信度阈值 |
+| `DET_NMS_THRESH` | 0.45f | NMS IoU 阈值 |
+| `LINK_TEST_ENABLED` | true | 默认开启联通测试 |
+| `LINK_TEST_FORWARD_VX` | 60 | 联通测试前进速度（mm/s） |
+
+## Aurora Companion 工具
+
+### 功能
+
+- **摄像头预览**：支持 A1/Windows 摄像头、旋转、截图、画廊
+- **双模式底盘调试**：
+  - 直连 STM32
+  - 经由 A1（使用 A1_TEST 协议）
+- **A1 调试终端**：内置串口终端，支持发送 A1_TEST 命令
+- **自动重连**：断线后自动恢复
+
+### A1_TEST 命令
+
+| 命令 | 说明 |
 |------|------|
-| `build_complete_evb.sh` | ⭐ 主构建：完整 EVB（SDK + 应用 + zImage），支持 `--app-only` 快速重编 |
-| `build_incremental.sh` | 仅重编指定应用，不打包 zImage（调试用） |
-| `bootstrap.sh` | 新成员一键初始化开发环境 |
-| `build_docker.sh` | 构建 Docker 编译容器 |
-| `build_ros2_ws.sh` | 编译 ROS2 工作区 |
-| `install_ros2_jazzy.sh` | 容器内安装 ROS2 Jazzy |
+| `help` | 查看命令列表 |
+| `status` | 系统状态查询 |
+| `A1_TEST test_echo <msg>` | 回显测试 |
+| `A1_TEST debug_status` | 查询调试状态 |
+| `A1_TEST link_test on/off` | 开关联通测试 |
+| `A1_TEST stop` | 停车 |
+| `A1_TEST move <vx> <vy> <vz>` | 手动运动控制 |
 
 ## 技术架构
 
 ```text
-┌────────────────────────────────────────────┐
-│            A1 开发板 (主循环)                │
-├──────────┬──────────┬──────────────────────┤
-│ 图像采集  │ 人脸检测  │     OSD 渲染          │
-│ SC132GS  │ SCRFD    │   硬件叠加检测框       │
-│ 1280×720 │ 640×360  │   DMA 图层            │
-└────┬─────┴────┬─────┴──────────────────────┘
-     │          │
-     │          ▼
-     │    人脸检测结果
-     │          │
-     │     ┌────┴─────┐
-     │     │  驱动决策  │
-     │     │ 有脸→前进  │
-     │     │ 无脸→停车  │
-     │     └────┬─────┘
-     │          │
-     │          ▼ GPIO UART0
-     │   ┌──────────────┐
-     │   │  STM32 AKM   │
-     │   │ WHEELTEC C50X │
-     │   │ 0x7B 协议帧   │
-     │   └──────────────┘
-     └───────────────────
+┌─────────────────────────────────────────────────────────────────────┐
+│                        A1 开发板（主循环）                        │
+├──────────────┬──────────────┬──────────────────────────────────┤
+│ 图像采集 │ 检测/推理 │ OSD 渲染 │
+│ SC132GS │ SCRFD/YOLOv8 │ 硬件叠加检测框 │
+│ 720×1280 │ 640×360 │ DMA 图层 │
+└───────┬───┴───────┬───┴──────────────────────────────────┘
+        │           │
+        │           ▼
+        │   检测结果 / Link-Test
+        │           │
+        │   ┌───────┴───────┐
+        │   │  决策模块   │
+        │   │ Link-Test   │
+        │   └───────┬───────┘
+        │           │
+        │           ▼ GPIO UART0
+        │   ┌─────────────────────┐
+        │   │   STM32 AKM    │
+        │   │  WHEELTEC C50X │
+        │   │ 0x7B 协议帧    │
+        │   └─────────────────────┘
+        │
+        ▼ COM13 调试串口
+    ┌─────────────────────────────────┐
+    │   Aurora Companion (PC 侧）  │
+    │  摄像头预览 + 底盘调试 UI     │
+    └─────────────────────────────────┘
 ```
 
 ### 硬件连接
 
 | A1 端 | STM32 端 | 说明 |
 |------|---------|------|
-| GPIO_PIN_0 (UART0 TX) | UART3 RX (PB11) | A1 → STM32 指令 |
-| GPIO_PIN_2 (UART0 RX) | UART3 TX (PB10) | STM32 → A1 状态 |
+| GPIO_PIN_0 (UART0 TX) | PB11 (UART3 RX) | A1 → STM32 控制 |
+| GPIO_PIN_2 (UART0 RX) | PB10 (UART3 TX) | STM32 → A1 状态 |
 | GND | GND | 共地 |
+
+| PC 端 | A1 端 | 说明 |
+|------|-------|------|
+| USB 串口（COM13） | A1 调试串口 | A1_TEST 协议通信 |
 
 ### WHEELTEC C50X 协议
 
-发送帧 (11 字节)：`[0x7B][Cmd][0x00][Vx_H][Vx_L][Vy_H][Vy_L][Vz_H][Vz_L][BCC][0x7D]`
+发送帧（11 字节）：`[0x7B][Cmd][0x00][Vx_H][Vx_L][Vy_H][Vy_L][Vz_H][Vz_L][BCC][0x7D]
 
-- **Cmd**: `0x00` = 正常运动
-- **Vx/Vy/Vz**: int16 速度 (mm/s)
-- **BCC**: XOR(byte[0]..byte[8])
+- **Cmd**：`0x00` = 正常运动
+- **Vx/Vy/Vz**：int16 速度（mm/s）
+- **BCC**：XOR(byte[0]..byte[8])
 
 ## 快速开始
 
@@ -124,6 +160,7 @@
 - Windows 10/11 + Docker Desktop 或 Linux + Docker Engine 24+
 - A1 SDK Docker 镜像（`a1-sdk-builder:latest`）
 - 磁盘空间：约 20GB（镜像 + SDK + 编译缓存）
+- Python 3.9+（Windows 侧工具）
 
 ### 1. 启动编译容器
 
@@ -138,23 +175,20 @@ docker compose -f docker/docker-compose.yml up -d
 ### 2. 生成完整 EVB 镜像
 
 ```powershell
-# ① 完整构建（首次或 SDK 基础库变更时）— 约 30-40 分钟
+# 完整构建（首次或 SDK 基础库变更时）— 约 30-40 分钟
 docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --skip-ros"
 
-# ② 快速重编 Demo + zImage（代码迭代时使用，约 5-10 分钟）
+# 快速重编 Demo + zImage（代码迭代时使用，约 5-10 分钟）
 docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --app-only"
 ```
 
-产物自动写入 `output/evb/<时间戳>/`，包含：
+产物自动写入 `output/evb/<timestamp>/`，包含：
 - `ssne_ai_demo` — ARM ELF 应用二进制
 - `zImage.smartsens-m1-evb` — 完整内核镜像（已内嵌最新应用，用于烧录）
 
 ### 3. 烧录到主板
 
-```powershell
-# 使用 burn_tool 烧录（launch.ps1 仅用于 Windows 测试）
-docker exec A1_Builder bash -lc "cd /app/data/A1_SDK_SC132GS/smartsens_sdk && ./tools/burn_tool/x86_linux/burn_tool -f /app/output/evb/<时间戳>/zImage.smartsens-m1-evb"
-```
+使用官方 Aurora.exe 工具烧录 `zImage.smartsens-m1-evb`。
 
 ### 4. 板端验证
 
@@ -162,35 +196,77 @@ docker exec A1_Builder bash -lc "cd /app/data/A1_SDK_SC132GS/smartsens_sdk && ./
 # SSH 进入 A1 开发板
 ssh root@<A1_IP>
 
-# 运行人脸检测 + 底盘控制 Demo
+# 运行 ssne_ai_demo
 /app_demo/scripts/run.sh
-
-# 预期输出：
-# [INFO] FaceDriveApp 初始化完成
-# [INFO] 检测到人脸 → 直行 100 mm/s
 ```
 
-**详见** [03 编译与烧录指南](docs/03_编译与烧录.md)
+运行后可通过键盘输入命令：
+- `help`：查看命令列表
+- `q`：退出程序
+- `status`：查看状态
 
-### 5. Aurora 拍照工具
+### 5. Aurora Companion（Windows 侧调试）
 
 ```powershell
 cd tools/aurora
 
-# 基础拍照工具 (端口 5000)
-python aurora_capture.py
-
-# 增强伴侣工具（美化界面 + 断联恢复 + STM32 底盘调试）
-python aurora_companion.py  # 访问 http://localhost:5001
+# 启动主工具（推荐）
+.\launch.ps1
 ```
 
-aurora_companion.py 提供双 Tab 界面：
-- **摄像头采集**：实时预览、拍照、缩略图画廊
-- **底盘调试**：串口连接、运动控制（WASD 键盘）、遥测显示、帧日志
+访问 http://localhost:5001
+
+功能：
+- 摄像头预览（支持 A1/Windows 摄像头）
+- 双模式底盘调试（直连/经由 A1）
+- A1 调试终端（A1_TEST 协议）
+- Link-Test 开关控制
+
+## 文档索引
+
+### 入门
+
+| 文档 | 内容 |
+|------|------|
+| [docs/01_快速上手.md | 新人必读：环境搭建 + 快速启动 |
+| [docs/02_环境搭建.md | Docker + SDK + ROS2 环境完整配置 |
+| [docs/03_编译与烧录.md | SDK / Demo / ROS2 编译流程 + SDK 更新步骤 + EVB 烧录 |
+| [docs/04_容器操作.md | Docker 日常操作命令 |
+| [docs/11_常见问题.md | 编译和运行问题排查 |
+| [tools/aurora/README.md | Aurora 工具使用说明 |
+| [data/.../ssne_ai_demo/README.md | 板端应用说明 |
+
+### 架构与硬件
+
+| 文档 | 内容 |
+|------|------|
+| [docs/05_硬件参考.md | A1 接口定义、A1↔STM32 接线、GPIO API、UART API |
+| [docs/06_程序概览.md | 系统架构、代码流程与新人导读 |
+| [docs/07_架构设计.md | A1 + STM32 通信与系统设计 |
+| [src/stm32_akm_driver/README.md | WHEELTEC C50X 固件与协议 |
+
+### 开发参考
+
+| 文档 | 内容 |
+|------|------|
+| [docs/08_ROS底盘集成.md | x3_src ROS 包集成与 0.8Tops 优化 |
+| [docs/09_AI模型训练.md | YOLOv8 训练 → 导出 → 部署 |
+| [docs/10_雷达集成.md | RPLidar SDK 接入（暂未安装） |
+| [docs/15_AI模型转换与部署.md | 模型导出、切分、后处理实现、部署指南 |
+| [docs/16_A1深度感知与点云避障方案.md | 深度感知与避障方案 |
+
+### 项目管理
+
+| 文档 | 内容 |
+|------|------|
+| [docs/12_项目规划.md | 功能规划与分工 |
+| [docs/13_贡献指南.md | GitHub Issues 建议与贡献说明 |
+| [docs/14_后续开发建议.md | 后续开发建议 |
+| [data/yolov8_dataset/README.md | YOLOv8 数据集格式 |
 
 ## 协作与代码同步
 
-### Git 追踪范围速查
+### Git 追踪范围速览
 
 理解哪些文件在 git 里、哪些被忽略，是避免协作冲突的基础。
 
@@ -198,13 +274,13 @@ aurora_companion.py 提供双 Tab 界面：
 |------|----------|------|
 | `src/`, `data/A1_SDK_SC132GS/`, `docs/`, `tools/`, `scripts/`, `docker/` | ✅ 已追踪 | 源码、脚本、文档；`git pull` 可自动更新 |
 | `models/*.onnx`, `models/*.m1model` | ✅ 已追踪 | 模型文件随源码一起提交 |
-| `output/` | ❌ gitignored | 编译产物（EVB 固件、日志），**需本地构建生成** |
+| `output/` | ❌ gitignored | 编译产物（EVB 固件、日志），需本地构建生成 |
 | `third_party/ultralytics/` | ❌ gitignored | 训练框架，需手动克隆或用 `bootstrap.sh` 初始化 |
 | `WHEELTEC_C50X_2025.12.26/` | ❌ gitignored | 硬件厂商固件，不进入版本库 |
 | `src/ros2_ws/build/`, `src/ros2_ws/install/` | ❌ gitignored | ROS2 编译缓存，需本地编译生成 |
 | `data/yolov8_dataset/raw/` | ❌ gitignored | 原始训练图片（体积大），需另行传输 |
 
-> **快速判断某文件是否被追踪**：
+> **快速判断某文件是否被追踪**:
 > ```powershell
 > git ls-files --error-unmatch <文件路径>
 > # 有输出 = 已追踪；报错 "did not match" = gitignored 或未添加
@@ -239,7 +315,7 @@ git rebase origin/main
 
 ### 强制用远端代码覆盖本地修改
 
-> **适用于**：本地改乱了某些被追踪的文件，想完全还原到远端版本。
+> **适用于**: 本地改乱了某些被追踪的文件，想完全还原到远端版本。
 
 ```powershell
 # 丢弃指定文件的本地修改（还原到最近一次提交）
@@ -262,7 +338,7 @@ git checkout origin/main -- src/app_demo/
 
 ### gitignored 文件的处理
 
-由于 `output/` 完全被忽略，协作者拉取代码后**不会自动获得 EVB 固件**，必须自行构建：
+由于 `output/` 完全被忽略，协作者拉取代码后 **不会自动获得 EVB 固件**，必须自行构建：
 
 ```powershell
 # 首次或 SDK 基础库变更后（约 30-40 分钟）
@@ -272,7 +348,7 @@ docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --skip-
 docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --app-only"
 ```
 
-产物位于 `output/evb/<时间戳>/`：
+产物位于 `output/evb/<timestamp>/`：
 - `ssne_ai_demo` — 应用二进制
 - `zImage.smartsens-m1-evb` — **完整内核镜像**，可直接烧录到 A1 EVB
 
@@ -290,57 +366,6 @@ docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --app-o
 | `third_party/ultralytics/` 缺失 | gitignored，不在仓库中 | 运行 `bash scripts/bootstrap.sh` 初始化 |
 | rebase 时出现冲突 | 本地和远端修改了同一文件 | 解决后 `git add <文件>` + `git rebase --continue` |
 | 误删已追踪的文件想恢复 | 文件被删除但未提交 | `git restore <文件路径>` |
-
-## 运行时配置
-
-集中在 `src/app_demo/face_detection/ssne_ai_demo/include/project_paths.hpp`：
-
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `image_shape` | `{1280, 720}` | 传感器全分辨率（W×H） |
-| `det_shape` | `{640, 360}` | SCRFD 推理输入尺寸（RunAiPreprocessPipe 缩放） |
-| `confidence_threshold` | `0.4f` | SCRFD 置信度阈值 |
-| `face_model_path` | `/app_demo/app_assets/models/face_640x480.m1model` | 板端模型路径 |
-| `chassis_baudrate` | `115200` | UART 波特率 |
-
-## 文档索引
-
-### 入门
-
-| 文档 | 内容 |
-| --- | --- |
-| [01 快速上手](docs/01_快速上手.md) | 新人必读：环境搭建 + 快速启动 |
-| [02 环境搭建](docs/02_环境搭建.md) | Docker + SDK + ROS2 环境完整配置 |
-| [03 编译与烧录](docs/03_编译与烧录.md) | SDK / Demo / ROS2 编译流程 + SDK 更新步骤 + EVB 烧录 |
-| [04 容器操作](docs/04_容器操作.md) | Docker 日常操作命令 |
-| [11 常见问题](docs/11_常见问题.md) | 编译和运行问题排查 |
-
-### 架构与硬件
-
-| 文档 | 内容 |
-| --- | --- |
-| [05 硬件参考](docs/05_硬件参考.md) | A1 接口定义、A1↔STM32 接线、GPIO API、UART API |
-| [06 程序概览](docs/06_程序概览.md) | 系统架构、代码流程与新人导读 |
-| [07 架构设计](docs/07_架构设计.md) | A1 + STM32 通信与系统设计 |
-
-### 开发参考
-
-| 文档 | 内容 |
-| --- | --- |
-| [08 ROS 底盘集成](docs/08_ROS底盘集成.md) | x3_src ROS 包集成与 0.8Tops 优化 |
-| [09 AI 模型训练](docs/09_AI模型训练.md) | YOLOv8 训练 → 导出 → 部署 |
-| [10 雷达集成](docs/10_雷达集成.md) | RPLidar SDK 接入（暂未安装） |
-| [STM32 控制板](src/stm32_akm_driver/README.md) | WHEELTEC C50X 固件与协议 |
-| [ROS2 工作区](src/ros2_ws/README.md) | ROS2 包与构建 |
-| Aurora 伴侣工具 | [tools/aurora/README.md](tools/aurora/README.md) | 摄像头采集 + 底盘调试 UI |
-
-### 项目管理
-
-| 文档 | 内容 |
-| --- | --- |
-| [12 项目规划](docs/12_项目规划.md) | 功能规划与分工 |
-| [13 贡献指南](docs/13_贡献指南.md) | GitHub Issues 建议与贡献说明 |
-| [数据集说明](data/yolov8_dataset/README.md) | YOLOv8 数据集格式 |
 
 ## License
 

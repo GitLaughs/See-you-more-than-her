@@ -974,7 +974,7 @@ def _normalize_frame_for_display(frame: np.ndarray) -> np.ndarray:
             # Aurora/Qt 将 A1 的 UYVY 灰度流暴露为 360x1280；横向按打包宽度还原为 720x1280，
             # 并保持与 Aurora 一致的竖向画面，旋转交给网页端预览控制。
             if height >= 1000 and width <= 400:
-                frame = cv2.resize(frame, (width * 2, height), interpolation=cv2.INTER_LINEAR)
+                frame = cv2.resize(frame, (width * 2, height), interpolation=cv2.INTER_NEAREST)
             return frame
         if height > width:
             frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
@@ -1219,6 +1219,15 @@ def _qt_bridge_probe_device(device_id: int) -> Optional[dict]:
 
 
 def _qt_bridge_fetch_frame(mode: str = "color", timeout: float = 2.5) -> Optional[np.ndarray]:
+    raw = _qt_bridge_fetch_frame_bytes(mode=mode, timeout=timeout)
+    if not raw:
+        return None
+    flags = cv2.IMREAD_GRAYSCALE if mode == "gray" else cv2.IMREAD_COLOR
+    arr = np.frombuffer(raw, dtype=np.uint8)
+    return cv2.imdecode(arr, flags)
+
+
+def _qt_bridge_fetch_frame_bytes(mode: str = "color", timeout: float = 2.5) -> Optional[bytes]:
     query = urllib_parse.urlencode({"mode": mode})
     req = urllib_request.Request(f"{QT_BRIDGE_URL}/frame.jpg?{query}", method="GET")
     raw = b""
@@ -1236,11 +1245,7 @@ def _qt_bridge_fetch_frame(mode: str = "color", timeout: float = 2.5) -> Optiona
         except Exception:
             raw = b""
         time.sleep(0.03)
-    if not raw:
-        return None
-    flags = cv2.IMREAD_GRAYSCALE if mode == "gray" else cv2.IMREAD_COLOR
-    arr = np.frombuffer(raw, dtype=np.uint8)
-    return cv2.imdecode(arr, flags)
+    return raw or None
 
 
 class QtBridgeCapture:
@@ -1287,9 +1292,17 @@ class QtBridgeCapture:
         frame = _qt_bridge_fetch_frame(mode="color")
         return (frame is not None), frame
 
+    def read_color_jpeg(self) -> Tuple[bool, Optional[bytes]]:
+        payload = _qt_bridge_fetch_frame_bytes(mode="color")
+        return (payload is not None), payload
+
     def read_gray(self) -> Tuple[bool, Optional[np.ndarray]]:
         frame = _qt_bridge_fetch_frame(mode="gray")
         return (frame is not None), frame
+
+    def read_gray_jpeg(self) -> Tuple[bool, Optional[bytes]]:
+        payload = _qt_bridge_fetch_frame_bytes(mode="gray")
+        return (payload is not None), payload
 
 
 def probe_aurora_window_source() -> dict:
@@ -2165,7 +2178,24 @@ def generate_frames():
     while True:
         with camera_lock:
             cap = camera
-        frame = _read_display_frame(cap) if cap else None
+        if isinstance(cap, QtBridgeCapture):
+            ret, payload = cap.read_color_jpeg()
+            if ret and payload:
+                camera_connected = True
+                _fail_streak = 0
+                _consecutive_failures = 0
+                _frame_count += 1
+                now = time.time()
+                if now - _fps_ts >= 1.0:
+                    current_fps = _frame_count / (now - _fps_ts)
+                    _frame_count = 0
+                    _fps_ts = now
+                yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                       + payload + b"\r\n")
+                continue
+            frame = None
+        else:
+            frame = _read_display_frame(cap) if cap else None
 
         if frame is None:
             camera_connected = False
@@ -2677,10 +2707,8 @@ def recent_captures_api():
 
 @app.route("/status")
 def status():
-    with camera_lock:
-        connected = camera is not None and camera.isOpened()
     return jsonify({
-        "connected": connected,
+        "connected": bool(camera_connected),
         "capture_count": capture_count,
         "fps": round(current_fps, 1),
         "output_dir": output_dir,

@@ -1,9 +1,17 @@
 #include <assert.h>
 #include "../include/utils.hpp"
+#include <chrono>
 #include <iostream>
 #include <cstdio>
+#include <unistd.h>
 
 namespace utils {
+
+uint64_t monotonic_time_us() {
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now().time_since_epoch()).count());
+}
 
 /**
  * @brief 归并排序的合并操作
@@ -382,9 +390,21 @@ void SCRFDGRAY::Initialize(std::string& model_path, std::array<int, 2>* in_img_s
     // 生成anchor box
     GenerateBoxes();
     
+    if (access(model_path.c_str(), F_OK) != 0) {
+        fprintf(stderr, "[SCRFD][ERROR] 模型文件不存在: %s\n", model_path.c_str());
+    } else {
+        printf("[SCRFD] 模型文件存在: %s\n", model_path.c_str());
+    }
+
     // 加载模型
     char* model_path_char = const_cast<char*>(model_path.c_str());
     model_id = ssne_loadmodel(model_path_char, SSNE_STATIC_ALLOC);
+    if (model_id < 0) {
+        fprintf(stderr, "[SCRFD][ERROR] ssne_loadmodel failed, model_id=%d, path=%s\n",
+                model_id, model_path.c_str());
+    } else {
+        printf("[SCRFD] 模型加载完成, model_id=%d\n", model_id);
+    }
 
     // 创建模型输入tensor
     uint32_t det_width = static_cast<uint32_t>(det_shape[0]);
@@ -409,6 +429,16 @@ static bool g_has_frame = false;
  * @description 完整的检测流程：预处理、推理、后处理
  */
 void SCRFDGRAY::Predict(ssne_tensor_t* img, FaceDetectionResult* result, float conf_threshold) {
+    static uint64_t last_error_log_us = 0;
+    if (model_id < 0) {
+        const uint64_t now_us = utils::monotonic_time_us();
+        if (now_us - last_error_log_us >= 5000000ULL) {
+            fprintf(stderr, "[SCRFD][ERROR] 跳过推理: model_id=%d (模型未成功加载)\n", model_id);
+            last_error_log_us = now_us;
+        }
+        return;
+    }
+
     // auto start = std::chrono::high_resolution_clock::now();
     // printf("Det --- start offline pipe!\n");
 
@@ -416,8 +446,11 @@ void SCRFDGRAY::Predict(ssne_tensor_t* img, FaceDetectionResult* result, float c
     int ret = RunAiPreprocessPipe(pipe_offline, *img, inputs[0]);
     // printf("ret: %d\n", ret);
     if (ret != 0) {
-        printf("[ERROR] Failed to run AI preprocess pipe!\n");
-        printf("ret: %d\n", ret);
+        const uint64_t now_us = utils::monotonic_time_us();
+        if (now_us - last_error_log_us >= 5000000ULL) {
+            fprintf(stderr, "[SCRFD][ERROR] RunAiPreprocessPipe failed, ret=%d\n", ret);
+            last_error_log_us = now_us;
+        }
         return;
     }
 
@@ -428,9 +461,16 @@ void SCRFDGRAY::Predict(ssne_tensor_t* img, FaceDetectionResult* result, float c
     
     
     // 前向推理：在NPU上执行模型推理
-    if (ssne_inference(model_id, 1, inputs))
+    ret = ssne_inference(model_id, 1, inputs);
+    if (ret != 0)
     {
-        fprintf(stderr, "ssne inference fail!\n");
+        const uint64_t now_us = utils::monotonic_time_us();
+        if (now_us - last_error_log_us >= 5000000ULL) {
+            fprintf(stderr, "[SCRFD][ERROR] ssne_inference failed, ret=%d, model_id=%d\n",
+                    ret, model_id);
+            last_error_log_us = now_us;
+        }
+        return;
     }
 
     // 获取模型输出：6个输出tensor（3个分数输出 + 3个检测框输出）
@@ -575,4 +615,3 @@ void SCRFDGRAY::saveFloatBin(const float* data, int length, const char* filename
         std::cerr << "failed to write " << filename << std::endl;
     }
 }
-

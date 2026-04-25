@@ -309,9 +309,9 @@ int main() {
     int img_height = cfg::SENSOR_HEIGHT;
     
     // 模型配置参数
-    // 推理输入: 640×360（由 RunAiPreprocessPipe 从当前传感器帧缩放）
-    array<int, 2> det_shape = {cfg::DET_WIDTH, cfg::DET_HEIGHT};  // 640×360
-    string path_det = cfg::MODEL_PATH;  // YOLOv8 head6 模型路径
+    const bool use_scrfd_backend = cfg::USE_SCRFD_BACKEND;
+    array<int, 2> det_shape = {cfg::DET_WIDTH, cfg::DET_HEIGHT};
+    string path_det = cfg::MODEL_PATH;
     
     /******************************************************************************************
      * 2. 系统初始化
@@ -325,7 +325,7 @@ int main() {
     // 图像处理器初始化
     array<int, 2> img_shape = {img_width, img_height};  // 原始图像尺寸，当前为 720×1280
     // 废弃旧裁剪参数 crop_shape / crop_offset_y
-    // 新方案: sensor 当前输出 → RunAiPreprocessPipe 缩放 → 640×360 推理
+    // 当前方案: sensor 当前输出 → RunAiPreprocessPipe 缩放 → 640×480 推理
     // img_shape 同时作为检测器坐标系参考，避免前后端再使用旧裁剪偏移。
     
     IMAGEPROCESSOR processor;
@@ -336,13 +336,25 @@ int main() {
         return 1;
     }
     
-    // YOLOv8 目标检测器初始化
+    // 检测器初始化
     YOLOV8 detector;
-    detector.nms_threshold = cfg::DET_NMS_THRESH;
-    detector.keep_top_k    = cfg::DET_KEEP_TOP_K;
-    detector.top_k         = cfg::DET_TOP_K;
-    // in_img_shape 传入原始传感器尺寸，使 Postprocess 坐标系与板端 OSD 一致。
-    detector.Initialize(path_det, &img_shape, &det_shape);  // 初始化检测器
+    SCRFDGRAY scrfd_detector;
+    if (use_scrfd_backend) {
+        scrfd_detector.Initialize(path_det, &img_shape, &det_shape, false, 0);
+        scrfd_detector.nms_threshold = cfg::DET_NMS_THRESH;
+        scrfd_detector.keep_top_k    = cfg::DET_KEEP_TOP_K;
+        scrfd_detector.top_k         = cfg::DET_TOP_K;
+        printf("[INFO] 当前使用 SCRFD 回退模型: %s (det=%dx%d)\n",
+               path_det.c_str(), det_shape[0], det_shape[1]);
+    } else {
+        detector.nms_threshold = cfg::DET_NMS_THRESH;
+        detector.keep_top_k    = cfg::DET_KEEP_TOP_K;
+        detector.top_k         = cfg::DET_TOP_K;
+        // in_img_shape 传入原始传感器尺寸，使 Postprocess 坐标系与板端 OSD 一致。
+        detector.Initialize(path_det, &img_shape, &det_shape);
+        printf("[INFO] 当前使用 YOLOv8 模型: %s (det=%dx%d)\n",
+               path_det.c_str(), det_shape[0], det_shape[1]);
+    }
     
     // 人物检测结果初始化
     FaceDetectionResult* det_result = new FaceDetectionResult;
@@ -389,8 +401,12 @@ int main() {
         // 从sensor获取图像（裁剪图）
         processor.GetImage(&img_sensor);
         
-        // 目标检测模型推理（YOLOv8, 置信度阈值来自 cfg::DET_CONF_THRESH）
-        detector.Predict(&img_sensor, det_result, cfg::DET_CONF_THRESH);
+        // 目标检测模型推理
+        if (use_scrfd_backend) {
+            scrfd_detector.Predict(&img_sensor, det_result, cfg::DET_CONF_THRESH);
+        } else {
+            detector.Predict(&img_sensor, det_result, cfg::DET_CONF_THRESH);
+        }
         num_frames += 1;
 
         /**********************************************************************************
@@ -574,7 +590,11 @@ int main() {
      ******************************************************************************************/
     
     delete det_result;  // 释放检测结果
-    detector.Release();  // 释放检测器资源
+    if (use_scrfd_backend) {
+        scrfd_detector.Release();  // 释放检测器资源
+    } else {
+        detector.Release();  // 释放检测器资源
+    }
     processor.Release();  // 释放图像处理器资源
     visualizer.Release();  // 释放可视化器资源
     

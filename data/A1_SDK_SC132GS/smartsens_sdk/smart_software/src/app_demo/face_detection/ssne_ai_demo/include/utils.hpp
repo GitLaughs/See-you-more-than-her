@@ -5,6 +5,8 @@
 
 namespace utils {
   // 目标检测模型所需的函数
+  /* 获取单调时间（微秒） */
+  uint64_t monotonic_time_us();
   /* 合并两段结果 */
   void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high);
   /* 归并排序算法 */
