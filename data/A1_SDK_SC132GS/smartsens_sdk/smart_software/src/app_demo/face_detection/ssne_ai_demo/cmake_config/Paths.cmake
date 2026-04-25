@@ -33,5 +33,3 @@ set(M1_OSD_LIB         "${M1_SDK_LIB_DIR}/libosd.so"        CACHE STRING INTERNA
 set(M1_SSZLOG_LIB      "${M1_SDK_LIB_DIR}/libsszlog.so"     CACHE STRING INTERNAL)
 set(M1_ZLOG_LIB        "${M1_SDK_LIB_DIR}/libzlog.so"       CACHE STRING INTERNAL)
 set(M1_EMB_LIB         "${M1_SDK_LIB_DIR}/libemb.so"        CACHE STRING INTERNAL)
-set(M1_UART_LIB        "${M1_SDK_LIB_DIR}/libuart.so"       CACHE STRING INTERNAL)
-set(M1_GPIO_LIB        "${M1_SDK_LIB_DIR}/libgpio.so"       CACHE STRING INTERNAL)

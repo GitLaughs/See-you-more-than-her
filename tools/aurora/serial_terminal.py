@@ -44,6 +44,9 @@ _rx_seq = 0
 _rx_cond = threading.Condition()
 _rx_last_data_ts = 0.0
 
+_PARTIAL_IDLE_FLUSH_SEC = 0.8
+_PARTIAL_BUFFER_LIMIT = 8192
+
 
 def _snapshot_state() -> Dict[str, Any]:
     with _state_lock:
@@ -88,20 +91,27 @@ def _normalize_text(raw: bytes) -> str:
     return raw.decode("utf-8", errors="replace").replace("\r", "")
 
 
-def _split_utf8_safe_prefix(raw: bytes) -> Tuple[bytes, bytes]:
+def _split_decodable_prefix(raw: bytes) -> Tuple[bytes, bytes]:
     if not raw:
         return b"", b""
-    max_tail = min(3, len(raw))
-    for tail_len in range(0, max_tail + 1):
-        prefix = raw if tail_len == 0 else raw[:-tail_len]
-        if not prefix:
-            continue
+    best_prefix = b""
+    best_tail = raw
+    for encoding in ("utf-8", "gb18030"):
         try:
-            prefix.decode("utf-8", errors="strict")
-            return prefix, raw[len(prefix):]
-        except UnicodeDecodeError:
+            decoder = codecs.getincrementaldecoder(encoding)(errors="strict")
+            decoder.decode(raw, final=False)
+            pending, _ = decoder.getstate()
+            tail_len = len(pending or b"")
+            prefix = raw if tail_len == 0 else raw[:-tail_len]
+            tail = raw[len(prefix):]
+            if len(prefix) > len(best_prefix):
+                best_prefix = prefix
+                best_tail = tail
+        except Exception:
             continue
-    return raw, b""
+    if best_prefix:
+        return best_prefix, best_tail
+    return b"", raw
 
 
 def _pop_complete_lines() -> List[bytes]:
@@ -127,9 +137,9 @@ def _flush_partial_buffer(force: bool = False) -> None:
     global _rx_buffer
     if not _rx_buffer:
         return
-    if not force and len(_rx_buffer) < 2048:
+    if not force and len(_rx_buffer) < _PARTIAL_BUFFER_LIMIT:
         return
-    safe_raw, tail = _split_utf8_safe_prefix(bytes(_rx_buffer))
+    safe_raw, tail = _split_decodable_prefix(bytes(_rx_buffer))
     if safe_raw:
         text = _normalize_text(safe_raw).strip()
         _append_rx_entry(safe_raw, text, partial=True)
@@ -178,7 +188,7 @@ def _rx_worker() -> None:
             waiting = getattr(ser, "in_waiting", 0)
             chunk = ser.read(max(1, min(waiting or 1, 256)))
             if not chunk:
-                if _rx_buffer and (time.monotonic() - _rx_last_data_ts) >= 0.20:
+                if _rx_buffer and (time.monotonic() - _rx_last_data_ts) >= _PARTIAL_IDLE_FLUSH_SEC:
                     _flush_partial_buffer(force=True)
                 continue
             _rx_buffer.extend(chunk)

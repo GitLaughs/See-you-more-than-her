@@ -1,17 +1,17 @@
+/*
+ * @Filename: scrfd_gray.cpp
+ * @Author: Hongying He
+ * @Email: hongying.he@smartsenstech.com
+ * @Date: 2025-12-30 14-57-47
+ * @Copyright (c) 2025 SmartSens
+ * @Description: SCRFD灰度图人脸检测实现文件
+ */
 #include <assert.h>
 #include "../include/utils.hpp"
-#include <chrono>
 #include <iostream>
 #include <cstdio>
-#include <unistd.h>
 
 namespace utils {
-
-uint64_t monotonic_time_us() {
-  return static_cast<uint64_t>(
-      std::chrono::duration_cast<std::chrono::microseconds>(
-          std::chrono::steady_clock::now().time_since_epoch()).count());
-}
 
 /**
  * @brief 归并排序的合并操作
@@ -25,11 +25,9 @@ void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high) {
   // 获取检测框和分数的引用
   std::vector<std::array<float, 4>>& boxes = result->boxes;
   std::vector<float>& scores = result->scores;
-  std::vector<int>& class_ids = result->class_ids;
   // 创建临时副本用于合并操作
   std::vector<std::array<float, 4>> temp_boxes(boxes);
   std::vector<float> temp_scores(scores);
-  std::vector<int> temp_class_ids(class_ids);
   size_t i = low;      // 左半部分的索引
   size_t j = mid + 1;  // 右半部分的索引
   size_t k = i;        // 合并结果的索引
@@ -38,12 +36,10 @@ void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high) {
     if (temp_scores[i] >= temp_scores[j]) {
       scores[k] = temp_scores[i];
       boxes[k] = temp_boxes[i];
-      if (!class_ids.empty()) class_ids[k] = temp_class_ids[i];
       i++;
     } else {
       scores[k] = temp_scores[j];
       boxes[k] = temp_boxes[j];
-      if (!class_ids.empty()) class_ids[k] = temp_class_ids[j];
       j++;
     }
   }
@@ -51,7 +47,6 @@ void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high) {
   while (i <= mid) {
     scores[k] = temp_scores[i];
     boxes[k] = temp_boxes[i];
-    if (!class_ids.empty()) class_ids[k] = temp_class_ids[i];
     k++;
     i++;
   }
@@ -59,7 +54,6 @@ void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high) {
   while (j <= high) {
     scores[k] = temp_scores[j];
     boxes[k] = temp_boxes[j];
-    if (!class_ids.empty()) class_ids[k] = temp_class_ids[j];
     k++;
     j++;
   }
@@ -129,10 +123,6 @@ void NMS(FaceDetectionResult* result, float iou_threshold, int top_k) {
       if (suppressed[j] == 1) {
         continue;  // 跳过已被抑制的框
       }
-      if (!result->class_ids.empty() &&
-          result->class_ids[i] != result->class_ids[j]) {
-        continue;
-      }
       // 计算两个框的交集区域
       float xmin = std::max(result->boxes[i][0], result->boxes[j][0]);
       float ymin = std::max(result->boxes[i][1], result->boxes[j][1]);
@@ -165,9 +155,6 @@ void NMS(FaceDetectionResult* result, float iou_threshold, int top_k) {
     }
     result->boxes.emplace_back(backup.boxes[i]);
     result->scores.push_back(backup.scores[i]);
-    if (!backup.class_ids.empty()) {
-      result->class_ids.push_back(backup.class_ids[i]);
-    }
     // 如果有关键点信息，也一并复制
     if (result->landmarks_per_face > 0) {
       for (size_t j = 0; j < result->landmarks_per_face; ++j) {
@@ -187,7 +174,6 @@ void NMS(FaceDetectionResult* result, float iou_threshold, int top_k) {
 void FaceDetectionResult::Free() {
   std::vector<std::array<float, 4>>().swap(boxes);
   std::vector<float>().swap(scores);
-  std::vector<int>().swap(class_ids);
   std::vector<std::array<float, 2>>().swap(landmarks);
   landmarks_per_face = 0;
 }
@@ -199,7 +185,6 @@ void FaceDetectionResult::Free() {
 void FaceDetectionResult::Clear() {
   boxes.clear();
   scores.clear();
-  class_ids.clear();
   landmarks.clear();
   landmarks_per_face = 0;
 }
@@ -212,7 +197,6 @@ void FaceDetectionResult::Clear() {
 void FaceDetectionResult::Reserve(int size) {
   boxes.reserve(size);
   scores.reserve(size);
-  class_ids.reserve(size);
   if (landmarks_per_face > 0) {
     landmarks.reserve(size * landmarks_per_face);
   }
@@ -226,7 +210,6 @@ void FaceDetectionResult::Reserve(int size) {
 void FaceDetectionResult::Resize(int size) {
   boxes.resize(size);
   scores.resize(size);
-  class_ids.resize(size);
   if (landmarks_per_face > 0) {
     landmarks.resize(size * landmarks_per_face);
   }
@@ -241,7 +224,6 @@ FaceDetectionResult::FaceDetectionResult(const FaceDetectionResult& res) {
   boxes.assign(res.boxes.begin(), res.boxes.end());
   landmarks.assign(res.landmarks.begin(), res.landmarks.end());
   scores.assign(res.scores.begin(), res.scores.end());
-  class_ids.assign(res.class_ids.begin(), res.class_ids.end());
   landmarks_per_face = res.landmarks_per_face;
 }
 
@@ -390,21 +372,9 @@ void SCRFDGRAY::Initialize(std::string& model_path, std::array<int, 2>* in_img_s
     // 生成anchor box
     GenerateBoxes();
     
-    if (access(model_path.c_str(), F_OK) != 0) {
-        fprintf(stderr, "[SCRFD][ERROR] 模型文件不存在: %s\n", model_path.c_str());
-    } else {
-        printf("[SCRFD] 模型文件存在: %s\n", model_path.c_str());
-    }
-
     // 加载模型
     char* model_path_char = const_cast<char*>(model_path.c_str());
     model_id = ssne_loadmodel(model_path_char, SSNE_STATIC_ALLOC);
-    if (model_id < 0) {
-        fprintf(stderr, "[SCRFD][ERROR] ssne_loadmodel failed, model_id=%d, path=%s\n",
-                model_id, model_path.c_str());
-    } else {
-        printf("[SCRFD] 模型加载完成, model_id=%d\n", model_id);
-    }
 
     // 创建模型输入tensor
     uint32_t det_width = static_cast<uint32_t>(det_shape[0]);
@@ -429,16 +399,6 @@ static bool g_has_frame = false;
  * @description 完整的检测流程：预处理、推理、后处理
  */
 void SCRFDGRAY::Predict(ssne_tensor_t* img, FaceDetectionResult* result, float conf_threshold) {
-    static uint64_t last_error_log_us = 0;
-    if (model_id < 0) {
-        const uint64_t now_us = utils::monotonic_time_us();
-        if (now_us - last_error_log_us >= 5000000ULL) {
-            fprintf(stderr, "[SCRFD][ERROR] 跳过推理: model_id=%d (模型未成功加载)\n", model_id);
-            last_error_log_us = now_us;
-        }
-        return;
-    }
-
     // auto start = std::chrono::high_resolution_clock::now();
     // printf("Det --- start offline pipe!\n");
 
@@ -446,11 +406,8 @@ void SCRFDGRAY::Predict(ssne_tensor_t* img, FaceDetectionResult* result, float c
     int ret = RunAiPreprocessPipe(pipe_offline, *img, inputs[0]);
     // printf("ret: %d\n", ret);
     if (ret != 0) {
-        const uint64_t now_us = utils::monotonic_time_us();
-        if (now_us - last_error_log_us >= 5000000ULL) {
-            fprintf(stderr, "[SCRFD][ERROR] RunAiPreprocessPipe failed, ret=%d\n", ret);
-            last_error_log_us = now_us;
-        }
+        printf("[ERROR] Failed to run AI preprocess pipe!\n");
+        printf("ret: %d\n", ret);
         return;
     }
 
@@ -461,16 +418,9 @@ void SCRFDGRAY::Predict(ssne_tensor_t* img, FaceDetectionResult* result, float c
     
     
     // 前向推理：在NPU上执行模型推理
-    ret = ssne_inference(model_id, 1, inputs);
-    if (ret != 0)
+    if (ssne_inference(model_id, 1, inputs))
     {
-        const uint64_t now_us = utils::monotonic_time_us();
-        if (now_us - last_error_log_us >= 5000000ULL) {
-            fprintf(stderr, "[SCRFD][ERROR] ssne_inference failed, ret=%d, model_id=%d\n",
-                    ret, model_id);
-            last_error_log_us = now_us;
-        }
-        return;
+        fprintf(stderr, "ssne inference fail!\n");
     }
 
     // 获取模型输出：6个输出tensor（3个分数输出 + 3个检测框输出）
@@ -615,3 +565,4 @@ void SCRFDGRAY::saveFloatBin(const float* data, int length, const char* filename
         std::cerr << "failed to write " << filename << std::endl;
     }
 }
+

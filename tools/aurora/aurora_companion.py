@@ -12,7 +12,7 @@ Aurora Companion — Windows/A1 摄像头可视化采集伴侣
   - 键盘快捷键：1/2/R
 
 用法:
-    python aurora_companion.py [--device 0] [--output ../../data/yolov8_dataset/raw/images] [--port 5801]
+    python aurora_companion.py [--device 0] [--output ../../data/yolov8_dataset/raw] [--port 5801]
 """
 
 import argparse
@@ -69,6 +69,7 @@ CAPTURE_FORMATS = {
     "1280x720": (1280, 720),   # 原始灰度图（传感器采集分辨率）
     "640x360":  (640,  360),   # YOLOv8 训练集尺寸（16:9 中心裁剪）
 }
+DEFAULT_CAPTURE_FORMAT = "1280x720"
 
 app = Flask(__name__, template_folder="templates")
 _ros_detection_hook = None
@@ -2146,6 +2147,7 @@ def _save_capture(frame: np.ndarray, fmt: str) -> dict:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     name = f"capture_{ts}_{capture_count:04d}_{fmt}.png"
     path = os.path.join(output_dir, name)
+    os.makedirs(output_dir, exist_ok=True)
     cv2.imwrite(path, out)
 
     thumb = cv2.resize(out, (160, 90 if fmt == "640x360" else 80))
@@ -2154,6 +2156,7 @@ def _save_capture(frame: np.ndarray, fmt: str) -> dict:
 
     info = {
         "filename": name,
+        "path": path,
         "format": fmt,
         "size": f"{tw}×{th}",
         "thumb": thumb_b64,
@@ -2410,7 +2413,7 @@ def switch_detect_model():
 @app.route("/capture", methods=["POST"])
 def do_capture():
     data = request.get_json(silent=True) or {}
-    fmt = data.get("format", "1280x720")
+    fmt = str(data.get("format") or DEFAULT_CAPTURE_FORMAT).strip()
     if fmt not in CAPTURE_FORMATS:
         return jsonify({"success": False, "error": f"不支持的格式: {fmt}"})
     with camera_lock:
@@ -2419,7 +2422,7 @@ def do_capture():
     if frame is None:
         return jsonify({"success": False, "error": "无法获取摄像头画面"})
     info = _save_capture(frame, fmt)
-    return jsonify({"success": True, **info})
+    return jsonify({"success": True, "output_dir": output_dir, **info})
 
 
 @app.route("/refresh_camera", methods=["POST"])
@@ -2734,7 +2737,7 @@ def main():
     parser.add_argument("--source", type=str, default=CAMERA_SOURCE_AUTO,
                         help="输入源: windows / a1 / aurora_window / auto")
     parser.add_argument("--output", type=str,
-                        default="../../data/yolov8_dataset/raw/images",
+                        default="../../data/yolov8_dataset/raw",
                         help="拍照保存目录")
     parser.add_argument("--port",   type=int, default=5801, help="Web 服务端口 (默认: 5801)")
     parser.add_argument("--host",   type=str, default="127.0.0.1", help="监听地址")

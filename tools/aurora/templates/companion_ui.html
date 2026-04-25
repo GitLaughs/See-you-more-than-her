@@ -610,6 +610,25 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
       </div>
     </div>
 
+    <div class="card gallery-main-card" style="flex:0 0 auto;">
+      <div class="card-head">
+        <span>训练集拍照</span>
+        <span id="captureCountLabel" style="font-size:.75em;color:var(--color-secondary);">0 张</span>
+      </div>
+      <div class="card-body">
+        <div class="mini-note" id="captureOutputDir" style="margin-bottom:8px;">保存目录：data/yolov8_dataset/raw</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+          <button class="btn btn-green" style="justify-content:center;" onclick="takeDatasetCapture('1280x720')">保存原图</button>
+          <button class="btn btn-blue" style="justify-content:center;" onclick="takeDatasetCapture('640x360')">保存训练图</button>
+        </div>
+        <div class="mini-note" id="captureHint" style="margin-bottom:10px;">原图保存当前预览帧；训练图会中心裁剪成 640 × 360。</div>
+        <div id="captureLastInfo" class="source-desc" style="margin-bottom:10px;">最近一张：尚未拍摄</div>
+        <div id="captureGallery" class="gallery-grid">
+          <div class="gallery-empty">还没有拍摄记录</div>
+        </div>
+      </div>
+    </div>
+
     <div class="card" style="flex: 0 0 auto; display:none;">
       <div class="card-head">电脑窗口截获</div>
       <div class="card-body">
@@ -3035,6 +3054,68 @@ function updateRosSnapshotLoop() {
   }
 }
 
+function renderCaptureGallery(items = []) {
+  const root = document.getElementById('captureGallery');
+  const countEl = document.getElementById('captureCountLabel');
+  const lastInfo = document.getElementById('captureLastInfo');
+  if (!root) return;
+  captureCount = items.length;
+  if (countEl) countEl.textContent = `${items.length} 张`;
+  if (!items.length) {
+    root.innerHTML = '<div class="gallery-empty">还没有拍摄记录</div>';
+    if (lastInfo) lastInfo.textContent = '最近一张：尚未拍摄';
+    return;
+  }
+  const latest = items[0] || {};
+  if (lastInfo) {
+    lastInfo.textContent = `最近一张：${latest.filename || '未知文件'} · ${latest.size || '—'} · ${latest.time || '--:--:--'}`;
+  }
+  root.innerHTML = items.map(item => {
+    const thumb = item.thumb ? `data:image/jpeg;base64,${item.thumb}` : '';
+    const label = [item.filename || 'capture.png', item.size || '', item.time || ''].filter(Boolean).join(' · ');
+    const title = item.path || item.filename || 'capture.png';
+    return `<div class="gallery-item" title="${title.replace(/"/g, '&quot;')}">
+      <img src="${thumb}" alt="${(item.filename || 'capture').replace(/"/g, '&quot;')}">
+      <div class="g-lbl">${label.replace(/</g, '&lt;')}</div>
+    </div>`;
+  }).join('');
+}
+
+function loadRecentCaptures(silent = true) {
+  return apiJson('/recent_captures').then(items => {
+    renderCaptureGallery(Array.isArray(items) ? items : []);
+    return items;
+  }).catch(e => {
+    if (!silent) toast('✗ ' + e, 'err');
+    renderCaptureGallery([]);
+    return [];
+  });
+}
+
+function takeDatasetCapture(format = '1280x720') {
+  const hint = document.getElementById('captureHint');
+  if (hint) hint.textContent = `正在保存 ${format} 图片…`;
+  return apiJson('/capture', {
+    method: 'POST',
+    body: JSON.stringify({format})
+  }).then(d => {
+    if (!d.success) {
+      throw new Error(d.error || '拍照失败');
+    }
+    if (document.getElementById('captureOutputDir')) {
+      document.getElementById('captureOutputDir').textContent = `保存目录：${d.output_dir || 'data/yolov8_dataset/raw'}`;
+    }
+    if (hint) hint.textContent = `已保存 ${d.filename}，可继续采集`;
+    loadRecentCaptures(true);
+    toast(`已保存 ${d.filename}`, 'ok');
+    return d;
+  }).catch(e => {
+    if (hint) hint.textContent = '拍照失败，请检查摄像头连接';
+    toast('✗ ' + e, 'err');
+    return {success: false, error: String(e)};
+  });
+}
+
 // ── Status polling ──────────────────────────────────────────────────────────
 setInterval(() => {
   fetch('/status').then(r=>r.json()).then(d=>{
@@ -3053,6 +3134,12 @@ setInterval(() => {
       document.getElementById('detModelName').textContent = d.model_name;
       document.getElementById('detModelMode').textContent = DETECT_MODEL_MODE_TITLES[d.model_mode] || d.model_mode || '—';
       syncDetectModelSelect(d.model_name);
+    }
+    if (document.getElementById('captureOutputDir') && d.output_dir) {
+      document.getElementById('captureOutputDir').textContent = `保存目录：${d.output_dir}`;
+    }
+    if (document.getElementById('captureCountLabel') && d.capture_count != null) {
+      document.getElementById('captureCountLabel').textContent = `${d.capture_count} 张`;
     }
     setCamOnline(d.connected);
     document.getElementById('fpsChip').textContent = d.fps != null ? d.fps.toFixed(1)+' fps' : '— fps';
@@ -3131,6 +3218,7 @@ refreshPorts();
 setPreviewRotation(previewRotation);
 loadCameraDevices();
 loadDetectModels();
+loadRecentCaptures(true);
 loadSerialTermPorts(false);
 loadSerialTermConfig().then(() => loadSerialTermStatus(true));
 loadRelayConfig().then(() => {
