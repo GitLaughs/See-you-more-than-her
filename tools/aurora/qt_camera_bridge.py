@@ -37,6 +37,7 @@ CAMERA_FPS = 30.0
 A1_CAMERA_FPS = 90.0
 DEFAULT_JPEG_QUALITY = 92
 A1_JPEG_QUALITY = 84
+BRIDGE_PROTOCOL_VERSION = 2
 
 SOURCE_WINDOWS = "windows"
 SOURCE_A1 = "a1"
@@ -448,6 +449,10 @@ class CameraBridgeState:
                 self.camera.stop()
             except Exception:
                 pass
+            try:
+                self.camera.deleteLater()
+            except Exception:
+                pass
         if self.capture_session is not None:
             try:
                 self.capture_session.setCamera(None)
@@ -455,6 +460,17 @@ class CameraBridgeState:
                 pass
         self.camera = None
         self.connected = False
+
+    def stop_camera(self) -> Dict[str, Any]:
+        if QT_AVAILABLE:
+            return self.controller.call(self._stop_camera_internal)
+        return {"success": True, "message": "Qt 不可用"}
+
+    def _stop_camera_internal(self) -> Dict[str, Any]:
+        print("[DEBUG] Stop camera requested")
+        self._stop_camera()
+        self.status_message = "Qt 相机桥已停止"
+        return {"success": True, "message": "相机已释放"}
 
     def _open_camera(self, device_id: int, requested_source: str) -> Dict[str, Any]:
         if not QT_AVAILABLE:
@@ -466,15 +482,65 @@ class CameraBridgeState:
 
         device = self._camera_device_objects[device_id]
         selected_format, meta, actual_source = self._select_format_for_source(device, requested_source)
-        self._stop_camera()
-        self.camera = QCamera(device)
+        
+        print(f"[DEBUG] Opening camera: device_id={device_id}, device={device.description()}")
         if selected_format is not None:
+            res = selected_format.resolution()
+            print(f"[DEBUG] Selected format: {_enum_name(selected_format.pixelFormat())} @ {res.width()}x{res.height()}")
+        if meta:
+            print(f"[DEBUG] Format metadata: {meta}")
+        
+        # 确保完全停止并释放之前的相机
+        self._stop_camera()
+        # 给足够的时间让 Qt 清理资源
+        QThread = None
+        try:
+            from PySide6.QtCore import QThread
+            QThread.msleep(200)
+        except Exception:
+            pass
+        
+        # 尝试打开相机，增加重试机制
+        max_retries = 3
+        last_error = None
+        for retry in range(max_retries):
             try:
-                self.camera.setCameraFormat(selected_format)
-            except Exception:
-                pass
-        self.capture_session.setCamera(self.camera)
-        self.camera.start()
+                print(f"[DEBUG] Attempting to start camera (retry {retry + 1}/{max_retries})")
+                self.camera = QCamera(device)
+                if selected_format is not None:
+                    try:
+                        self.camera.setCameraFormat(selected_format)
+                        print(f"[DEBUG] Camera format set successfully")
+                    except Exception as e:
+                        print(f"[DEBUG] Could not set camera format: {e}")
+                
+                # 确保video sink被正确设置
+                if self.video_sink is None:
+                    self.video_sink = QVideoSink()
+                    self.video_sink.videoFrameChanged.connect(self._on_frame)
+                self.capture_session.setCamera(self.camera)
+                self.capture_session.setVideoSink(self.video_sink)  # 确保每次都重新设置sink
+                print(f"[DEBUG] Video sink set to capture session")
+                
+                self.camera.start()
+                print(f"[DEBUG] Camera started successfully")
+                break
+            except Exception as e:
+                last_error = e
+                print(f"[ERROR] Failed to open camera: {e}")
+                if retry < max_retries - 1:
+                    print(f"[WARN] Opening camera failed (retry {retry + 1}/{max_retries}): {e}")
+                    try:
+                        self._stop_camera()
+                        if QThread:
+                            QThread.msleep(300)
+                    except Exception:
+                        pass
+                else:
+                    raise
+                    
+        if last_error is not None and self.camera is None:
+            raise RuntimeError(f"无法打开相机: {last_error}")
 
         self.device_id = device_id
         self.requested_source = requested_source
@@ -496,6 +562,7 @@ class CameraBridgeState:
         self.status_message = (
             f"Qt 相机桥已连接: {self.device_name} / {self.frame_width}x{self.frame_height} / {self.pixel_format}"
         )
+        print(f"[DEBUG] Camera bridge status: connected={self.connected}, active_source={self.active_source}")
         return self.status()
 
     def switch_camera(self, device_id: int, requested_source: str) -> Dict[str, Any]:
@@ -504,14 +571,25 @@ class CameraBridgeState:
         raise RuntimeError(f"PySide6 不可用: {self.error}")
 
     def _on_frame(self, frame):
+        now = time.time()
+        
+        # 调试信息：记录接收到的帧
+        if self.frame_count == 0:
+            print(f"[DEBUG] Qt camera bridge: first frame received at {now}")
+            print(f"[DEBUG] Frame details: width={frame.width()}, height={frame.height()}, pixelFormat={_enum_name(frame.pixelFormat())}")
+        
         raw_y8 = self._a1_raw_y8_image(frame)
         try:
             image = raw_y8 if raw_y8 is not None else frame.toImage()
-        except Exception:
+        except Exception as e:
+            if self.frame_count < 5:  # 只在前几帧打印错误
+                print(f"[DEBUG] Qt frame conversion failed: {e}")
             image = None
         if image is None or image.isNull():
+            if self.frame_count < 5:  # 只在前几帧打印警告
+                print(f"[DEBUG] Qt frame is null")
             return
-        now = time.time()
+        
         latest = image.copy()
         color_jpeg = None
         gray_jpeg = None
@@ -558,6 +636,7 @@ class CameraBridgeState:
     def status(self) -> Dict[str, Any]:
         with self.lock:
             return {
+                "bridge_version": BRIDGE_PROTOCOL_VERSION,
                 "available": self.available,
                 "error": self.error,
                 "connected": self.connected,
@@ -657,6 +736,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
             try:
                 status = BRIDGE.switch_camera(device_id, source)
                 self._write_json({"success": True, "status": status})
+            except Exception as exc:
+                self._write_json({"success": False, "error": str(exc), "status": BRIDGE.status()}, status=500)
+            return
+        if parsed.path == "/stop":
+            try:
+                result = BRIDGE.stop_camera()
+                self._write_json(result)
             except Exception as exc:
                 self._write_json({"success": False, "error": str(exc), "status": BRIDGE.status()}, status=500)
             return

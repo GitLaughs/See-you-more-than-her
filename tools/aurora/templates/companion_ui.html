@@ -717,6 +717,10 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
           <span class="btn-icon" id="camRefIcon">↻</span>
           <label>断联修复<small>卡顿点此重启驱动</small></label>
         </button>
+        <button class="btn btn-ghost btn-full" id="camReleaseBtn" onclick="releaseCam()">
+          <span class="btn-icon">⏻</span>
+          <label>释放摄像头<small>释放相机占用以用于其他程序</small></label>
+        </button>
       </div>
     </div>
   </aside>
@@ -1660,6 +1664,26 @@ function switchTab(tab) {
 }
 
 // ── Camera ─────────────────────────────────────────────────────────────────
+function releaseCam() {
+  const btn = document.getElementById('camReleaseBtn');
+  btn.disabled = true;
+  fetch('/release_camera', {method:'POST'}).then(r=>r.json()).then(d=>{
+    if (d.success) {
+      toast('✓ 摄像头已释放', 'ok');
+      const img = document.getElementById('stream');
+      img.src = ''; // 清空视频流
+      hideStreamLoading();
+      loadCameraDevices();
+      updateStreamSummary();
+    } else {
+      toast('✗ ' + d.error, 'err');
+    }
+  }).catch(e => { toast('✗ '+e,'err'); })
+  .finally(()=>{
+    btn.disabled = false;
+  });
+}
+
 function refreshCam() {
   const btn = document.getElementById('camRefreshBtn');
   btn.disabled = true;
