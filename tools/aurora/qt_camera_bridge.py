@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 try:
     from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QObject, Qt, QTimer, Signal, Slot
     from PySide6.QtGui import QGuiApplication, QImage
-    from PySide6.QtMultimedia import QCamera, QCameraDevice, QCameraFormat, QMediaCaptureSession, QMediaDevices, QVideoSink
+    from PySide6.QtMultimedia import QCamera, QCameraDevice, QCameraFormat, QMediaCaptureSession, QMediaDevices, QVideoFrame, QVideoSink
 
     QT_AVAILABLE = True
     QT_IMPORT_ERROR = ""
@@ -28,13 +28,15 @@ except Exception as exc:  # pragma: no cover - 无依赖环境下也需要正常
     QT_IMPORT_ERROR = str(exc)
     QByteArray = QBuffer = QIODevice = QObject = Qt = QTimer = Signal = Slot = None  # type: ignore[assignment]
     QGuiApplication = QImage = None  # type: ignore[assignment]
-    QCamera = QCameraDevice = QCameraFormat = QMediaCaptureSession = QMediaDevices = QVideoSink = None  # type: ignore[assignment]
+    QCamera = QCameraDevice = QCameraFormat = QMediaCaptureSession = QMediaDevices = QVideoFrame = QVideoSink = None  # type: ignore[assignment]
 
 
 CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 720
 CAMERA_FPS = 30.0
-DEFAULT_JPEG_QUALITY = 97
+A1_CAMERA_FPS = 90.0
+DEFAULT_JPEG_QUALITY = 92
+A1_JPEG_QUALITY = 84
 
 SOURCE_WINDOWS = "windows"
 SOURCE_A1 = "a1"
@@ -136,12 +138,13 @@ def _resolution_score(width: int, height: int) -> int:
     return score
 
 
-def _fps_score(min_fps: float, max_fps: float) -> int:
-    if min_fps <= CAMERA_FPS <= max_fps and max_fps > 0:
+def _fps_score(min_fps: float, max_fps: float, requested_source: str = SOURCE_WINDOWS) -> int:
+    target_fps = A1_CAMERA_FPS if requested_source == SOURCE_A1 else CAMERA_FPS
+    if min_fps <= target_fps <= max_fps and max_fps > 0:
         return 8
     if max_fps <= 0:
         return 0
-    return max(0, 5 - int(abs(max_fps - CAMERA_FPS)))
+    return max(0, 5 - int(abs(max_fps - target_fps)))
 
 
 if QT_AVAILABLE:
@@ -245,6 +248,90 @@ class CameraBridgeState:
         buffer.close()
         return bytes(qbytes)
 
+    def _frame_plane_bytes(self, frame: Any, mapped_bytes: int) -> Optional[memoryview]:
+        try:
+            bits = frame.bits(0)
+        except Exception:
+            return None
+        if bits is None:
+            return None
+        if hasattr(bits, "setsize"):
+            try:
+                bits.setsize(mapped_bytes)
+            except Exception:
+                pass
+        if hasattr(bits, "asstring"):
+            try:
+                return memoryview(bits.asstring(mapped_bytes))
+            except Exception:
+                return None
+        try:
+            view = memoryview(bits)
+            if mapped_bytes > 0 and len(view) > mapped_bytes:
+                return view[:mapped_bytes]
+            return view
+        except Exception:
+            return None
+
+    def _a1_raw_y8_image(self, frame: Any) -> Optional[Any]:
+        if self.active_source != SOURCE_A1 or not QT_AVAILABLE:
+            return None
+        pixel = (self.pixel_format or "").lower()
+        if not any(token in pixel for token in _RAW_HINTS + _GRAY_HINTS + _YUV_HINTS):
+            return None
+
+        try:
+            map_mode = QVideoFrame.MapMode.ReadOnly
+            if not frame.map(map_mode):
+                return None
+        except Exception:
+            return None
+
+        try:
+            src_w = _safe_int(frame.width())
+            src_h = _safe_int(frame.height())
+            if src_w <= 0 or src_h <= 0:
+                return None
+            try:
+                bpl = _safe_int(frame.bytesPerLine(0))
+            except Exception:
+                bpl = 0
+            try:
+                mapped_bytes = _safe_int(frame.mappedBytes(0))
+            except Exception:
+                mapped_bytes = 0
+            if bpl <= 0 and mapped_bytes > 0:
+                bpl = mapped_bytes // max(1, src_h)
+            if bpl <= 0:
+                return None
+            view = self._frame_plane_bytes(frame, mapped_bytes or bpl * src_h)
+            if view is None or len(view) < bpl:
+                return None
+
+            if any(token in pixel for token in ("uyvy", "yuyv", "yuv")) and bpl >= src_w * 2:
+                out_w = src_w * 2
+            else:
+                out_w = src_w
+            if src_w <= 720 <= bpl and any(token in pixel for token in ("uyvy", "yuyv", "yuv")):
+                out_w = 720
+            out_w = max(1, min(out_w, bpl))
+
+            raw = bytearray(out_w * src_h)
+            for y in range(src_h):
+                src_start = y * bpl
+                src_end = src_start + out_w
+                dst_start = y * out_w
+                if src_end > len(view):
+                    return None
+                raw[dst_start:dst_start + out_w] = view[src_start:src_end]
+            image = QImage(bytes(raw), out_w, src_h, out_w, self._qimage_format("Format_Grayscale8"))
+            return image.copy()
+        finally:
+            try:
+                frame.unmap()
+            except Exception:
+                pass
+
     def _device_formats(self, device: Any) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]], Optional[Any]]:
         formats_meta: List[Dict[str, Any]] = []
         best_meta = None
@@ -265,8 +352,8 @@ class CameraBridgeState:
                 "pixel_format": pixel_name,
                 "min_fps": round(min_fps, 2),
                 "max_fps": round(max_fps, 2),
-                "score_windows": _pixel_format_score(pixel_name, SOURCE_WINDOWS, device_source) + _resolution_score(width, height) + _fps_score(min_fps, max_fps),
-                "score_a1": _pixel_format_score(pixel_name, SOURCE_A1, device_source) + _resolution_score(width, height) + _fps_score(min_fps, max_fps),
+                "score_windows": _pixel_format_score(pixel_name, SOURCE_WINDOWS, device_source) + _resolution_score(width, height) + _fps_score(min_fps, max_fps, SOURCE_WINDOWS),
+                "score_a1": _pixel_format_score(pixel_name, SOURCE_A1, device_source) + _resolution_score(width, height) + _fps_score(min_fps, max_fps, SOURCE_A1),
             }
             formats_meta.append(meta)
 
@@ -397,6 +484,7 @@ class CameraBridgeState:
         self.raw8_hint = any(token in self.pixel_format.lower() for token in _RAW_HINTS + _GRAY_HINTS)
         self.frame_width = int(meta.get("width", 0)) if meta else 0
         self.frame_height = int(meta.get("height", 0)) if meta else 0
+        self._jpeg_quality = A1_JPEG_QUALITY if actual_source == SOURCE_A1 else DEFAULT_JPEG_QUALITY
         self.frame_count = 0
         self.last_frame_ts = 0.0
         self.fps = 0.0
@@ -416,8 +504,9 @@ class CameraBridgeState:
         raise RuntimeError(f"PySide6 不可用: {self.error}")
 
     def _on_frame(self, frame):
+        raw_y8 = self._a1_raw_y8_image(frame)
         try:
-            image = frame.toImage()
+            image = raw_y8 if raw_y8 is not None else frame.toImage()
         except Exception:
             image = None
         if image is None or image.isNull():
@@ -427,8 +516,12 @@ class CameraBridgeState:
         color_jpeg = None
         gray_jpeg = None
         try:
-            color_jpeg = self._jpeg_bytes(latest, grayscale=False)
-            gray_jpeg = self._jpeg_bytes(latest, grayscale=True)
+            if raw_y8 is not None:
+                gray_jpeg = self._jpeg_bytes(latest, grayscale=True)
+                color_jpeg = gray_jpeg
+            else:
+                color_jpeg = self._jpeg_bytes(latest, grayscale=False)
+                gray_jpeg = self._jpeg_bytes(latest, grayscale=True)
         except Exception as exc:
             if now - self.last_encode_error_ts >= 5.0:
                 self.last_encode_error_ts = now
@@ -437,6 +530,8 @@ class CameraBridgeState:
             self.latest_image = latest
             self.latest_color_jpeg = color_jpeg
             self.latest_gray_jpeg = gray_jpeg
+            self.frame_width = _safe_int(latest.width(), self.frame_width)
+            self.frame_height = _safe_int(latest.height(), self.frame_height)
             self.frame_count += 1
             self.last_frame_ts = now
             if self.frame_count > 1 and self.started_at < now:
@@ -512,6 +607,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
         self.wfile.write(payload)
 

@@ -116,8 +116,8 @@ body{
   overflow-y: auto;
   overscroll-behavior: contain;
   display: grid;
-  grid-template-rows: auto minmax(200px, 1fr) minmax(280px, auto);
-  align-content: stretch;
+  grid-template-rows: auto auto auto;
+  align-content: start;
   gap: var(--space-3);
   padding-right: 4px;
 }
@@ -350,6 +350,7 @@ body{
   text-align:center;
 }
 .camera-input-card .card-body{padding:var(--space-2);}
+.camera-input-card{align-self:start;}
 .camera-input-card .form-row{margin-bottom:var(--space-1);}
 .camera-input-card .form-row label{width:46px;font-size:var(--text-xs);}
 .camera-input-actions{
@@ -579,7 +580,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
   .app-shell{flex-direction:column;overflow:auto;}
   .camera-rail,.page-stage{flex:0 0 auto;max-width:none;width:100%;padding-right:0;padding-left:0;}
   .camera-rail{
-    grid-template-rows:auto minmax(180px, 1fr);
+    grid-template-rows:auto auto auto;
   }
 }
 
