@@ -251,6 +251,7 @@ void select_velocity(const RuntimeState& state, bool has_detection,
 int main() {
     std::array<int, 2> img_shape = {cfg::SENSOR_WIDTH, cfg::SENSOR_HEIGHT};
     std::array<int, 2> det_shape = {cfg::DET_WIDTH, cfg::DET_HEIGHT};
+    std::array<int, 2> crop_shape = {cfg::PIPE_CROP_WIDTH, cfg::PIPE_CROP_HEIGHT};
     std::string model_path = cfg::MODEL_PATH;
 
     static OsdInfo osds[3] = {
@@ -271,7 +272,7 @@ int main() {
     YOLOV8 yolo_detector;
     if (cfg::USE_SCRFD_BACKEND) {
         int box_len = det_shape[0] * det_shape[1] / 512 * 21;
-        scrfd_detector.Initialize(model_path, &img_shape, &det_shape, false, box_len);
+        scrfd_detector.Initialize(model_path, &crop_shape, &det_shape, false, box_len);
     } else {
         yolo_detector.Initialize(model_path, &img_shape, &det_shape);
     }
@@ -306,7 +307,14 @@ int main() {
             yolo_detector.Predict(&img_sensor, &det_result, cfg::DET_CONF_THRESH);
         }
 
-        visualizer.Draw(det_result.boxes);
+        std::vector<std::array<float, 4>> osd_boxes = det_result.boxes;
+        if (cfg::USE_SCRFD_BACKEND) {
+            for (auto& box : osd_boxes) {
+                box[1] += static_cast<float>(cfg::PIPE_CROP_Y1);
+                box[3] += static_cast<float>(cfg::PIPE_CROP_Y1);
+            }
+        }
+        visualizer.Draw(osd_boxes);
         update_frame_stats(det_result.boxes.size());
 
         RuntimeState state = snapshot_state();

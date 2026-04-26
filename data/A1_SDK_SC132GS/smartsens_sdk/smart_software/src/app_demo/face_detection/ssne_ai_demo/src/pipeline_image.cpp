@@ -26,8 +26,11 @@ void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
     format_online = SSNE_Y_8;                    // 图像格式：8位灰度图
     
     // pipe0设置：新 SDK 口径下直接输出完整传感器图像，缩放交给 AI 预处理链路。
-    OnlineSetCrop(kPipeline0, 0, img_width, 0, img_height);
-    OnlineSetOutputImage(kPipeline0, format_online, img_width, img_height);
+    OnlineSetCrop(kPipeline0, cfg::PIPE_CROP_X1, cfg::PIPE_CROP_X2,
+                  cfg::PIPE_CROP_Y1, cfg::PIPE_CROP_Y2);
+    OnlineSetOutputImage(kPipeline0, format_online,
+                         static_cast<uint16_t>(cfg::PIPE_CROP_WIDTH),
+                         static_cast<uint16_t>(cfg::PIPE_CROP_HEIGHT));
     
     // 打开pipe0（裁剪图像通道）
     int res0 = OpenOnlinePipeline(kPipeline0);

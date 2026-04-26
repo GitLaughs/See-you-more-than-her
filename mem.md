@@ -202,6 +202,12 @@ ROS2 桥接模块。负责:
 - 命令线程只改状态，主循环按状态发送底盘速度，避免串口对象跨线程乱用。
 - 退出时必须发 0 速度停车。
 
+最新修复记录（2026-04-26）:
+
+- `ssne_ai_demo` 的人脸检测链路已恢复为历史裁剪模式：`IMAGEPROCESSOR` 重新输出 `720×540` 中间区域，`SCRFDGRAY` 也重新按裁剪图初始化。
+- 主循环在 OSD 绘制前会把检测框的 `y` 坐标加回 `PIPE_CROP_Y1 = 370`，避免检测框和画面位置错位。
+- 这次先做了静态检查，随后改为只编 `make BR2_EXTERNAL=./smart_software ssne_ai_demo` 做编译验证；已成功生成并安装到 `output/target/app_demo/`，仅有 `utils.cpp` 里原有的 narrowing warning 和一组 CMake 未使用变量警告，没有新增错误。
+
 ### `project_paths.hpp`
 
 全局配置:
