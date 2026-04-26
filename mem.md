@@ -581,6 +581,21 @@ dwfl_version.c:38:10: error: 'PACKAGE_VERSION' undeclared
 - 在 `companion_ui.html` 实现 `loadSerialTermPorts`、`connectSerialTerm`、`autoConnectSerialTerm`、`sendSerialTerm`、`sendSerialTestCommand` 等函数。
 - `demo_face.cpp` 的 A1_TEST 回传补 `"command":"xxx"`。
 
+### A1 预览伪彩色、宽度压缩和延迟积累
+
+原因:
+
+- Qt 枚举到的 A1 格式是 `360x1280 Format_UYVY @ 90fps`，实际是 720 宽 Y8 灰度字节被驱动按 UYVY 暴露。
+- 如果直接 `frame.toImage()` 再编码，Qt 会把灰度原始字节按 UYVY 彩色视频解释，前端表现为绿色/紫色伪彩色，并且宽度只有一半。
+- A1 每帧同时编码彩色和灰度 JPEG 会增加 90fps 下的 CPU 压力，浏览器 MJPEG 也容易因缓存/缓冲出现延迟累积。
+
+解决:
+
+- 在 `tools/aurora/qt_camera_bridge.py` 的 `_a1_raw_y8_image` 中直接 map `QVideoFrame` 平面，把每行 `bytesPerLine` 中的 720 个灰度字节构造成 `Format_Grayscale8`，再编码。
+- A1 模式下 `color_jpeg` 和 `gray_jpeg` 复用同一张灰度 JPEG，质量降到 `A1_JPEG_QUALITY`，优先选择 90fps 格式。
+- `/frame.jpg` 和 Flask 的 MJPEG 路由都加 `Cache-Control: no-store`、`Pragma: no-cache`、`X-Accel-Buffering: no`。
+- 验证时桥接状态应从 `360x1280` 变为 `720x1280`，实际测试约 `87.9fps`，JPEG 解码后三通道差值为 0。
+
 ### 完整 EVB 构建耗时太长或卡住
 
 建议:
@@ -610,6 +625,7 @@ feat/aurora-ui-enhancement...origin/feat/aurora-ui-enhancement [ahead 50, behind
 - 没有 `UU` 文件不代表可以直接 push；ahead/behind 是历史分歧。
 - 大量 SDK 替换和未跟踪文件存在时，不要直接 rebase/merge，先新建分支并提交当前状态。
 - 远端 URL 中不要保存明文 token。
+- 如果要以本地为准解决远端历史分歧，可在确认本地已提交后执行 `git merge -s ours --allow-unrelated-histories origin/main`，保留本地文件树并生成 merge commit。
 
 ## 当前可用验证命令
 
