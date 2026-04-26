@@ -44,7 +44,7 @@ _rx_seq = 0
 _rx_cond = threading.Condition()
 _rx_last_data_ts = 0.0
 
-_PARTIAL_IDLE_FLUSH_SEC = 0.8
+_PARTIAL_IDLE_FLUSH_SEC = 3.0  # 增加到3秒，避免频繁刷新部分行
 _PARTIAL_BUFFER_LIMIT = 8192
 
 
@@ -120,14 +120,32 @@ def _pop_complete_lines() -> List[bytes]:
     start = 0
     idx = 0
     size = len(_rx_buffer)
+    
+    # 先检查是否有完整的换行符 (\n 或 \r\n)
     while idx < size:
         byte = _rx_buffer[idx]
-        if byte in (10, 13):  # \n or \r
-            lines.append(bytes(_rx_buffer[start:idx]))
-            if byte == 13 and idx + 1 < size and _rx_buffer[idx + 1] == 10:
-                idx += 1
+        if byte == 10:  # \n
+            # 只添加非空行
+            if idx > start:
+                lines.append(bytes(_rx_buffer[start:idx]))
             start = idx + 1
-        idx += 1
+            idx += 1
+        elif byte == 13:  # \r
+            # 检查是否是 \r\n
+            if idx + 1 < size and _rx_buffer[idx + 1] == 10:
+                if idx > start:
+                    lines.append(bytes(_rx_buffer[start:idx]))
+                start = idx + 2
+                idx += 2
+            else:
+                # 单独的 \r，也当作换行处理
+                if idx > start:
+                    lines.append(bytes(_rx_buffer[start:idx]))
+                start = idx + 1
+                idx += 1
+        else:
+            idx += 1
+    
     if start > 0:
         _rx_buffer = _rx_buffer[start:]
     return lines
@@ -139,16 +157,18 @@ def _flush_partial_buffer(force: bool = False) -> None:
         return
     if not force and len(_rx_buffer) < _PARTIAL_BUFFER_LIMIT:
         return
-    safe_raw, tail = _split_decodable_prefix(bytes(_rx_buffer))
-    if safe_raw:
-        text = _normalize_text(safe_raw).strip()
-        _append_rx_entry(safe_raw, text, partial=True)
-        _rx_buffer = bytearray(tail)
-        return
-    raw = bytes(_rx_buffer)
-    text = _normalize_text(raw).strip()
-    _append_rx_entry(raw, text, partial=True)
-    _rx_buffer.clear()
+    # 对于 force=True，我们会在较长空闲后才输出部分行，确保用户体验
+    # 并且只输出看起来是完整消息的内容（避免太短的片段）
+    if force and len(_rx_buffer) >= 5:  # 避免太短的片段，至少5个字节
+        safe_raw, tail = _split_decodable_prefix(bytes(_rx_buffer))
+        if safe_raw:
+            text = _normalize_text(safe_raw).strip()
+            if text:  # 只输出非空内容
+                _append_rx_entry(safe_raw, text, partial=True)
+            _rx_buffer = bytearray(tail)
+            return
+    # 默认情况下，不轻易输出部分行，等待完整行到来
+    pass
 
 
 def _append_rx_entry(raw: bytes, text: str, partial: bool = False) -> None:
@@ -186,17 +206,20 @@ def _rx_worker() -> None:
             continue
         try:
             waiting = getattr(ser, "in_waiting", 0)
-            chunk = ser.read(max(1, min(waiting or 1, 256)))
+            # 增加单次读取大小，尽可能读取更完整的数据
+            chunk = ser.read(max(1, min(waiting or 1, 1024)))
             if not chunk:
                 if _rx_buffer and (time.monotonic() - _rx_last_data_ts) >= _PARTIAL_IDLE_FLUSH_SEC:
                     _flush_partial_buffer(force=True)
                 continue
             _rx_buffer.extend(chunk)
             _rx_last_data_ts = time.monotonic()
+            # 优先处理完整的行，避免输出片段
             for line in _pop_complete_lines():
                 text = _normalize_text(line).strip()
-                _append_rx_entry(bytes(line), text, partial=False)
-            _flush_partial_buffer(force=False)
+                if text:  # 只输出非空内容
+                    _append_rx_entry(bytes(line), text, partial=False)
+            # 不再在每次读取后都尝试刷新部分行，减少片段输出
         except Exception:
             time.sleep(0.05)
 

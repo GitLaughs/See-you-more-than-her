@@ -1,6 +1,12 @@
 a1-sdk-builder-latest.tar
 data/yolov8_dataset/raw/
 output/
+data/A1_SDK_SC132GS/smartsens_sdk/output/
+data/A1_SDK_SC132GS/smartsens_sdk/cache/
+data/A1_SDK_SC132GS/smartsens_sdk/dl/
+data/A1_SDK_SC132GS/smartsens_sdk/.config
+data/A1_SDK_SC132GS/smartsens_sdk/.config.old
+data/A1_SDK_SC132GS/smartsens_sdk/..config.tmp
 src/ros2_ws/build/
 src/ros2_ws/install/
 src/ros2_ws/log/

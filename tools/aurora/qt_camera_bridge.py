@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 try:
     from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QObject, Qt, QTimer, Signal, Slot
     from PySide6.QtGui import QGuiApplication, QImage
-    from PySide6.QtMultimedia import QCamera, QCameraDevice, QCameraFormat, QMediaCaptureSession, QMediaDevices, QVideoSink
+    from PySide6.QtMultimedia import QCamera, QCameraDevice, QCameraFormat, QMediaCaptureSession, QMediaDevices, QVideoFrame, QVideoSink
 
     QT_AVAILABLE = True
     QT_IMPORT_ERROR = ""
@@ -28,13 +28,16 @@ except Exception as exc:  # pragma: no cover - 无依赖环境下也需要正常
     QT_IMPORT_ERROR = str(exc)
     QByteArray = QBuffer = QIODevice = QObject = Qt = QTimer = Signal = Slot = None  # type: ignore[assignment]
     QGuiApplication = QImage = None  # type: ignore[assignment]
-    QCamera = QCameraDevice = QCameraFormat = QMediaCaptureSession = QMediaDevices = QVideoSink = None  # type: ignore[assignment]
+    QCamera = QCameraDevice = QCameraFormat = QMediaCaptureSession = QMediaDevices = QVideoFrame = QVideoSink = None  # type: ignore[assignment]
 
 
 CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 720
 CAMERA_FPS = 30.0
-DEFAULT_JPEG_QUALITY = 97
+A1_CAMERA_FPS = 90.0
+DEFAULT_JPEG_QUALITY = 92
+A1_JPEG_QUALITY = 84
+BRIDGE_PROTOCOL_VERSION = 2
 
 SOURCE_WINDOWS = "windows"
 SOURCE_A1 = "a1"
@@ -44,7 +47,12 @@ _GRAY_HINTS = ("y8", "y16", "grayscale", "gray", "mono", "l8", "l16")
 _RAW_HINTS = ("raw", "raw8", "raw10", "raw12", "raw16")
 _RGB_HINTS = ("rgb", "bgr", "argb", "xrgb")
 _YUV_HINTS = ("nv12", "yuv", "uyvy", "yuyv", "p010", "p016")
-_A1_NAME_HINTS = ("smartsens-flyingchip-a1", "flyingchip", "smartsens")
+_A1_NAME_HINTS = (
+    "smartsens-flyingchip-a1",
+    "flyingchip",
+    "smartsens",
+    "sc132",
+)
 
 
 def _enum_name(value: Any) -> str:
@@ -73,7 +81,12 @@ def _looks_like_a1(description: str, pixel_formats: List[str]) -> bool:
     if any(token in desc for token in _A1_NAME_HINTS):
         return True
     blob = " ".join((pixel_formats or [])).lower()
-    return any(token in blob for token in _RAW_HINTS + _GRAY_HINTS)
+    if any(token in blob for token in _RAW_HINTS + _GRAY_HINTS):
+        return True
+    # 某些 A1 驱动只暴露 YUV 格式，但设备名仍包含 SmartSens 线索。
+    if "smart" in desc and any(token in blob for token in _YUV_HINTS):
+        return True
+    return False
 
 
 def _guess_source(description: str, pixel_formats: List[str]) -> str:
@@ -126,12 +139,13 @@ def _resolution_score(width: int, height: int) -> int:
     return score
 
 
-def _fps_score(min_fps: float, max_fps: float) -> int:
-    if min_fps <= CAMERA_FPS <= max_fps and max_fps > 0:
+def _fps_score(min_fps: float, max_fps: float, requested_source: str = SOURCE_WINDOWS) -> int:
+    target_fps = A1_CAMERA_FPS if requested_source == SOURCE_A1 else CAMERA_FPS
+    if min_fps <= target_fps <= max_fps and max_fps > 0:
         return 8
     if max_fps <= 0:
         return 0
-    return max(0, 5 - int(abs(max_fps - CAMERA_FPS)))
+    return max(0, 5 - int(abs(max_fps - target_fps)))
 
 
 if QT_AVAILABLE:
@@ -235,6 +249,90 @@ class CameraBridgeState:
         buffer.close()
         return bytes(qbytes)
 
+    def _frame_plane_bytes(self, frame: Any, mapped_bytes: int) -> Optional[memoryview]:
+        try:
+            bits = frame.bits(0)
+        except Exception:
+            return None
+        if bits is None:
+            return None
+        if hasattr(bits, "setsize"):
+            try:
+                bits.setsize(mapped_bytes)
+            except Exception:
+                pass
+        if hasattr(bits, "asstring"):
+            try:
+                return memoryview(bits.asstring(mapped_bytes))
+            except Exception:
+                return None
+        try:
+            view = memoryview(bits)
+            if mapped_bytes > 0 and len(view) > mapped_bytes:
+                return view[:mapped_bytes]
+            return view
+        except Exception:
+            return None
+
+    def _a1_raw_y8_image(self, frame: Any) -> Optional[Any]:
+        if self.active_source != SOURCE_A1 or not QT_AVAILABLE:
+            return None
+        pixel = (self.pixel_format or "").lower()
+        if not any(token in pixel for token in _RAW_HINTS + _GRAY_HINTS + _YUV_HINTS):
+            return None
+
+        try:
+            map_mode = QVideoFrame.MapMode.ReadOnly
+            if not frame.map(map_mode):
+                return None
+        except Exception:
+            return None
+
+        try:
+            src_w = _safe_int(frame.width())
+            src_h = _safe_int(frame.height())
+            if src_w <= 0 or src_h <= 0:
+                return None
+            try:
+                bpl = _safe_int(frame.bytesPerLine(0))
+            except Exception:
+                bpl = 0
+            try:
+                mapped_bytes = _safe_int(frame.mappedBytes(0))
+            except Exception:
+                mapped_bytes = 0
+            if bpl <= 0 and mapped_bytes > 0:
+                bpl = mapped_bytes // max(1, src_h)
+            if bpl <= 0:
+                return None
+            view = self._frame_plane_bytes(frame, mapped_bytes or bpl * src_h)
+            if view is None or len(view) < bpl:
+                return None
+
+            if any(token in pixel for token in ("uyvy", "yuyv", "yuv")) and bpl >= src_w * 2:
+                out_w = src_w * 2
+            else:
+                out_w = src_w
+            if src_w <= 720 <= bpl and any(token in pixel for token in ("uyvy", "yuyv", "yuv")):
+                out_w = 720
+            out_w = max(1, min(out_w, bpl))
+
+            raw = bytearray(out_w * src_h)
+            for y in range(src_h):
+                src_start = y * bpl
+                src_end = src_start + out_w
+                dst_start = y * out_w
+                if src_end > len(view):
+                    return None
+                raw[dst_start:dst_start + out_w] = view[src_start:src_end]
+            image = QImage(bytes(raw), out_w, src_h, out_w, self._qimage_format("Format_Grayscale8"))
+            return image.copy()
+        finally:
+            try:
+                frame.unmap()
+            except Exception:
+                pass
+
     def _device_formats(self, device: Any) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]], Optional[Any]]:
         formats_meta: List[Dict[str, Any]] = []
         best_meta = None
@@ -255,8 +353,8 @@ class CameraBridgeState:
                 "pixel_format": pixel_name,
                 "min_fps": round(min_fps, 2),
                 "max_fps": round(max_fps, 2),
-                "score_windows": _pixel_format_score(pixel_name, SOURCE_WINDOWS, device_source) + _resolution_score(width, height) + _fps_score(min_fps, max_fps),
-                "score_a1": _pixel_format_score(pixel_name, SOURCE_A1, device_source) + _resolution_score(width, height) + _fps_score(min_fps, max_fps),
+                "score_windows": _pixel_format_score(pixel_name, SOURCE_WINDOWS, device_source) + _resolution_score(width, height) + _fps_score(min_fps, max_fps, SOURCE_WINDOWS),
+                "score_a1": _pixel_format_score(pixel_name, SOURCE_A1, device_source) + _resolution_score(width, height) + _fps_score(min_fps, max_fps, SOURCE_A1),
             }
             formats_meta.append(meta)
 
@@ -351,6 +449,10 @@ class CameraBridgeState:
                 self.camera.stop()
             except Exception:
                 pass
+            try:
+                self.camera.deleteLater()
+            except Exception:
+                pass
         if self.capture_session is not None:
             try:
                 self.capture_session.setCamera(None)
@@ -358,6 +460,17 @@ class CameraBridgeState:
                 pass
         self.camera = None
         self.connected = False
+
+    def stop_camera(self) -> Dict[str, Any]:
+        if QT_AVAILABLE:
+            return self.controller.call(self._stop_camera_internal)
+        return {"success": True, "message": "Qt 不可用"}
+
+    def _stop_camera_internal(self) -> Dict[str, Any]:
+        print("[DEBUG] Stop camera requested")
+        self._stop_camera()
+        self.status_message = "Qt 相机桥已停止"
+        return {"success": True, "message": "相机已释放"}
 
     def _open_camera(self, device_id: int, requested_source: str) -> Dict[str, Any]:
         if not QT_AVAILABLE:
@@ -369,15 +482,65 @@ class CameraBridgeState:
 
         device = self._camera_device_objects[device_id]
         selected_format, meta, actual_source = self._select_format_for_source(device, requested_source)
-        self._stop_camera()
-        self.camera = QCamera(device)
+        
+        print(f"[DEBUG] Opening camera: device_id={device_id}, device={device.description()}")
         if selected_format is not None:
+            res = selected_format.resolution()
+            print(f"[DEBUG] Selected format: {_enum_name(selected_format.pixelFormat())} @ {res.width()}x{res.height()}")
+        if meta:
+            print(f"[DEBUG] Format metadata: {meta}")
+        
+        # 确保完全停止并释放之前的相机
+        self._stop_camera()
+        # 给足够的时间让 Qt 清理资源
+        QThread = None
+        try:
+            from PySide6.QtCore import QThread
+            QThread.msleep(200)
+        except Exception:
+            pass
+        
+        # 尝试打开相机，增加重试机制
+        max_retries = 3
+        last_error = None
+        for retry in range(max_retries):
             try:
-                self.camera.setCameraFormat(selected_format)
-            except Exception:
-                pass
-        self.capture_session.setCamera(self.camera)
-        self.camera.start()
+                print(f"[DEBUG] Attempting to start camera (retry {retry + 1}/{max_retries})")
+                self.camera = QCamera(device)
+                if selected_format is not None:
+                    try:
+                        self.camera.setCameraFormat(selected_format)
+                        print(f"[DEBUG] Camera format set successfully")
+                    except Exception as e:
+                        print(f"[DEBUG] Could not set camera format: {e}")
+                
+                # 确保video sink被正确设置
+                if self.video_sink is None:
+                    self.video_sink = QVideoSink()
+                    self.video_sink.videoFrameChanged.connect(self._on_frame)
+                self.capture_session.setCamera(self.camera)
+                self.capture_session.setVideoSink(self.video_sink)  # 确保每次都重新设置sink
+                print(f"[DEBUG] Video sink set to capture session")
+                
+                self.camera.start()
+                print(f"[DEBUG] Camera started successfully")
+                break
+            except Exception as e:
+                last_error = e
+                print(f"[ERROR] Failed to open camera: {e}")
+                if retry < max_retries - 1:
+                    print(f"[WARN] Opening camera failed (retry {retry + 1}/{max_retries}): {e}")
+                    try:
+                        self._stop_camera()
+                        if QThread:
+                            QThread.msleep(300)
+                    except Exception:
+                        pass
+                else:
+                    raise
+                    
+        if last_error is not None and self.camera is None:
+            raise RuntimeError(f"无法打开相机: {last_error}")
 
         self.device_id = device_id
         self.requested_source = requested_source
@@ -387,6 +550,7 @@ class CameraBridgeState:
         self.raw8_hint = any(token in self.pixel_format.lower() for token in _RAW_HINTS + _GRAY_HINTS)
         self.frame_width = int(meta.get("width", 0)) if meta else 0
         self.frame_height = int(meta.get("height", 0)) if meta else 0
+        self._jpeg_quality = A1_JPEG_QUALITY if actual_source == SOURCE_A1 else DEFAULT_JPEG_QUALITY
         self.frame_count = 0
         self.last_frame_ts = 0.0
         self.fps = 0.0
@@ -398,6 +562,7 @@ class CameraBridgeState:
         self.status_message = (
             f"Qt 相机桥已连接: {self.device_name} / {self.frame_width}x{self.frame_height} / {self.pixel_format}"
         )
+        print(f"[DEBUG] Camera bridge status: connected={self.connected}, active_source={self.active_source}")
         return self.status()
 
     def switch_camera(self, device_id: int, requested_source: str) -> Dict[str, Any]:
@@ -406,19 +571,35 @@ class CameraBridgeState:
         raise RuntimeError(f"PySide6 不可用: {self.error}")
 
     def _on_frame(self, frame):
+        now = time.time()
+        
+        # 调试信息：记录接收到的帧
+        if self.frame_count == 0:
+            print(f"[DEBUG] Qt camera bridge: first frame received at {now}")
+            print(f"[DEBUG] Frame details: width={frame.width()}, height={frame.height()}, pixelFormat={_enum_name(frame.pixelFormat())}")
+        
+        raw_y8 = self._a1_raw_y8_image(frame)
         try:
-            image = frame.toImage()
-        except Exception:
+            image = raw_y8 if raw_y8 is not None else frame.toImage()
+        except Exception as e:
+            if self.frame_count < 5:  # 只在前几帧打印错误
+                print(f"[DEBUG] Qt frame conversion failed: {e}")
             image = None
         if image is None or image.isNull():
+            if self.frame_count < 5:  # 只在前几帧打印警告
+                print(f"[DEBUG] Qt frame is null")
             return
-        now = time.time()
+        
         latest = image.copy()
         color_jpeg = None
         gray_jpeg = None
         try:
-            color_jpeg = self._jpeg_bytes(latest, grayscale=False)
-            gray_jpeg = self._jpeg_bytes(latest, grayscale=True)
+            if raw_y8 is not None:
+                gray_jpeg = self._jpeg_bytes(latest, grayscale=True)
+                color_jpeg = gray_jpeg
+            else:
+                color_jpeg = self._jpeg_bytes(latest, grayscale=False)
+                gray_jpeg = self._jpeg_bytes(latest, grayscale=True)
         except Exception as exc:
             if now - self.last_encode_error_ts >= 5.0:
                 self.last_encode_error_ts = now
@@ -427,6 +608,8 @@ class CameraBridgeState:
             self.latest_image = latest
             self.latest_color_jpeg = color_jpeg
             self.latest_gray_jpeg = gray_jpeg
+            self.frame_width = _safe_int(latest.width(), self.frame_width)
+            self.frame_height = _safe_int(latest.height(), self.frame_height)
             self.frame_count += 1
             self.last_frame_ts = now
             if self.frame_count > 1 and self.started_at < now:
@@ -453,6 +636,7 @@ class CameraBridgeState:
     def status(self) -> Dict[str, Any]:
         with self.lock:
             return {
+                "bridge_version": BRIDGE_PROTOCOL_VERSION,
                 "available": self.available,
                 "error": self.error,
                 "connected": self.connected,
@@ -502,6 +686,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -549,6 +736,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
             try:
                 status = BRIDGE.switch_camera(device_id, source)
                 self._write_json({"success": True, "status": status})
+            except Exception as exc:
+                self._write_json({"success": False, "error": str(exc), "status": BRIDGE.status()}, status=500)
+            return
+        if parsed.path == "/stop":
+            try:
+                result = BRIDGE.stop_camera()
+                self._write_json(result)
             except Exception as exc:
                 self._write_json({"success": False, "error": str(exc), "status": BRIDGE.status()}, status=500)
             return

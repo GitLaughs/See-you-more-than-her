@@ -3,8 +3,9 @@
  *
  * 分辨率设计说明:
  *   - 传感器采集: 当前板端返回 720 × 1280 (Y8 灰度, Aurora 显示层会旋转)
- *   - 推理输入:   640 × 480 (RunAiPreprocessPipe 直接缩放, 无裁剪)
- *   旧的 crop_shape / crop_offset_y 已废弃.
+ *   - 在线裁剪:   720 × 540 (y=370..910)
+ *   - 推理输入:   640 × 480 (RunAiPreprocessPipe 将裁剪图缩放到模型输入)
+ *   历史 face_640x480.m1model 对这个裁剪区域更稳定，OSD 绘制时需要把 y 坐标加回 370。
  *
  * 模型说明:
  *   - 当前板端默认回退到历史 SCRFD 灰度人脸模型
@@ -25,6 +26,14 @@ namespace cfg {
 // Aurora.exe 会在显示层做旋转，因此桌面看到的是转正后的画面。
 constexpr int SENSOR_WIDTH  = 720;
 constexpr int SENSOR_HEIGHT = 1280;
+
+// ─── 在线裁剪区域 ────────────────────────────────────────────────────────────
+constexpr int PIPE_CROP_X1 = 0; // 裁剪区域左上角X坐标
+constexpr int PIPE_CROP_X2 = 720; // 裁剪区域右下角X坐标
+constexpr int PIPE_CROP_Y1 = 370; // 裁剪区域左上角Y坐标
+constexpr int PIPE_CROP_Y2 = 910; // 裁剪区域右下角Y坐标
+constexpr int PIPE_CROP_WIDTH  = PIPE_CROP_X2 - PIPE_CROP_X1; // 裁剪区域宽度
+constexpr int PIPE_CROP_HEIGHT = PIPE_CROP_Y2 - PIPE_CROP_Y1; // 裁剪区域高度
 
 // ─── 推理后端选择 ────────────────────────────────────────────────────────────
 // 当前默认回退到历史 face_640x480.m1model，并走 SCRFDGRAY 推理链路。
