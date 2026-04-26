@@ -1,0 +1,1 @@
+source "$BR2_EXTERNAL_SSNE_VISION_PKG_PATH/package/ssne_ai_demo/Config.in"
