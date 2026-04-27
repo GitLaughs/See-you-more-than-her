@@ -25,11 +25,14 @@ cd tools/aurora
 .\launch.ps1
 ```
 
-启动后访问 http://localhost:5001
+启动后访问 http://127.0.0.1:5801
 
 ### 启动参数
 
 ```powershell
+# 默认：先启动 Aurora.exe 做相机初始化，再启动 Companion
+.\launch.ps1
+
 # 跳过启动 Aurora.exe，仅启动 Companion
 .\launch.ps1 -SkipAurora
 
@@ -38,6 +41,15 @@ cd tools/aurora
 
 # 强制使用普通 Windows 摄像头
 .\launch.ps1 -Source windows
+
+# 指定 Companion 监听端口
+.\launch.ps1 -Port 5802
+
+# 指定绑定地址
+.\launch.ps1 -ListenHost 0.0.0.0
+
+# 指定摄像头设备号
+.\launch.ps1 -Device 0
 ```
 
 ## Aurora Companion 功能
