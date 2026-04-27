@@ -13,6 +13,7 @@ import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
@@ -657,6 +658,28 @@ class CameraBridgeState:
 
 
 BRIDGE = CameraBridgeState()
+SERVER = None
+QT_APP = None
+
+
+def _shutdown_bridge_process() -> Dict[str, Any]:
+    try:
+        BRIDGE.stop_camera()
+    except Exception:
+        pass
+    try:
+        if SERVER is not None:
+            threading.Thread(target=SERVER.shutdown, daemon=True).start()
+    except Exception:
+        pass
+    try:
+        if QT_APP is not None:
+            QT_APP.quit()
+        else:
+            threading.Thread(target=lambda: sys.exit(0), daemon=True).start()
+    except Exception:
+        pass
+    return {"success": True, "message": "Qt bridge shutting down"}
 
 
 class BridgeHandler(BaseHTTPRequestHandler):
@@ -746,29 +769,38 @@ class BridgeHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._write_json({"success": False, "error": str(exc), "status": BRIDGE.status()}, status=500)
             return
+        if parsed.path == "/shutdown":
+            try:
+                result = _shutdown_bridge_process()
+                self._write_json(result)
+            except Exception as exc:
+                self._write_json({"success": False, "error": str(exc), "status": BRIDGE.status()}, status=500)
+            return
         self._write_json({"success": False, "error": "unknown endpoint"}, status=404)
 
 
 def main():
+    global SERVER, QT_APP
+
     parser = argparse.ArgumentParser(description="Qt 相机桥")
     parser.add_argument("--host", default="127.0.0.1", help="HTTP 监听地址")
     parser.add_argument("--port", type=int, default=5911, help="HTTP 监听端口")
     args = parser.parse_args()
 
     if QT_AVAILABLE:
-        app = QGuiApplication.instance() or QGuiApplication([])
-        server = ThreadingHTTPServer((args.host, args.port), BridgeHandler)
-        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        QT_APP = QGuiApplication.instance() or QGuiApplication([])
+        SERVER = ThreadingHTTPServer((args.host, args.port), BridgeHandler)
+        server_thread = threading.Thread(target=SERVER.serve_forever, daemon=True)
         server_thread.start()
         print(f"[INFO] Qt Camera Bridge 已启动: http://{args.host}:{args.port}")
         print("[INFO] 等待 Flask Companion 连接并下发设备选择...")
-        app.exec()
-        server.shutdown()
-        server.server_close()
+        QT_APP.exec()
+        SERVER.shutdown()
+        SERVER.server_close()
     else:
-        server = ThreadingHTTPServer((args.host, args.port), BridgeHandler)
+        SERVER = ThreadingHTTPServer((args.host, args.port), BridgeHandler)
         print(f"[WARN] Qt Camera Bridge 启动，但 PySide6 不可用: {QT_IMPORT_ERROR}")
-        server.serve_forever()
+        SERVER.serve_forever()
 
 
 if __name__ == "__main__":

@@ -23,12 +23,6 @@
 
 namespace {
 
-struct OsdInfo {
-    std::string filename;
-    uint16_t x;
-    uint16_t y;
-};
-
 struct RuntimeState {
     bool exit_requested = false;
     bool link_test_enabled = cfg::LINK_TEST_ENABLED;
@@ -254,12 +248,6 @@ int main() {
     std::array<int, 2> crop_shape = {cfg::PIPE_CROP_WIDTH, cfg::PIPE_CROP_HEIGHT};
     std::string model_path = cfg::MODEL_PATH;
 
-    static OsdInfo osds[3] = {
-        {"si.ssbmp", 10, 10},
-        {"te.ssbmp", 90, 10},
-        {"wei.ssbmp", 170, 10},
-    };
-
     if (ssne_initial()) {
         std::fprintf(stderr, "[A1] SSNE initialization failed\n");
         return 1;
@@ -278,8 +266,7 @@ int main() {
     }
 
     VISUALIZER visualizer;
-    visualizer.Initialize(img_shape, "shared_colorLUT.sscl");
-    visualizer.DrawBitmap(osds[0].filename, "shared_colorLUT.sscl", osds[0].x, osds[0].y, 2);
+    visualizer.Initialize(img_shape);
 
     ChassisController chassis;
     const bool chassis_ready = chassis.Init();
@@ -292,7 +279,6 @@ int main() {
     ssne_tensor_t img_sensor;
     std::thread listener_thread(stdin_listener);
 
-    uint8_t osd_index = 0;
     uint64_t last_velocity_us = 0;
     int16_t last_vx = 0;
     int16_t last_vy = 0;
@@ -330,10 +316,6 @@ int main() {
             last_vy = vy;
             last_vz = vz;
         }
-
-        osd_index = static_cast<uint8_t>((state.frame_count / 10) % 3);
-        visualizer.DrawBitmap(osds[osd_index].filename, "shared_colorLUT.sscl",
-                              osds[osd_index].x, osds[osd_index].y, 2);
     }
 
     if (chassis_ready) {

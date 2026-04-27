@@ -32,6 +32,9 @@ tools/aurora/.a1_camera_source
 tools/aurora/.a1_detect_model
 third_party/ultralytics
 models
+.worktrees/
+.playwright-mcp
+.claude
 # Aurora 拍照工具保留在版本控制中: tools/aurora/
 
 # Local editor / IDE

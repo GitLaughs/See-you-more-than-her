@@ -2,7 +2,8 @@ param(
     [int]$Device = -1,
     [int]$Port = 5801,
     [string]$Source = "auto",
-    [string]$ListenHost = "127.0.0.1"
+    [string]$ListenHost = "127.0.0.1",
+    [switch]$SkipAurora
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,12 +16,14 @@ function Initialize-Utf8Console {
     $global:OutputEncoding = $utf8NoBom
     $env:PYTHONUTF8 = "1"
     $env:PYTHONIOENCODING = "utf-8"
+    $loopbackBypass = "127.0.0.1,localhost,::1"
+    $env:NO_PROXY = $loopbackBypass
+    $env:no_proxy = $loopbackBypass
 }
 
 function Get-PythonExecutable {
     $candidates = @(
         (Join-Path $ScriptDir "..\..\venv_39\Scripts\python.exe"),
-        (Join-Path $ScriptDir "..\..\.venv39\Scripts\python.exe"),
         "python"
     ) | Where-Object { Test-Path $_ }
     foreach ($candidate in $candidates) {
@@ -30,6 +33,44 @@ function Get-PythonExecutable {
         } catch {}
     }
     return "python"
+}
+
+function Start-AuroraBootstrap {
+    param([switch]$Disabled)
+
+    if ($Disabled) {
+        Write-Host "[Aurora] SkipAurora set. Not launching Aurora.exe"
+        return
+    }
+
+    $repoRoot = Split-Path (Split-Path $ScriptDir -Parent) -Parent
+    $auroraExe = Join-Path $repoRoot "Aurora-2.0.0-ciciec.16\Aurora.exe"
+    if (-not (Test-Path $auroraExe)) {
+        Write-Host "[Aurora] Aurora.exe not found. Continue without bootstrap: $auroraExe"
+        return
+    }
+
+    $resolvedAuroraExe = [System.IO.Path]::GetFullPath($auroraExe)
+    $auroraDir = Split-Path $resolvedAuroraExe -Parent
+    $existingProcess = $null
+    try {
+        $auroraProcesses = Get-Process -Name "Aurora" -ErrorAction SilentlyContinue
+        foreach ($proc in $auroraProcesses) {
+            if ($proc.Path -and ([System.StringComparer]::OrdinalIgnoreCase.Equals($proc.Path, $resolvedAuroraExe))) {
+                $existingProcess = $proc
+                break
+            }
+        }
+    } catch {}
+
+    if ($existingProcess) {
+        Write-Host "[Aurora] Aurora.exe already running (PID $($existingProcess.Id))"
+        return
+    }
+
+    Write-Host "[Aurora] Launching Aurora.exe for camera initialization..."
+    Start-Process -FilePath $resolvedAuroraExe -WorkingDirectory $auroraDir | Out-Null
+    Start-Sleep -Seconds 3
 }
 
 function Start-BrowserWhenReady {
@@ -178,6 +219,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
 $Python = Get-PythonExecutable
+Start-AuroraBootstrap -Disabled:$SkipAurora
 Stop-StaleCompanionOnPort -BindPort $Port
 Stop-StaleQtBridge
 Wait-PortReleased -BindHost $ListenHost -BindPort $Port -TimeoutSeconds 5 | Out-Null

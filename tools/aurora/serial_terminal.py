@@ -91,6 +91,14 @@ def _normalize_text(raw: bytes) -> str:
     return raw.decode("utf-8", errors="replace").replace("\r", "")
 
 
+def decode_rx_line(raw: bytes) -> str:
+    return _normalize_text(raw).rstrip("\n")
+
+
+def decode_partial_rx_line(raw: bytes) -> str:
+    return _normalize_text(raw)
+
+
 def _split_decodable_prefix(raw: bytes) -> Tuple[bytes, bytes]:
     if not raw:
         return b"", b""
@@ -162,8 +170,8 @@ def _flush_partial_buffer(force: bool = False) -> None:
     if force and len(_rx_buffer) >= 5:  # 避免太短的片段，至少5个字节
         safe_raw, tail = _split_decodable_prefix(bytes(_rx_buffer))
         if safe_raw:
-            text = _normalize_text(safe_raw).strip()
-            if text:  # 只输出非空内容
+            text = decode_partial_rx_line(safe_raw)
+            if text:
                 _append_rx_entry(safe_raw, text, partial=True)
             _rx_buffer = bytearray(tail)
             return
@@ -216,8 +224,8 @@ def _rx_worker() -> None:
             _rx_last_data_ts = time.monotonic()
             # 优先处理完整的行，避免输出片段
             for line in _pop_complete_lines():
-                text = _normalize_text(line).strip()
-                if text:  # 只输出非空内容
+                text = decode_rx_line(line)
+                if text:
                     _append_rx_entry(bytes(line), text, partial=False)
             # 不再在每次读取后都尝试刷新部分行，减少片段输出
         except Exception:
@@ -246,6 +254,83 @@ def _disconnect_serial() -> None:
         _ser = None
     _rx_buffer = bytearray()
     _rx_last_data_ts = 0.0
+
+
+def is_connected() -> bool:
+    with _ser_lock:
+        return _ser is not None and _ser.is_open
+
+
+def current_port() -> Optional[str]:
+    with _ser_lock:
+        if _ser is not None and _ser.is_open:
+            return str(_ser.port)
+    return _snapshot_state().get("port") or _DEFAULT_PORT
+
+
+def current_baud() -> int:
+    with _ser_lock:
+        if _ser is not None and _ser.is_open:
+            return int(_ser.baudrate)
+    return int(_snapshot_state().get("baud") or 115200)
+
+
+def current_timeout() -> float:
+    return float(_snapshot_state().get("timeout") or 0.05)
+
+
+def latest_lines(limit: int = 10) -> List[Dict[str, Any]]:
+    return list(_rx_log)[:max(0, limit)]
+
+
+def tx_log_entries() -> List[Dict[str, Any]]:
+    return list(_tx_log)
+
+
+def rx_log_entries() -> List[Dict[str, Any]]:
+    return list(_rx_log)
+
+
+def list_ports() -> list:
+    return _list_ports()
+
+
+def ensure_connected(baud: Optional[int] = None, timeout: Optional[float] = None) -> Dict[str, Any]:
+    if is_connected():
+        return {"success": True, "port": current_port(), "baud": current_baud()}
+    return _auto_connect(baud=baud or 115200, timeout=timeout)
+
+
+def send_text_line(line: str, wait_tokens: Optional[List[str]] = None, timeout_sec: float = 0.8) -> Dict[str, Any]:
+    ready = ensure_connected()
+    if not ready.get("success"):
+        return ready
+    payload = (line.rstrip() + "\r\n").encode("utf-8")
+    result = _send_payload(payload, line, hex_mode=False)
+    if not result.get("success") or not wait_tokens:
+        return {**result, "port": current_port(), "command_line": line}
+    waited = _wait_for_text(wait_tokens, timeout_sec=timeout_sec)
+    return {
+        **result,
+        "success": bool(result.get("success")) and bool(waited.get("success")),
+        "transport_success": bool(result.get("success")),
+        "response_received": bool(waited.get("success")),
+        "matched": waited.get("matched"),
+        "message": waited.get("matched", {}).get("text", "") if waited.get("success") else waited.get("error", ""),
+        "port": current_port(),
+        "command_line": line,
+    }
+
+
+def send_hex_payload(hex_text: str) -> Dict[str, Any]:
+    ready = ensure_connected()
+    if not ready.get("success"):
+        return ready
+    try:
+        payload = bytes.fromhex(str(hex_text or "").replace(" ", ""))
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+    return _send_payload(payload, str(hex_text or "").strip(), hex_mode=True)
 
 
 def _send_payload(payload: bytes, text: str, hex_mode: bool = False) -> Dict[str, Any]:
