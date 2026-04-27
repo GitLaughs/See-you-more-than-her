@@ -661,7 +661,7 @@ ros2 topic pub /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.5}}'
 | 文档 | 位置 | 用途 |
 |------|------|------|
 | **本指南** | `docs/X3包集成指南.md` | 包集成步骤 |
-| **架构文档** | `docs/双板架构设计.md` | 系统架构 |
+| **架构文档** | `docs/07_架构设计.md` | 系统架构 |
 | **ROS 工作区** | `src/ros2_ws/README.md` | ROS 包说明 |
 | **编译脚本** | `scripts/build_*.sh` | 编译流程 |
 
