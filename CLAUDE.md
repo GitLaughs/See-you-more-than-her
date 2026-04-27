@@ -178,6 +178,15 @@ Optional launch modes:
 
 The current default Aurora companion UI port is `http://127.0.0.1:5801`.
 
+### Aurora Python tests
+
+From the repo root:
+
+```bash
+python -m pytest tools/aurora/tests -q
+python -m pytest tools/aurora/tests/test_aurora_startup.py -q
+```
+
 ## Testing and verification
 
 There is no single documented root test suite.
@@ -187,6 +196,7 @@ Verification is mainly done through:
 - successful ROS2 package builds via `scripts/build_ros2_ws.sh`
 - board-side runtime checks with `/app_demo/scripts/run.sh`
 - Windows-side Aurora manual verification through `tools/aurora/launch.ps1`
+- Aurora Python tests under `tools/aurora/tests/`
 
 For ROS2-scoped changes, the narrowest documented verification is a package-targeted build:
 
@@ -200,7 +210,19 @@ For the Python Aurora tooling, a cheap syntax check is:
 python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_terminal.py tools/aurora/relay_comm.py
 ```
 
-The repo does contain some package-local pytest/ament-style linter tests, for example under `src/ros2_ws/src/wheeltec_robot_keyboard/test/`, but there is no project-level script here that standardizes running them across the whole repo.
+Run the Aurora pytest suite from the repo root:
+
+```bash
+python -m pytest tools/aurora/tests -q
+```
+
+Run a single Aurora test file:
+
+```bash
+python -m pytest tools/aurora/tests/test_aurora_startup.py -q
+```
+
+The repo also contains some package-local pytest/ament-style tests, for example under `src/ros2_ws/src/wheeltec_robot_keyboard/test/`, but there is no project-level script here that standardizes running them across the whole repo.
 
 ## Architecture notes
 
@@ -252,6 +274,7 @@ Do not remove `COLCON_IGNORE` files unless the task is specifically about enabli
 - `chassis_comm.py` for direct STM32 serial control flows
 - `ros_bridge.py` for ROS-backed control and status integration
 - `templates/companion_ui.html` for the single-page web UI
+- `tests/` for pytest coverage of startup, bridge lifecycle, serial terminal, ROS bridge routes, OSD config, and UI layout expectations
 
 In practice, Aurora features are split across Flask routes, camera/serial helpers, and the template JavaScript. UI changes often require coordinated edits in multiple files.
 
