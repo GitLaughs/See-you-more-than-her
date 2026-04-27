@@ -12,69 +12,43 @@ relay_bp = Blueprint("relay", __name__, url_prefix="/api/relay")
 
 
 def _connected() -> bool:
-    with st._ser_lock:
-        return st._ser is not None and st._ser.is_open
+    return st.is_connected()
 
 
 def _current_port() -> Optional[str]:
-    with st._ser_lock:
-        if st._ser is not None and st._ser.is_open:
-            return st._ser.port
-    return st._snapshot_state().get("port") or st._DEFAULT_PORT
+    return st.current_port()
 
 
 def _ensure_connected(baud: Optional[int] = None) -> Dict[str, Any]:
-    if _connected():
-        return {"success": True, "port": _current_port(), "baud": st._snapshot_state().get("baud", 115200)}
-    return st._auto_connect(baud=baud or 115200)
+    return st.ensure_connected(baud=baud or 115200)
 
 
 def _send_cli(line: str, wait_tokens: Optional[List[str]] = None, timeout_sec: float = 0.8) -> Dict[str, Any]:
-    ready = _ensure_connected()
-    if not ready.get("success"):
-        return ready
-    payload = (line.rstrip() + "\r\n").encode("utf-8")
-    result = st._send_payload(payload, line, hex_mode=False)
-    if not result.get("success") or not wait_tokens:
-        return {**result, "port": _current_port(), "command_line": line}
-    waited = st._wait_for_text(wait_tokens, timeout_sec=timeout_sec)
-    return {
-        **result,
-        "success": bool(result.get("success")) and bool(waited.get("success")),
-        "transport_success": bool(result.get("success")),
-        "response_received": bool(waited.get("success")),
-        "matched": waited.get("matched"),
-        "message": waited.get("matched", {}).get("text", "") if waited.get("success") else waited.get("error", ""),
-        "port": _current_port(),
-        "command_line": line,
-    }
+    return st.send_text_line(line, wait_tokens=wait_tokens, timeout_sec=timeout_sec)
 
 
 def _status_payload() -> Dict[str, Any]:
-    state = st._snapshot_state()
-    connected = _connected()
     return {
         "success": True,
-        "reachable": connected,
-        "connected": connected,
+        "reachable": _connected(),
+        "connected": _connected(),
         "port": _current_port(),
-        "baud": state.get("baud", 115200),
+        "baud": st.current_baud(),
         "telemetry": {},
         "model_name": "COM13 / A1_TEST",
         "transport": "COM13",
-        "latest_lines": list(st._rx_log)[:10],
+        "latest_lines": st.latest_lines(),
     }
 
 
 @relay_bp.route("/config", methods=["GET", "POST"])
 def relay_config():
-    state = st._snapshot_state()
     return jsonify({
         "success": True,
         "base_url": "COM13",
-        "timeout_sec": state.get("timeout", 0.05),
-        "port": state.get("port") or st._DEFAULT_PORT,
-        "baud": state.get("baud", 115200),
+        "timeout_sec": st.current_timeout(),
+        "port": _current_port(),
+        "baud": st.current_baud(),
         "transport": "COM13",
     })
 
@@ -86,7 +60,7 @@ def relay_status():
 
 @relay_bp.route("/ports")
 def relay_ports():
-    return jsonify({"success": True, "ports": st._list_ports(), "preferred": _current_port(), "transport": "COM13"})
+    return jsonify({"success": True, "ports": st.list_ports(), "preferred": _current_port(), "transport": "COM13"})
 
 
 @relay_bp.route("/connect", methods=["POST"])
@@ -130,14 +104,7 @@ def relay_raw_send():
         return jsonify({**result, "transport": "COM13"})
     if not hex_text:
         return jsonify({"success": False, "error": "发送内容不能为空", "transport": "COM13"})
-    ready = _ensure_connected()
-    if not ready.get("success"):
-        return jsonify(ready)
-    try:
-        payload = bytes.fromhex(hex_text.replace(" ", ""))
-    except Exception as exc:
-        return jsonify({"success": False, "error": str(exc), "transport": "COM13"})
-    result = st._send_payload(payload, hex_text, hex_mode=True)
+    result = st.send_hex_payload(hex_text)
     return jsonify({**result, "transport": "COM13"})
 
 
@@ -161,9 +128,9 @@ def relay_ping():
 
 @relay_bp.route("/tx_log")
 def relay_tx_log():
-    return jsonify(list(st._tx_log))
+    return jsonify(st.tx_log_entries())
 
 
 @relay_bp.route("/rx_log")
 def relay_rx_log():
-    return jsonify(list(st._rx_log))
+    return jsonify(st.rx_log_entries())

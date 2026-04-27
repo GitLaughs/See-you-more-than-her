@@ -504,8 +504,11 @@ def ros_move():
 
 @ros_bp.route("/stop_motion", methods=["POST"])
 def ros_stop_motion():
-    ok, message = _dispatch_stop("前端手动停车")
-    return jsonify({"success": ok, "message": message})
+    try:
+        ok, message = _dispatch_stop("前端手动停车")
+        return jsonify({"success": ok, "message": message})
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc), **_status_snapshot()})
 
 
 @ros_bp.route("/obstacle", methods=["POST"])

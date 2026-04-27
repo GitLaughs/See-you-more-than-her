@@ -121,6 +121,7 @@ _last_reconnect_time = 0.0
 MAX_DEVICE_SCAN = 5
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
 PREFERRED_SOURCE_FILE = Path(__file__).with_name(".a1_camera_source")
+AURORA_EXE_PATH = Path(__file__).resolve().parents[2] / "Aurora-2.0.0-ciciec.16" / "Aurora.exe"
 PREFERRED_A1_CAMERA_NAME = "Smartsens-FlyingChip-A1-1"
 PREFERRED_A1_CAMERA_HINTS = (
     "smartsens-flyingchip-a1",
@@ -133,6 +134,7 @@ QT_BRIDGE_PORT = 5911
 QT_BRIDGE_HOST = "127.0.0.1"
 QT_BRIDGE_URL = f"http://{QT_BRIDGE_HOST}:{QT_BRIDGE_PORT}"
 QT_BRIDGE_PROTOCOL_VERSION = 2
+QT_BRIDGE_OWNER_STATE_FILE = Path(__file__).with_name(".qt_bridge_owner.json")
 CAMERA_SOURCE_WINDOWS = "windows"
 CAMERA_SOURCE_A1 = "a1"
 CAMERA_SOURCE_AUTO = "auto"
@@ -170,6 +172,23 @@ _last_detect_snapshot: Dict[str, Any] = {
     "frame_width": CAMERA_WIDTH,
     "frame_height": CAMERA_HEIGHT,
 }
+
+def _mark_camera_connected() -> None:
+    global camera_connected, _fail_streak, _consecutive_failures
+    camera_connected = True
+    _fail_streak = 0
+    _consecutive_failures = 0
+
+
+def _mark_camera_disconnected() -> None:
+    global camera_connected
+    camera_connected = False
+
+
+def _reset_camera_failure_state() -> None:
+    global _fail_streak, _consecutive_failures
+    _fail_streak = 0
+    _consecutive_failures = 0
 
 
 # ─── 摄像头操作 ───────────────────────────────────────────────────────────────
@@ -401,6 +420,90 @@ def _qt_bridge_status(timeout: float = 1.0) -> Optional[dict]:
         return None
 
 
+def _qt_bridge_shutdown(timeout: float = 5.0) -> dict:
+    try:
+        return _qt_bridge_request("/shutdown", method="POST", timeout=timeout)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def load_qt_bridge_owner_state() -> Optional[dict]:
+    try:
+        if not QT_BRIDGE_OWNER_STATE_FILE.exists():
+            return None
+        payload = json.loads(QT_BRIDGE_OWNER_STATE_FILE.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def save_qt_bridge_owner_state(pid: int) -> None:
+    payload = {
+        "pid": int(pid),
+        "port": QT_BRIDGE_PORT,
+        "script": str(QT_BRIDGE_SCRIPT),
+    }
+    QT_BRIDGE_OWNER_STATE_FILE.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def clear_qt_bridge_owner_state() -> None:
+    with contextlib.suppress(FileNotFoundError):
+        QT_BRIDGE_OWNER_STATE_FILE.unlink()
+
+
+def cleanup_qt_bridge_owner_process() -> None:
+    state = load_qt_bridge_owner_state()
+    if not state:
+        return
+    pid = int(state.get("pid") or 0)
+    if pid <= 0:
+        clear_qt_bridge_owner_state()
+        return
+    if sys.platform == "win32":
+        script = rf"""
+$proc = Get-CimInstance Win32_Process -Filter "ProcessId={pid}" -ErrorAction SilentlyContinue
+if ($proc) {{
+    $cmd = [string]$proc.CommandLine
+    if ($cmd -match "qt_camera_bridge\.py") {{
+        Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 300
+    }}
+}}
+"""
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script],
+                capture_output=True,
+                timeout=6,
+                check=False,
+            )
+        except Exception:
+            pass
+    clear_qt_bridge_owner_state()
+
+
+def shutdown_qt_bridge(timeout: float = 5.0) -> dict:
+    global _qt_bridge_process
+
+    result = _qt_bridge_shutdown(timeout=timeout)
+    proc = _qt_bridge_process
+    if proc is not None and proc.poll() is None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=timeout)
+        except Exception:
+            with contextlib.suppress(Exception):
+                proc.kill()
+                proc.wait(timeout=1.0)
+    else:
+        cleanup_qt_bridge_owner_process()
+    _qt_bridge_process = None
+    clear_qt_bridge_owner_state()
+    if result.get("success"):
+        return result
+    return {"success": True, "message": "Qt bridge stopped"}
+
+
 def _qt_bridge_is_current(status: Optional[dict]) -> bool:
     if status is None or not status.get("available", False):
         return False
@@ -433,7 +536,6 @@ def _select_qt_bridge_python() -> str:
     candidates = [
         repo_root / "venv_39" / "Scripts" / "python.exe",
         Path(sys.executable),
-        repo_root / ".venv39" / "Scripts" / "python.exe",
     ]
     if sys.platform == "win32":
         candidates.append(Path("python"))
@@ -491,6 +593,43 @@ Start-Sleep -Milliseconds 400
         pass
 
 
+def _start_aurora_desktop() -> Dict[str, Any]:
+    if sys.platform != "win32":
+        return {"started": False, "running": False, "error": "Aurora.exe 启动仅支持 Windows"}
+    if not AURORA_EXE_PATH.exists():
+        return {"started": False, "running": False, "error": f"未找到 Aurora.exe: {AURORA_EXE_PATH}"}
+
+    script = f"""
+$auroraExe = [System.IO.Path]::GetFullPath('{str(AURORA_EXE_PATH).replace("'", "''")}')
+$auroraDir = Split-Path -Parent $auroraExe
+$existing = Get-Process -Name "Aurora" -ErrorAction SilentlyContinue | Where-Object {{
+    try {{ $_.Path -and [System.StringComparer]::OrdinalIgnoreCase.Equals($_.Path, $auroraExe) }} catch {{ $false }}
+}} | Select-Object -First 1
+if ($existing) {{
+    Write-Output "running:$($existing.Id)"
+    exit 0
+}}
+Start-Process -FilePath $auroraExe -WorkingDirectory $auroraDir | Out-Null
+Start-Sleep -Seconds 3
+Write-Output "started"
+"""
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=12,
+        check=False,
+    )
+    output = (result.stdout or result.stderr or "").strip()
+    if result.returncode != 0:
+        raise RuntimeError(output or "Aurora.exe 启动失败")
+    if output.startswith("running:"):
+        return {"started": False, "running": True, "path": str(AURORA_EXE_PATH), "pid": output.split(":", 1)[1]}
+    return {"started": True, "running": True, "path": str(AURORA_EXE_PATH)}
+
+
 def ensure_qt_bridge_running(timeout: float = 12.0) -> dict:
     global _qt_bridge_process
 
@@ -499,6 +638,7 @@ def ensure_qt_bridge_running(timeout: float = 12.0) -> dict:
         return status
     if status is not None:
         print("[Aurora] Found stale Qt bridge, stopping...")
+        cleanup_qt_bridge_owner_process()
         _stop_stale_qt_bridge_on_port()
         time.sleep(0.8)
 
@@ -507,6 +647,7 @@ def ensure_qt_bridge_running(timeout: float = 12.0) -> dict:
         if _qt_bridge_is_current(status):
             return status
         if status is not None:
+            cleanup_qt_bridge_owner_process()
             _stop_stale_qt_bridge_on_port()
             time.sleep(0.8)
 
@@ -519,9 +660,10 @@ def ensure_qt_bridge_running(timeout: float = 12.0) -> dict:
                 "cwd": str(Path(__file__).resolve().parent),
             }
             _qt_bridge_process = subprocess.Popen(
-                [bridge_python, str(QT_BRIDGE_SCRIPT), "--host", QT_BRIDGE_HOST, "--port", str(QT_BRIDGE_PORT)],
+                [bridge_python, str(QT_BRIDGE_SCRIPT.resolve()), "--host", QT_BRIDGE_HOST, "--port", str(QT_BRIDGE_PORT)],
                 **kwargs,
             )
+            save_qt_bridge_owner_state(_qt_bridge_process.pid)
             print(f"[Aurora] Qt bridge started (PID: {_qt_bridge_process.pid})")
 
         deadline = time.time() + timeout
@@ -930,17 +1072,18 @@ def bootstrap_camera(requested_device: int, requested_source: str = CAMERA_SOURC
                 camera.release()
             camera = opened_camera
 
-        camera_connected = opened_camera is not None and opened_camera.isOpened()
-        if camera_connected:
-            _fail_streak = 0
-            _consecutive_failures = 0
+        if opened_camera is not None and opened_camera.isOpened():
+            _mark_camera_connected()
+        else:
+            _mark_camera_disconnected()
+            _reset_camera_failure_state()
     except Exception as e:
         print(f"[WARN] 摄像头后台初始化失败: {e}")
         with camera_lock:
             if camera:
                 camera.release()
             camera = None
-        camera_connected = False
+        _mark_camera_disconnected()
     finally:
         camera_bootstrap_active = False
 
@@ -1490,9 +1633,7 @@ def generate_frames():
             else:
                 ret, payload = cap.read_color_jpeg()
                 if ret and payload:
-                    camera_connected = True
-                    _fail_streak = 0
-                    _consecutive_failures = 0
+                    _mark_camera_connected()
                     _frame_count += 1
                     now = time.time()
                     if now - _fps_ts >= 1.0:
@@ -1507,7 +1648,7 @@ def generate_frames():
             frame = _read_display_frame(cap) if cap else None
 
         if frame is None:
-            camera_connected = False
+            _mark_camera_disconnected()
             _fail_streak += 1
             _consecutive_failures += 1
             now = time.time()
@@ -1515,17 +1656,17 @@ def generate_frames():
                     and _consecutive_failures >= FAIL_THRESHOLD
                     and now - _last_reconnect_time > RECONNECT_INTERVAL):
                 _last_reconnect_time = now
-                _consecutive_failures = 0
-                _fail_streak = 0
+                _reset_camera_failure_state()
                 print("[INFO] 视频流中断，自动尝试重连摄像头...")
                 try:
                     with camera_lock:
                         if camera:
                             camera.release()
                         camera = open_camera(device_id_global, camera_source_global)
-                    camera_connected = True
+                    _mark_camera_connected()
                     print("[INFO] 摄像头自动重连成功")
                 except Exception as e:
+                    _mark_camera_disconnected()
                     print(f"[WARN] 自动重连失败: {e}")
             blk = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH, 3), dtype=np.uint8)
             cv2.putText(blk, "No Signal - Reconnecting...",
@@ -1540,9 +1681,7 @@ def generate_frames():
             time.sleep(0.3)
             continue
 
-        camera_connected = True
-        _fail_streak = 0
-        _consecutive_failures = 0
+        _mark_camera_connected()
         _frame_count += 1
         now = time.time()
         if now - _fps_ts >= 1.0:
@@ -1610,6 +1749,12 @@ def _generate_detect_frames():
 @app.route("/")
 def index():
     return render_template("companion_ui.html", output_dir=output_dir)
+
+
+@app.route("/shutdown", methods=["POST"])
+def shutdown():
+    result = shutdown_qt_bridge()
+    return jsonify(result)
 
 
 @app.route("/video_feed")
@@ -1734,13 +1879,13 @@ def do_capture():
 
 @app.route("/release_camera", methods=["POST"])
 def release_camera():
-    global camera, camera_connected
+    global camera
     try:
         with camera_lock:
             if camera:
                 camera.release()
                 camera = None
-            camera_connected = False
+            _mark_camera_disconnected()
         print("[INFO] 摄像头已释放")
         return jsonify({"success": True, "message": "摄像头已释放"})
     except Exception as e:
@@ -1757,15 +1902,16 @@ def refresh_camera():
                 camera.release()
             camera = open_camera(device_id_global, camera_source_global)
             ok = camera is not None and camera.isOpened()
-    except Exception as e:
+    except Exception:
         ok = False
 
-    _fail_streak = 0
-    _consecutive_failures = 0
-    camera_connected = ok
+    _reset_camera_failure_state()
     if ok:
+        _mark_camera_connected()
         print("[INFO] 摄像头手动刷新成功")
         return jsonify({"success": True, "message": "摄像头已重新连接"})
+
+    _mark_camera_disconnected()
     print("[WARN] 摄像头刷新失败")
     return jsonify({"success": False, "error": "无法连接到摄像头设备"})
 
@@ -1867,15 +2013,13 @@ def switch_camera():
             raise RuntimeError("目标摄像头无法打开")
         device_id_global = new_device
         camera_source_global = requested_source
-        _fail_streak = 0
-        _consecutive_failures = 0
-        camera_connected = True
+        _mark_camera_connected()
         save_preferred_device(new_device)
         save_preferred_source(requested_source)
         print(f"[INFO] 已切换到摄像头设备 {new_device} ({requested_source})")
         return jsonify({"success": True, "device": new_device, "source": requested_source})
     except Exception as e:
-        camera_connected = False
+        _mark_camera_disconnected()
         return jsonify({"success": False, "error": str(e)})
 
 
@@ -1930,6 +2074,18 @@ def main():
     output_dir = str((script_dir / args.output).resolve())
     os.makedirs(output_dir, exist_ok=True)
     print(f"[INFO] 输出目录: {output_dir}")
+
+    try:
+        aurora_status = _start_aurora_desktop()
+        if aurora_status.get("running"):
+            if aurora_status.get("started"):
+                print(f"[INFO] Aurora.exe 已启动: {aurora_status.get('path')}")
+            else:
+                print(f"[INFO] Aurora.exe 已在运行: {aurora_status.get('path')}")
+        elif aurora_status.get("error"):
+            print(f"[WARN] Aurora 启动跳过: {aurora_status.get('error')}")
+    except Exception as exc:
+        print(f"[WARN] Aurora 启动失败，但 Companion 将继续启动: {exc}")
 
     initial_source = str(args.source or CAMERA_SOURCE_AUTO).strip().lower()
     if initial_source not in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1, CAMERA_SOURCE_AUTO}:
