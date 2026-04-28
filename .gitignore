@@ -31,6 +31,8 @@ tools/aurora/__pycache__/
 tools/aurora/.a1_camera_device
 tools/aurora/.a1_camera_source
 tools/aurora/.a1_detect_model
+tools/testgpio/__pycache__/
+tools/testgpio/logs/
 third_party/ultralytics
 models
 CLIProxyAPI_6.9.40_windows_amd64

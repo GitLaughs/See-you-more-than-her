@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "include/chassis_controller.hpp"
+#include "include/gpio_test_runner.hpp"
 #include "include/utils.hpp"
 #include "project_paths.hpp"
 
@@ -242,7 +243,27 @@ void select_velocity(const RuntimeState& state, bool has_detection,
 
 }  // namespace
 
-int main() {
+std::vector<std::string> collect_args(int argc, char** argv) {
+    std::vector<std::string> args;
+    args.reserve(static_cast<size_t>(argc > 1 ? argc - 1 : 0));
+    for (int i = 1; i < argc; ++i) {
+        args.emplace_back(argv[i]);
+    }
+    return args;
+}
+
+int main(int argc, char** argv) {
+    const std::vector<std::string> args = collect_args(argc, argv);
+    if (!args.empty() && args[0] == "--gpio-test") {
+        GpioTestConfig gpio_test_config;
+        std::string error_message;
+        const std::vector<std::string> gpio_args(args.begin() + 1, args.end());
+        if (!ParseGpioTestArgs(gpio_args, &gpio_test_config, &error_message)) {
+            std::fprintf(stderr, "[gpio_test] %s\n", error_message.c_str());
+            return 2;
+        }
+        return RunGpioTest(gpio_test_config);
+    }
     std::array<int, 2> img_shape = {cfg::SENSOR_WIDTH, cfg::SENSOR_HEIGHT};
     std::array<int, 2> det_shape = {cfg::DET_WIDTH, cfg::DET_HEIGHT};
     std::array<int, 2> crop_shape = {cfg::PIPE_CROP_WIDTH, cfg::PIPE_CROP_HEIGHT};

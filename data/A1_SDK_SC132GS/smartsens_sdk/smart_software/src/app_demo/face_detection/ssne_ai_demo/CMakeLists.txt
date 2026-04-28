@@ -26,6 +26,7 @@ message([<mode>] "message to display" ${TARGET})
 
 set(SSNE_AI_DEMO_SOURCES
     ${CMAKE_SOURCE_DIR}/${SRC_DIR}/chassis_controller.cpp
+    ${CMAKE_SOURCE_DIR}/${SRC_DIR}/gpio_test_runner.cpp
     ${CMAKE_SOURCE_DIR}/${SRC_DIR}/osd-device.cpp
     ${CMAKE_SOURCE_DIR}/${SRC_DIR}/pipeline_image.cpp
     ${CMAKE_SOURCE_DIR}/${SRC_DIR}/scrfd_gray.cpp
