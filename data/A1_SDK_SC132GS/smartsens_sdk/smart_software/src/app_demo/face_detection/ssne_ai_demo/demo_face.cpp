@@ -15,6 +15,7 @@
 #include <dirent.h>
 #include <unistd.h>
 #include "include/utils.hpp"
+#include "include/gpio_test_runner.hpp"
 
 using namespace std;
 
@@ -62,11 +63,31 @@ bool check_exit_flag() {
     return g_exit_flag;
 }
 
+std::vector<std::string> collect_args(int argc, char** argv) {
+    std::vector<std::string> args;
+    args.reserve(static_cast<size_t>(argc > 1 ? argc - 1 : 0));
+    for (int i = 1; i < argc; ++i) {
+        args.emplace_back(argv[i]);
+    }
+    return args;
+}
+
 /**
  * @brief 人脸检测演示程序主函数
  * @return 执行结果，0表示成功
  */
-int main() {
+int main(int argc, char** argv) {
+    const std::vector<std::string> args = collect_args(argc, argv);
+    if (!args.empty() && args[0] == "--gpio-test") {
+        GpioTestConfig gpio_test_config;
+        std::string error_message;
+        const std::vector<std::string> gpio_args(args.begin() + 1, args.end());
+        if (!ParseGpioTestArgs(gpio_args, &gpio_test_config, &error_message)) {
+            std::fprintf(stderr, "[gpio_test] %s\n", error_message.c_str());
+            return 2;
+        }
+        return RunGpioTest(gpio_test_config);
+    }
     /******************************************************************************************
      * 1. 参数配置
      ******************************************************************************************/
