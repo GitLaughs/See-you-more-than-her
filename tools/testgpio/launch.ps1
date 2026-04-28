@@ -4,12 +4,19 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ScriptDir = $PSScriptRoot
+if (-not $ScriptDir) {
+    $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
 
 function Get-PythonExecutable {
-    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    param(
+        [string]$ScriptDir
+    )
+
     $candidates = @(
-        (Join-Path $scriptDir "..\..\venv_39\Scripts\python.exe"),
-        (Join-Path $scriptDir "..\..\.venv39\Scripts\python.exe"),
+        (Join-Path $ScriptDir "..\..\venv_39\Scripts\python.exe"),
+        (Join-Path $ScriptDir "..\..\.venv39\Scripts\python.exe"),
         "python"
     )
     foreach ($candidate in $candidates) {
@@ -19,9 +26,9 @@ function Get-PythonExecutable {
     return "python"
 }
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $ScriptDir
-$Python = Get-PythonExecutable
+$RepoRoot = Split-Path -Parent $ScriptDir
+Set-Location $RepoRoot
+$Python = Get-PythonExecutable -ScriptDir $ScriptDir
 $Url = "http://${ListenHost}:$Port"
 Start-Process $Url | Out-Null
-& $Python server.py
+& $Python -m testgpio.server
