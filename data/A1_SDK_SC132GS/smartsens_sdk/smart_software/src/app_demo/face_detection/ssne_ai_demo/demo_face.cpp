@@ -1,343 +1,235 @@
 /*
  * @Filename: demo_face.cpp
- * @Description: A1 SC132GS demo runtime with detector, OSD, chassis UART and A1_TEST CLI.
+ * @Author: Hongying He
+ * @Email: hongying.he@smartsenstech.com
+ * @Date: 2025-12-30 14-57-47
+ * @Copyright (c) 2025 SmartSens
  */
-
-#include <algorithm>
-#include <array>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
+#include <fstream>
 #include <iostream>
-#include <mutex>
-#include <sstream>
-#include <string>
-#include <sys/time.h>
+#include <cstring>
 #include <thread>
+#include <mutex>
+#include <fcntl.h>
+#include <regex>
+#include <dirent.h>
 #include <unistd.h>
-#include <vector>
-
-#include "include/chassis_controller.hpp"
 #include "include/utils.hpp"
-#include "project_paths.hpp"
+#include "include/gpio_test_runner.hpp"
 
-namespace {
+using namespace std;
 
-struct RuntimeState {
-    bool exit_requested = false;
-    bool link_test_enabled = cfg::LINK_TEST_ENABLED;
-    bool manual_active = false;
-    int16_t manual_vx = 0;
-    int16_t manual_vy = 0;
-    int16_t manual_vz = 0;
-    uint64_t manual_until_us = 0;
-    uint64_t frame_count = 0;
-    uint64_t detection_count = 0;
-    std::string backend = cfg::USE_SCRFD_BACKEND ? "scrfd_gray" : "yolov8_gray";
-    std::string last_command = "boot";
-    bool chassis_ready = false;
+// 全局退出标志（线程安全）
+bool g_exit_flag = false;
+// 保护退出标志的互斥锁
+std::mutex g_mtx;
+
+// OSD 贴图结构体
+struct osdInfo {
+    std::string filename; // OSD 文件名
+    uint16_t x;           // 起始坐标 x
+    uint16_t y;           // 起始坐标 y
 };
 
-RuntimeState g_state;
-std::mutex g_state_mtx;
+/**
+ * @brief 键盘监听程序，用于结束demo
+ */
+void keyboard_listener() {
+    std::string input;
+    std::cout << "键盘监听线程已启动，输入 'q' 退出程序..." << std::endl;
 
-uint64_t monotonic_time_us() {
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    return static_cast<uint64_t>(tv.tv_sec) * 1000000ULL +
-           static_cast<uint64_t>(tv.tv_usec);
-}
+    while (true) {
+        // 读取键盘输入（会阻塞直到有输入）
+        std::cin >> input;
 
-std::vector<std::string> split_words(const std::string& line) {
-    std::istringstream iss(line);
-    std::vector<std::string> words;
-    std::string word;
-    while (iss >> word) {
-        words.push_back(word);
-    }
-    return words;
-}
-
-std::string json_escape(const std::string& value) {
-    std::string out;
-    out.reserve(value.size() + 8);
-    for (char ch : value) {
-        switch (ch) {
-            case '\\': out += "\\\\"; break;
-            case '"': out += "\\\""; break;
-            case '\n': out += "\\n"; break;
-            case '\r': break;
-            default: out += ch; break;
+        // 加锁修改退出标志
+        std::lock_guard<std::mutex> lock(g_mtx);
+        if (input == "q" || input == "Q") {
+            g_exit_flag = true;
+            std::cout << "检测到退出指令，通知主线程退出..." << std::endl;
+            break;
+        } else {
+            std::cout << "输入无效（仅 'q' 有效），请重新输入：" << std::endl;
         }
     }
-    return out;
 }
 
-void print_json(const std::string& body) {
-    std::cout << "{" << body << "}" << std::endl;
+/**
+ * @brief 检查退出标志的辅助函数（线程安全）
+ * @return 是否需要退出
+ */
+bool check_exit_flag() {
+    std::lock_guard<std::mutex> lock(g_mtx);
+    return g_exit_flag;
 }
 
-void print_status_locked() {
-    std::ostringstream oss;
-    oss << "\"success\":true"
-        << ",\"type\":\"status\""
-        << ",\"command\":\"debug_status\""
-        << ",\"backend\":\"" << json_escape(g_state.backend) << "\""
-        << ",\"frames\":" << g_state.frame_count
-        << ",\"detections\":" << g_state.detection_count
-        << ",\"link_test\":" << (g_state.link_test_enabled ? "true" : "false")
-        << ",\"manual_active\":" << (g_state.manual_active ? "true" : "false")
-        << ",\"chassis_ready\":" << (g_state.chassis_ready ? "true" : "false")
-        << ",\"last_command\":\"" << json_escape(g_state.last_command) << "\"";
-    print_json(oss.str());
-}
-
-bool parse_i16(const std::string& value, int16_t* out) {
-    char* end = nullptr;
-    long parsed = std::strtol(value.c_str(), &end, 10);
-    if (!end || *end != '\0') return false;
-    parsed = std::max<long>(-32768, std::min<long>(32767, parsed));
-    *out = static_cast<int16_t>(parsed);
-    return true;
-}
-
-void handle_command(const std::string& raw_line) {
-    std::vector<std::string> words = split_words(raw_line);
-    if (words.empty()) return;
-
-    if (words[0] == "q" || words[0] == "Q" || words[0] == "exit" || words[0] == "quit") {
-        std::lock_guard<std::mutex> lock(g_state_mtx);
-        g_state.exit_requested = true;
-        g_state.last_command = raw_line;
-        print_json("\"success\":true,\"type\":\"exit\"");
-        return;
+std::vector<std::string> collect_args(int argc, char** argv) {
+    std::vector<std::string> args;
+    args.reserve(static_cast<size_t>(argc > 1 ? argc - 1 : 0));
+    for (int i = 1; i < argc; ++i) {
+        args.emplace_back(argv[i]);
     }
+    return args;
+}
 
-    if (words[0] == "A1_TEST") {
-        words.erase(words.begin());
-    }
-    if (words.empty()) {
-        print_json("\"success\":false,\"error\":\"missing_command\"");
-        return;
-    }
-
-    const std::string& cmd = words[0];
-    std::lock_guard<std::mutex> lock(g_state_mtx);
-    g_state.last_command = raw_line;
-
-    if (cmd == "help") {
-        print_json("\"success\":true,\"command\":\"help\",\"commands\":[\"help\",\"status\",\"test_echo\",\"debug_status\",\"debug_frame\",\"debug_last\",\"link_test on|off\",\"stop\",\"move vx vy vz\"]");
-    } else if (cmd == "status" || cmd == "debug_status") {
-        print_status_locked();
-    } else if (cmd == "debug_frame" || cmd == "debug_last") {
-        std::ostringstream oss;
-        oss << "\"success\":true,\"command\":\"" << cmd << "\""
-            << ",\"frames\":" << g_state.frame_count
-            << ",\"detections\":" << g_state.detection_count
-            << ",\"backend\":\"" << json_escape(g_state.backend) << "\"";
-        print_json(oss.str());
-    } else if (cmd == "test_echo") {
-        print_json("\"success\":true,\"type\":\"test_echo\",\"command\":\"test_echo\",\"echo\":\"A1_TEST\",\"message\":\"测试回传成功\"");
-    } else if (cmd == "link_test") {
-        if (words.size() < 2) {
-            print_json("\"success\":false,\"error\":\"usage: A1_TEST link_test on|off\"");
-            return;
+/**
+ * @brief 人脸检测演示程序主函数
+ * @return 执行结果，0表示成功
+ */
+int main(int argc, char** argv) {
+    const std::vector<std::string> args = collect_args(argc, argv);
+    if (!args.empty() && args[0] == "--gpio-test") {
+        GpioTestConfig gpio_test_config;
+        std::string error_message;
+        const std::vector<std::string> gpio_args(args.begin() + 1, args.end());
+        if (!ParseGpioTestArgs(gpio_args, &gpio_test_config, &error_message)) {
+            std::fprintf(stderr, "[gpio_test] %s\n", error_message.c_str());
+            return 2;
         }
-        g_state.link_test_enabled = (words[1] == "on" || words[1] == "1" || words[1] == "true");
-        g_state.manual_active = false;
-        print_json(std::string("\"success\":true,\"type\":\"link_test\",\"command\":\"link_test\",\"enabled\":") +
-                   (g_state.link_test_enabled ? "true" : "false"));
-    } else if (cmd == "stop") {
-        g_state.link_test_enabled = false;
-        g_state.manual_active = true;
-        g_state.manual_vx = 0;
-        g_state.manual_vy = 0;
-        g_state.manual_vz = 0;
-        g_state.manual_until_us = 0;
-        print_json("\"success\":true,\"type\":\"stop\",\"command\":\"stop\"");
-    } else if (cmd == "move") {
-        if (words.size() < 4) {
-            print_json("\"success\":false,\"error\":\"usage: A1_TEST move vx vy vz\"");
-            return;
-        }
-        int16_t vx = 0, vy = 0, vz = 0;
-        if (!parse_i16(words[1], &vx) || !parse_i16(words[2], &vy) || !parse_i16(words[3], &vz)) {
-            print_json("\"success\":false,\"error\":\"invalid_velocity\"");
-            return;
-        }
-        g_state.link_test_enabled = false;
-        g_state.manual_active = true;
-        g_state.manual_vx = vx;
-        g_state.manual_vy = vy;
-        g_state.manual_vz = vz;
-        g_state.manual_until_us = monotonic_time_us() + 2000000ULL;
-        std::ostringstream oss;
-        oss << "\"success\":true,\"type\":\"move\",\"command\":\"move\",\"vx\":" << vx
-            << ",\"vy\":" << vy << ",\"vz\":" << vz;
-        print_json(oss.str());
-    } else {
-        print_json("\"success\":false,\"error\":\"unknown_command\"");
+        return RunGpioTest(gpio_test_config);
     }
-}
+    /******************************************************************************************
+     * 1. 参数配置
+     ******************************************************************************************/
 
-void stdin_listener() {
-    std::string line;
-    std::cout << "[A1_TEST] ready. Type A1_TEST help for commands." << std::endl;
-    while (std::getline(std::cin, line)) {
-        handle_command(line);
-        std::lock_guard<std::mutex> lock(g_state_mtx);
-        if (g_state.exit_requested) break;
-    }
-}
+    // 图像尺寸配置（根据镜头参数修改）
+    int img_width = 720;    // 输入图像宽度
+    int img_height = 1280;  // 输入图像高度
 
-RuntimeState snapshot_state() {
-    std::lock_guard<std::mutex> lock(g_state_mtx);
-    return g_state;
-}
+    // 模型配置参数
+    array<int, 2> det_shape = {640, 480};  // 检测模型输入尺寸
+    string path_det = "/app_demo/app_assets/models/face_640x480.m1model";  // 人脸检测模型路径
 
-bool should_exit() {
-    std::lock_guard<std::mutex> lock(g_state_mtx);
-    return g_state.exit_requested;
-}
+    // OSD 信息
+    static osdInfo osds[3] = {
+        {"si.ssbmp", 10, 10},
+        {"te.ssbmp", 90, 10},
+        {"wei.ssbmp", 170, 10}
+    };
 
-void update_frame_stats(size_t detection_count) {
-    std::lock_guard<std::mutex> lock(g_state_mtx);
-    g_state.frame_count += 1;
-    g_state.detection_count = detection_count;
-}
+    /******************************************************************************************
+     * 2. 系统初始化
+     ******************************************************************************************/
 
-void set_chassis_ready(bool ready) {
-    std::lock_guard<std::mutex> lock(g_state_mtx);
-    g_state.chassis_ready = ready;
-}
-
-void select_velocity(const RuntimeState& state, bool has_detection,
-                     int16_t* vx, int16_t* vy, int16_t* vz) {
-    *vx = 0;
-    *vy = 0;
-    *vz = 0;
-
-    const uint64_t now_us = monotonic_time_us();
-    if (state.manual_active) {
-        if (state.manual_until_us == 0 || now_us <= state.manual_until_us) {
-            *vx = state.manual_vx;
-            *vy = state.manual_vy;
-            *vz = state.manual_vz;
-        }
-        return;
-    }
-
-    if (state.link_test_enabled) {
-        const uint64_t phase = now_us % cfg::LINK_TEST_PERIOD_US;
-        if (phase < cfg::LINK_TEST_FORWARD_WINDOW_US) {
-            *vx = cfg::LINK_TEST_FORWARD_VX;
-        }
-        return;
-    }
-
-    if (has_detection) {
-        *vx = cfg::VX_FORWARD;
-    }
-}
-
-}  // namespace
-
-int main() {
-    std::array<int, 2> img_shape = {cfg::SENSOR_WIDTH, cfg::SENSOR_HEIGHT};
-    std::array<int, 2> det_shape = {cfg::DET_WIDTH, cfg::DET_HEIGHT};
-    std::array<int, 2> crop_shape = {cfg::PIPE_CROP_WIDTH, cfg::PIPE_CROP_HEIGHT};
-    std::string model_path = cfg::MODEL_PATH;
-
+    // SSNE初始化
     if (ssne_initial()) {
-        std::fprintf(stderr, "[A1] SSNE initialization failed\n");
-        return 1;
+        fprintf(stderr, "SSNE initialization failed!\n");
     }
+
+    // 图像处理器初始化
+    array<int, 2> img_shape = {img_width, img_height};  // 原始图像尺寸
+    array<int, 2> crop_shape = {720, 540};  // 裁剪尺寸（保持图像resize后比例不变）
+    const int crop_offset_y = 370;  // 裁剪时Y方向的偏移量
+    // 原图: 720×1280, 模型输入图：640×480
+    // 为了保证模型输入图经过resize后比例不变，需要先将原图裁剪为crop图: 720×540 (上下各裁370px)
 
     IMAGEPROCESSOR processor;
-    processor.Initialize(&img_shape);
+    processor.Initialize(&img_shape);  // 初始化图像处理器（配置原图尺寸）
 
-    SCRFDGRAY scrfd_detector;
-    YOLOV8 yolo_detector;
-    if (cfg::USE_SCRFD_BACKEND) {
-        int box_len = det_shape[0] * det_shape[1] / 512 * 21;
-        scrfd_detector.Initialize(model_path, &crop_shape, &det_shape, false, box_len);
-    } else {
-        yolo_detector.Initialize(model_path, &img_shape, &det_shape);
-    }
+    // 人脸检测模型初始化
+    SCRFDGRAY detector;
+    int box_len = det_shape[0] * det_shape[1] / 512 * 21;  // 计算最大检测框数量
+    detector.Initialize(path_det, &crop_shape, &det_shape, false, box_len);  // 初始化检测器
 
+    // 人脸检测结果初始化
+    FaceDetectionResult* det_result = new FaceDetectionResult;
+
+    // OSD可视化器初始化（用于绘制检测框）
     VISUALIZER visualizer;
-    visualizer.Initialize(img_shape);
+    //visualizer.Initialize(img_shape);  // 初始化可视化器（配置图像尺寸）
+    visualizer.Initialize(img_shape, "shared_colorLUT.sscl");  // 初始化可视化器（配置图像尺寸和位图LUT）
 
-    ChassisController chassis;
-    const bool chassis_ready = chassis.Init();
-    set_chassis_ready(chassis_ready);
-    if (!chassis_ready) {
-        std::fprintf(stderr, "[A1] chassis UART unavailable; detection and OSD will continue\n");
-    }
+    // 系统稳定等待
+    cout << "sleep for 0.2 second!" << endl;
+    sleep(0.2);  // 等待系统稳定
 
-    FaceDetectionResult det_result;
-    ssne_tensor_t img_sensor;
-    std::thread listener_thread(stdin_listener);
+    // OSD 贴图
+    visualizer.DrawBitmap(osds[0].filename, "shared_colorLUT.sscl", osds[0].x, osds[0].y, 2);
 
-    uint64_t last_velocity_us = 0;
-    int16_t last_vx = 0;
-    int16_t last_vy = 0;
-    int16_t last_vz = 0;
+    uint16_t num_frames = 0;  // 帧计数器
+    uint8_t osd_index = 0; // osd 贴图 index
+    ssne_tensor_t img_sensor;  // 图像tensor定义
 
-    while (!should_exit()) {
+    // 创建键盘监听线程
+    std::thread listener_thread(keyboard_listener);
+
+    /******************************************************************************************
+     * 3. 主处理循环
+     ******************************************************************************************/
+    //循环50000帧后推出，循环次数可以修改，也可以改成while(true)
+    while (!check_exit_flag()) {
+
+        // 从sensor获取图像（裁剪图）
         processor.GetImage(&img_sensor);
 
-        if (cfg::USE_SCRFD_BACKEND) {
-            scrfd_detector.Predict(&img_sensor, &det_result, cfg::DET_CONF_THRESH);
-        } else {
-            yolo_detector.Predict(&img_sensor, &det_result, cfg::DET_CONF_THRESH);
-        }
+        // 人脸检测模型推理（置信度阈值0.4）
+        detector.Predict(&img_sensor, det_result, 0.4f);
 
-        std::vector<std::array<float, 4>> osd_boxes = det_result.boxes;
-        if (cfg::USE_SCRFD_BACKEND) {
-            for (auto& box : osd_boxes) {
-                box[1] += static_cast<float>(cfg::PIPE_CROP_Y1);
-                box[3] += static_cast<float>(cfg::PIPE_CROP_Y1);
+        /**********************************************************************************
+         * 3.1 判断是否有检测到人脸
+         **********************************************************************************/
+        if (det_result->boxes.size() > 0) {
+            /**********************************************************************************
+             * 3.2 坐标转换：将crop图坐标转换为原图坐标
+             **********************************************************************************/
+            std::vector<std::array<float, 4>> boxes_original_coord;  // 存储转换后的原图坐标
+
+            // 遍历所有检测框进行坐标转换
+            for (size_t i = 0; i < det_result->boxes.size(); i++) {
+                // 原始crop图坐标（基于720×540裁剪图）
+                float x1_crop = det_result->boxes[i][0];  // 左上角x
+                float y1_crop = det_result->boxes[i][1];  // 左上角y
+                float x2_crop = det_result->boxes[i][2];  // 右下角x
+                float y2_crop = det_result->boxes[i][3];  // 右下角y
+
+                // 转换到原图坐标（y坐标加上裁剪偏移，x坐标不变）
+                float x1_orig = x1_crop;
+                float y1_orig = y1_crop + crop_offset_y;  // 加上裁剪偏移量370
+                float x2_orig = x2_crop;
+                float y2_orig = y2_crop + crop_offset_y;
+
+                // 保存原图坐标用于OSD绘制
+                boxes_original_coord.push_back({x1_orig, y1_orig, x2_orig, y2_orig});
             }
-        }
-        visualizer.Draw(osd_boxes);
-        update_frame_stats(det_result.boxes.size());
 
-        RuntimeState state = snapshot_state();
-        int16_t vx = 0, vy = 0, vz = 0;
-        select_velocity(state, !det_result.boxes.empty(), &vx, &vy, &vz);
-
-        const uint64_t now_us = monotonic_time_us();
-        if (chassis_ready && (now_us - last_velocity_us >= 100000ULL ||
-                              vx != last_vx || vy != last_vy || vz != last_vz)) {
-            chassis.SendVelocity(vx, vy, vz);
-            last_velocity_us = now_us;
-            last_vx = vx;
-            last_vy = vy;
-            last_vz = vz;
+            /**********************************************************************************
+             * 3.3 OSD绘图：使用原图坐标在OSD上绘制人脸检测框
+             **********************************************************************************/
+            visualizer.Draw(boxes_original_coord);
         }
+        else {
+            // 未检测到人脸，清除OSD上的检测框
+            cout << "[INFO] No face detected" << endl;
+            std::vector<std::array<float, 4>> empty_boxes;
+            visualizer.Draw(empty_boxes);  // 传入空向量清除显示
+        }
+
+        num_frames += 1;  // 帧计数器递增
+
+        // OSD 贴图
+        osd_index = (num_frames / 10) % 3;
+        visualizer.DrawBitmap(osds[osd_index].filename, "shared_colorLUT.sscl", osds[osd_index].x, osds[osd_index].y, 2);
     }
 
-    if (chassis_ready) {
-        chassis.SendVelocity(0, 0, 0);
-    }
-
+    // 等待监听线程退出，释放资源
     if (listener_thread.joinable()) {
         listener_thread.join();
     }
 
-    if (cfg::USE_SCRFD_BACKEND) {
-        scrfd_detector.Release();
-    } else {
-        yolo_detector.Release();
-    }
-    chassis.Release();
-    processor.Release();
-    visualizer.Release();
+    /******************************************************************************************
+     * 4. 资源释放
+     ******************************************************************************************/
+
+    delete det_result;  // 释放检测结果
+    detector.Release();  // 释放检测器资源
+    processor.Release();  // 释放图像处理器资源
+    visualizer.Release();  // 释放可视化器资源
 
     if (ssne_release()) {
-        std::fprintf(stderr, "[A1] SSNE release failed\n");
-        return 1;
+        fprintf(stderr, "SSNE release failed!\n");
+        return -1;
     }
+
     return 0;
 }
+
