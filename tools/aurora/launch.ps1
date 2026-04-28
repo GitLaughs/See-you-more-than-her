@@ -16,12 +16,14 @@ function Initialize-Utf8Console {
     $global:OutputEncoding = $utf8NoBom
     $env:PYTHONUTF8 = "1"
     $env:PYTHONIOENCODING = "utf-8"
+    $loopbackBypass = "127.0.0.1,localhost,::1"
+    $env:NO_PROXY = $loopbackBypass
+    $env:no_proxy = $loopbackBypass
 }
 
 function Get-PythonExecutable {
     $candidates = @(
         (Join-Path $ScriptDir "..\..\venv_39\Scripts\python.exe"),
-        (Join-Path $ScriptDir "..\..\.venv39\Scripts\python.exe"),
         "python"
     ) | Where-Object { Test-Path $_ }
     foreach ($candidate in $candidates) {
@@ -31,6 +33,44 @@ function Get-PythonExecutable {
         } catch {}
     }
     return "python"
+}
+
+function Start-AuroraBootstrap {
+    param([switch]$Disabled)
+
+    if ($Disabled) {
+        Write-Host "[Aurora] SkipAurora set. Not launching Aurora.exe"
+        return
+    }
+
+    $repoRoot = Split-Path (Split-Path $ScriptDir -Parent) -Parent
+    $auroraExe = Join-Path $repoRoot "Aurora-2.0.0-ciciec.16\Aurora.exe"
+    if (-not (Test-Path $auroraExe)) {
+        Write-Host "[Aurora] Aurora.exe not found. Continue without bootstrap: $auroraExe"
+        return
+    }
+
+    $resolvedAuroraExe = [System.IO.Path]::GetFullPath($auroraExe)
+    $auroraDir = Split-Path $resolvedAuroraExe -Parent
+    $existingProcess = $null
+    try {
+        $auroraProcesses = Get-Process -Name "Aurora" -ErrorAction SilentlyContinue
+        foreach ($proc in $auroraProcesses) {
+            if ($proc.Path -and ([System.StringComparer]::OrdinalIgnoreCase.Equals($proc.Path, $resolvedAuroraExe))) {
+                $existingProcess = $proc
+                break
+            }
+        }
+    } catch {}
+
+    if ($existingProcess) {
+        Write-Host "[Aurora] Aurora.exe already running (PID $($existingProcess.Id))"
+        return
+    }
+
+    Write-Host "[Aurora] Launching Aurora.exe for camera initialization..."
+    Start-Process -FilePath $resolvedAuroraExe -WorkingDirectory $auroraDir | Out-Null
+    Start-Sleep -Seconds 3
 }
 
 function Start-BrowserWhenReady {
@@ -64,20 +104,6 @@ while ([DateTime]::UtcNow -lt $deadline) {
     } catch {}
 }
 
-function Start-AuroraDesktop {
-    $auroraExe = Resolve-Path "..\..\Aurora-2.0.0-ciciec.16\Aurora.exe" -ErrorAction SilentlyContinue
-    if (-not $auroraExe) {
-        return
-    }
-    $alreadyRunning = Get-Process -Name "Aurora" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($alreadyRunning) {
-        return
-    }
-    $auroraDir = Split-Path -Parent $auroraExe.Path
-    Start-Process -FilePath $auroraExe.Path -WorkingDirectory $auroraDir | Out-Null
-    Start-Sleep -Milliseconds 1200
-}
-
 function Test-PortAvailable {
     param(
         [string]$BindHost,
@@ -106,7 +132,7 @@ function Resolve-AvailablePort {
             return $candidate
         }
     }
-    throw "无法找到可用端口（起始端口: $PreferredPort）"
+    throw "Could not find available port (starting from: $PreferredPort)"
 }
 
 function Stop-StaleCompanionOnPort {
@@ -116,14 +142,12 @@ function Stop-StaleCompanionOnPort {
     try {
         $connections = Get-NetTCPConnection -LocalPort $BindPort -State Listen -ErrorAction SilentlyContinue
         foreach ($conn in $connections) {
-            $pid = [int]$conn.OwningProcess
-            if ($pid -le 0 -or $pid -eq $PID) { continue }
-            $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pid" -ErrorAction SilentlyContinue
-            if (-not $proc) { continue }
-            $cmd = [string]$proc.CommandLine
-            if ($cmd -match "aurora_companion\.py") {
-                Write-Host "[Aurora] 释放旧 Companion 端口 $BindPort (PID $pid)"
-                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            $pId = [int]$conn.OwningProcess
+            if ($pId -le 0 -or $pId -eq $PID) { continue }
+            $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pId" -ErrorAction SilentlyContinue
+            if ($proc -and ([string]$proc.CommandLine) -match "aurora_companion\.py") {
+                Write-Host "[Aurora] Releasing stale Companion port $BindPort (PID $pId)"
+                Stop-Process -Id $pId -Force -ErrorAction SilentlyContinue
             }
         }
     } catch {}
@@ -135,28 +159,25 @@ function Stop-StaleQtBridge {
     try {
         $connections = Get-NetTCPConnection -LocalPort $QtBridgePort -State Listen -ErrorAction SilentlyContinue
         foreach ($conn in $connections) {
-            $pid = [int]$conn.OwningProcess
-            if ($pid -le 0 -or $pid -eq $PID) { continue }
-            $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pid" -ErrorAction SilentlyContinue
-            if (-not $proc) { continue }
-            $cmd = [string]$proc.CommandLine
-            if ($cmd -match "qt_camera_bridge\.py") {
-                Write-Host "[Aurora] 终止旧 Qt 相机桥 (PID $pid)"
-                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-                $killedPids += $pid
+            $pId = [int]$conn.OwningProcess
+            if ($pId -le 0 -or $pId -eq $PID) { continue }
+            $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pId" -ErrorAction SilentlyContinue
+            if ($proc -and ([string]$proc.CommandLine) -match "qt_camera_bridge\.py") {
+                Write-Host "[Aurora] Terminating stale Qt camera bridge (PID $pId)"
+                Stop-Process -Id $pId -Force -ErrorAction SilentlyContinue
+                $killedPids += $pId
             }
         }
     } catch {}
     try {
         $bridgeProcs = Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue
         foreach ($proc in $bridgeProcs) {
-            $pid = [int]$proc.ProcessId
-            if ($pid -le 0 -or $pid -eq $PID -or $killedPids -contains $pid) { continue }
-            $cmd = [string]$proc.CommandLine
-            if ($cmd -match "qt_camera_bridge\.py") {
-                Write-Host "[Aurora] 终止旧 Qt 相机桥进程 (PID $pid)"
-                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-                $killedPids += $pid
+            $pId = [int]$proc.ProcessId
+            if ($pId -le 0 -or $pId -eq $PID -or $killedPids -contains $pId) { continue }
+            if (([string]$proc.CommandLine) -match "qt_camera_bridge\.py") {
+                Write-Host "[Aurora] Terminating stale Qt camera bridge process (PID $pId)"
+                Stop-Process -Id $pId -Force -ErrorAction SilentlyContinue
+                $killedPids += $pId
             }
         }
     } catch {}
@@ -198,15 +219,12 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
 $Python = Get-PythonExecutable
+Start-AuroraBootstrap -Disabled:$SkipAurora
 Stop-StaleCompanionOnPort -BindPort $Port
 Stop-StaleQtBridge
 Wait-PortReleased -BindHost $ListenHost -BindPort $Port -TimeoutSeconds 5 | Out-Null
 $ResolvedPort = Resolve-AvailablePort -BindHost $ListenHost -PreferredPort $Port
 $browserUrl = "http://127.0.0.1:$ResolvedPort"
-
-if (-not $SkipAurora) {
-    Start-AuroraDesktop
-}
 
 Start-BrowserWhenReady -ReadyPort $ResolvedPort -Url $browserUrl
 & $Python aurora_companion.py --device $Device --port $ResolvedPort --host $ListenHost --source $Source

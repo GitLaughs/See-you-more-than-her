@@ -25,9 +25,12 @@ void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high) {
   // 获取检测框和分数的引用
   std::vector<std::array<float, 4>>& boxes = result->boxes;
   std::vector<float>& scores = result->scores;
+  std::vector<int>& class_ids = result->class_ids;
   // 创建临时副本用于合并操作
   std::vector<std::array<float, 4>> temp_boxes(boxes);
   std::vector<float> temp_scores(scores);
+  std::vector<int> temp_class_ids(class_ids);
+  const bool has_class_ids = class_ids.size() == scores.size();
   size_t i = low;      // 左半部分的索引
   size_t j = mid + 1;  // 右半部分的索引
   size_t k = i;        // 合并结果的索引
@@ -36,10 +39,12 @@ void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high) {
     if (temp_scores[i] >= temp_scores[j]) {
       scores[k] = temp_scores[i];
       boxes[k] = temp_boxes[i];
+      if (has_class_ids) class_ids[k] = temp_class_ids[i];
       i++;
     } else {
       scores[k] = temp_scores[j];
       boxes[k] = temp_boxes[j];
+      if (has_class_ids) class_ids[k] = temp_class_ids[j];
       j++;
     }
   }
@@ -47,6 +52,7 @@ void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high) {
   while (i <= mid) {
     scores[k] = temp_scores[i];
     boxes[k] = temp_boxes[i];
+    if (has_class_ids) class_ids[k] = temp_class_ids[i];
     k++;
     i++;
   }
@@ -54,6 +60,7 @@ void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high) {
   while (j <= high) {
     scores[k] = temp_scores[j];
     boxes[k] = temp_boxes[j];
+    if (has_class_ids) class_ids[k] = temp_class_ids[j];
     k++;
     j++;
   }
@@ -123,6 +130,10 @@ void NMS(FaceDetectionResult* result, float iou_threshold, int top_k) {
       if (suppressed[j] == 1) {
         continue;  // 跳过已被抑制的框
       }
+      if (result->class_ids.size() == result->boxes.size() &&
+          result->class_ids[i] != result->class_ids[j]) {
+        continue;
+      }
       // 计算两个框的交集区域
       float xmin = std::max(result->boxes[i][0], result->boxes[j][0]);
       float ymin = std::max(result->boxes[i][1], result->boxes[j][1]);
@@ -155,6 +166,9 @@ void NMS(FaceDetectionResult* result, float iou_threshold, int top_k) {
     }
     result->boxes.emplace_back(backup.boxes[i]);
     result->scores.push_back(backup.scores[i]);
+    if (backup.class_ids.size() == backup.boxes.size()) {
+      result->class_ids.push_back(backup.class_ids[i]);
+    }
     // 如果有关键点信息，也一并复制
     if (result->landmarks_per_face > 0) {
       for (size_t j = 0; j < result->landmarks_per_face; ++j) {
@@ -174,6 +188,7 @@ void NMS(FaceDetectionResult* result, float iou_threshold, int top_k) {
 void FaceDetectionResult::Free() {
   std::vector<std::array<float, 4>>().swap(boxes);
   std::vector<float>().swap(scores);
+  std::vector<int>().swap(class_ids);
   std::vector<std::array<float, 2>>().swap(landmarks);
   landmarks_per_face = 0;
 }
@@ -185,6 +200,7 @@ void FaceDetectionResult::Free() {
 void FaceDetectionResult::Clear() {
   boxes.clear();
   scores.clear();
+  class_ids.clear();
   landmarks.clear();
   landmarks_per_face = 0;
 }
@@ -197,6 +213,7 @@ void FaceDetectionResult::Clear() {
 void FaceDetectionResult::Reserve(int size) {
   boxes.reserve(size);
   scores.reserve(size);
+  class_ids.reserve(size);
   if (landmarks_per_face > 0) {
     landmarks.reserve(size * landmarks_per_face);
   }
@@ -210,6 +227,9 @@ void FaceDetectionResult::Reserve(int size) {
 void FaceDetectionResult::Resize(int size) {
   boxes.resize(size);
   scores.resize(size);
+  if (!class_ids.empty()) {
+    class_ids.resize(size);
+  }
   if (landmarks_per_face > 0) {
     landmarks.resize(size * landmarks_per_face);
   }
@@ -224,6 +244,7 @@ FaceDetectionResult::FaceDetectionResult(const FaceDetectionResult& res) {
   boxes.assign(res.boxes.begin(), res.boxes.end());
   landmarks.assign(res.landmarks.begin(), res.landmarks.end());
   scores.assign(res.scores.begin(), res.scores.end());
+  class_ids.assign(res.class_ids.begin(), res.class_ids.end());
   landmarks_per_face = res.landmarks_per_face;
 }
 
@@ -565,4 +586,3 @@ void SCRFDGRAY::saveFloatBin(const float* data, int length, const char* filename
         std::cerr << "failed to write " << filename << std::endl;
     }
 }
-

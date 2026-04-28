@@ -8,11 +8,12 @@
 #pragma once
 
 #include <stdio.h>
+#include <cmath>
 #include <vector>
 #include <array>
 #include <string>
-#include <math.h>
 #include "smartsoc/ssne_api.h"
+#include "../project_paths.hpp"
 
 /*! @brief 人脸检测结果的结构体定义。
  */
@@ -32,6 +33,10 @@ struct FaceDetectionResult {
    * of elements is consistent with boxes.size().
    */
   std::vector<float> scores;
+  /** \brief Optional class id for each detected object. SCRFD keeps this empty;
+   * YOLOv8 fills it so downstream control logic can distinguish targets.
+   */
+  std::vector<int> class_ids;
   /** \brief
    * `landmarks_per_face` indicates the number of face landmarks for each detected face
    * if the model's output contains face landmarks (such as YOLOv5Face, SCRFD, ...)
@@ -168,4 +173,41 @@ class SCRFDGRAY {
     /* 检测结果后处理 */
     void Postprocess(std::vector<std::array<float, 4>>* boxes, std::vector<float>* scores, 
                      FaceDetectionResult* result, float* conf_threshold);
+};
+
+class YOLOV8 {
+  public:
+    std::string ModelName() const { return "yolov8_gray"; }
+
+    void Initialize(std::string& model_path, std::array<int, 2>* in_img_shape,
+                    std::array<int, 2>* in_det_shape);
+
+    void Predict(ssne_tensor_t* img_in, FaceDetectionResult* result,
+                 float conf_threshold = cfg::DET_CONF_THRESH);
+
+    void Release();
+
+    float nms_threshold = cfg::DET_NMS_THRESH;
+    int keep_top_k = cfg::DET_KEEP_TOP_K;
+    int top_k = cfg::DET_TOP_K;
+
+    std::array<int, 2> img_shape;
+    std::array<int, 2> det_shape;
+    float w_scale = 1.0f;
+    float h_scale = 1.0f;
+
+  private:
+    int model_id = -1;
+    ssne_tensor_t inputs[1];
+    ssne_tensor_t outputs[cfg::OUTPUT_HEAD_NUM];
+    AiPreprocessPipe pipe_offline = GetAIPreprocessPipe();
+
+    static float Sigmoid(float x) { return 1.0f / (1.0f + std::exp(-x)); }
+
+    void DecodeHeadOutputs(const float* cls_head, const float* reg_head,
+                           int height, int width, int stride,
+                           float conf_threshold,
+                           std::vector<std::array<float, 4>>& boxes,
+                           std::vector<float>& scores,
+                           std::vector<int>& class_ids);
 };
