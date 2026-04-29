@@ -703,7 +703,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            return
 
     def _write_bytes(self, payload: bytes, mime: str = "image/jpeg", status: int = 200):
         self.send_response(status)
