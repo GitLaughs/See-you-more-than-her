@@ -598,21 +598,25 @@ def _python_has_module(python_exe: str, module_name: str) -> bool:
 
 def _select_qt_bridge_python() -> str:
     repo_root = Path(__file__).resolve().parents[2]
-    candidates = [
+    candidates = []
+    aurora_python = os.environ.get("AURORA_PYTHON")
+    if aurora_python:
+        candidates.append(Path(aurora_python))
+    candidates.extend([
         repo_root / "venv_39" / "Scripts" / "python.exe",
         Path(sys.executable),
-    ]
+    ])
     if sys.platform == "win32":
         candidates.append(Path("python"))
     seen = set()
     for candidate in candidates:
-        key = str(candidate).lower()
+        python_exe = str(candidate)
+        key = python_exe.lower()
         if key in seen:
             continue
         seen.add(key)
-        if str(candidate) != "python" and not candidate.exists():
+        if python_exe != "python" and not candidate.exists():
             continue
-        python_exe = str(candidate)
         if _python_has_module(python_exe, "PySide6"):
             return python_exe
     return sys.executable
@@ -634,14 +638,6 @@ foreach ($conn in $connections) {{
         Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
     }}
 }}
-$bridgeProcs = Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue
-foreach ($proc in $bridgeProcs) {{
-    $cmd = [string]$proc.CommandLine
-    if ($cmd -match "qt_camera_bridge\.py") {{
-        Write-Host "[Aurora] Terminating stale Qt camera bridge process (PID $($proc.ProcessId))"
-        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
-    }}
-}}
 Start-Sleep -Milliseconds 400
 """
     try:
@@ -655,7 +651,6 @@ Start-Sleep -Milliseconds 400
             print(result.stdout.decode('utf-8', errors='replace'))
     except Exception as e:
         print(f"[WARN] Stopping stale Qt bridge: {e}")
-        pass
 
 
 def _start_aurora_desktop() -> Dict[str, Any]:
@@ -701,17 +696,13 @@ def ensure_qt_bridge_running(timeout: float = 12.0) -> dict:
     status = _qt_bridge_status(timeout=0.6)
     if _qt_bridge_is_current(status):
         return status
-    if status is not None:
-        print("[Aurora] Found stale Qt bridge, stopping...")
-        cleanup_qt_bridge_owner_process()
-        _stop_stale_qt_bridge_on_port()
-        time.sleep(0.8)
+    stale_status_seen = status is not None
 
     with _qt_bridge_lock:
         status = _qt_bridge_status(timeout=0.6)
         if _qt_bridge_is_current(status):
             return status
-        if status is not None:
+        if stale_status_seen or status is not None:
             cleanup_qt_bridge_owner_process()
             _stop_stale_qt_bridge_on_port()
             time.sleep(0.8)

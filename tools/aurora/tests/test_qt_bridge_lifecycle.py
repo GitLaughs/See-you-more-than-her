@@ -88,6 +88,49 @@ class QtBridgeLifecycleTests(unittest.TestCase):
         self.assertTrue(response.get_json()["success"])
         cleanup_mock.assert_called_once()
 
+    def test_select_qt_bridge_python_prefers_aurora_python_when_pyside6_available(self):
+        aurora_python = r"C:\AuroraPython\python.exe"
+        with mock.patch.dict(aurora_companion.os.environ, {"AURORA_PYTHON": aurora_python}), \
+             mock.patch.object(aurora_companion.Path, "exists", return_value=True), \
+             mock.patch.object(aurora_companion, "_python_has_module", return_value=True) as has_module_mock:
+            selected = aurora_companion._select_qt_bridge_python()
+
+        self.assertEqual(selected, aurora_python)
+        has_module_mock.assert_called_once_with(aurora_python, "PySide6")
+
+    def test_select_qt_bridge_python_falls_back_when_aurora_python_lacks_pyside6(self):
+        aurora_python = r"C:\BadPython\python.exe"
+        fallback_python = r"C:\FallbackPython\python.exe"
+
+        def fake_has_module(candidate, module_name):
+            return candidate == fallback_python and module_name == "PySide6"
+
+        def fake_exists(path):
+            return str(path) in {aurora_python, fallback_python}
+
+        with mock.patch.dict(aurora_companion.os.environ, {"AURORA_PYTHON": aurora_python}), \
+             mock.patch.object(aurora_companion.Path, "exists", fake_exists), \
+             mock.patch.object(aurora_companion.sys, "executable", fallback_python), \
+             mock.patch.object(aurora_companion.sys, "platform", "linux"), \
+             mock.patch.object(aurora_companion, "_python_has_module", side_effect=fake_has_module):
+            selected = aurora_companion._select_qt_bridge_python()
+
+        self.assertEqual(selected, fallback_python)
+
+    def test_stop_stale_qt_bridge_on_port_does_not_sweep_all_python_processes(self):
+        captured = {}
+
+        def fake_run(command, **kwargs):
+            captured["script"] = command[-1]
+            return mock.Mock(stdout=b"", returncode=0)
+
+        with mock.patch.object(aurora_companion.sys, "platform", "win32"), \
+             mock.patch.object(aurora_companion.subprocess, "run", side_effect=fake_run):
+            aurora_companion._stop_stale_qt_bridge_on_port()
+
+        self.assertIn("Get-NetTCPConnection", captured["script"])
+        self.assertNotIn("Name='python.exe' OR Name='pythonw.exe'", captured["script"])
+
 
 if __name__ == "__main__":
     unittest.main()

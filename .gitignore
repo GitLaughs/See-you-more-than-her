@@ -64,4 +64,5 @@ Aurora-*/
 data/data
 tools/aurora/__pycache__/aurora_companion.cpython-39.pyc
 tools/aurora/.qt_bridge_owner.json
+tools/aurora/.companion_owner.json
 tools/aurora/.qt_bridge_owner.json

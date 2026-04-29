@@ -119,6 +119,67 @@ function Test-PortAvailable {
     }
 }
 
+function Read-OwnerState {
+    param([string]$StatePath)
+    try {
+        if (-not (Test-Path $StatePath)) { return $null }
+        return Get-Content -Raw -Encoding UTF8 $StatePath | ConvertFrom-Json
+    } catch {
+        return $null
+    }
+}
+
+function Clear-OwnerState {
+    param([string]$StatePath)
+    try { Remove-Item -Force $StatePath -ErrorAction SilentlyContinue } catch {}
+}
+
+function Stop-OwnedProcess {
+    param(
+        [string]$StatePath,
+        [string]$ScriptName,
+        [string]$Label
+    )
+    $state = Read-OwnerState -StatePath $StatePath
+    if (-not $state -or -not $state.pid) {
+        Clear-OwnerState -StatePath $StatePath
+        return @()
+    }
+    $ownedPid = [int]$state.pid
+    if ($ownedPid -le 0 -or $ownedPid -eq $PID) {
+        Clear-OwnerState -StatePath $StatePath
+        return @()
+    }
+    try {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$ownedPid" -ErrorAction SilentlyContinue
+        if ($proc -and ([string]$proc.CommandLine) -match [regex]::Escape($ScriptName)) {
+            Write-Host "[Aurora] Releasing stale $Label owner (PID $ownedPid)"
+            Stop-Process -Id $ownedPid -Force -ErrorAction SilentlyContinue
+            Clear-OwnerState -StatePath $StatePath
+            return @($ownedPid)
+        }
+    } catch {}
+    Clear-OwnerState -StatePath $StatePath
+    return @()
+}
+
+function Save-OwnerState {
+    param(
+        [string]$StatePath,
+        [int]$OwnerPid,
+        [int]$OwnerPort,
+        [string]$ScriptPath
+    )
+    $payload = [ordered]@{
+        pid = $OwnerPid
+        port = $OwnerPort
+        script = $ScriptPath
+    }
+    try {
+        $payload | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $StatePath
+    } catch {}
+}
+
 function Resolve-AvailablePort {
     param(
         [string]$BindHost,
@@ -137,45 +198,37 @@ function Resolve-AvailablePort {
 
 function Stop-StaleCompanionOnPort {
     param(
-        [int]$BindPort
+        [int]$BindPort,
+        [string]$OwnerStatePath
     )
+    $killedPids = @(Stop-OwnedProcess -StatePath $OwnerStatePath -ScriptName "aurora_companion.py" -Label "Companion")
     try {
         $connections = Get-NetTCPConnection -LocalPort $BindPort -State Listen -ErrorAction SilentlyContinue
         foreach ($conn in $connections) {
             $pId = [int]$conn.OwningProcess
-            if ($pId -le 0 -or $pId -eq $PID) { continue }
+            if ($pId -le 0 -or $pId -eq $PID -or $killedPids -contains $pId) { continue }
             $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pId" -ErrorAction SilentlyContinue
             if ($proc -and ([string]$proc.CommandLine) -match "aurora_companion\.py") {
                 Write-Host "[Aurora] Releasing stale Companion port $BindPort (PID $pId)"
                 Stop-Process -Id $pId -Force -ErrorAction SilentlyContinue
+                $killedPids += $pId
             }
         }
     } catch {}
 }
 
 function Stop-StaleQtBridge {
+    param([string]$OwnerStatePath)
     $QtBridgePort = 5911
-    $killedPids = @()
+    $killedPids = @(Stop-OwnedProcess -StatePath $OwnerStatePath -ScriptName "qt_camera_bridge.py" -Label "Qt camera bridge")
     try {
         $connections = Get-NetTCPConnection -LocalPort $QtBridgePort -State Listen -ErrorAction SilentlyContinue
         foreach ($conn in $connections) {
             $pId = [int]$conn.OwningProcess
-            if ($pId -le 0 -or $pId -eq $PID) { continue }
+            if ($pId -le 0 -or $pId -eq $PID -or $killedPids -contains $pId) { continue }
             $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pId" -ErrorAction SilentlyContinue
             if ($proc -and ([string]$proc.CommandLine) -match "qt_camera_bridge\.py") {
-                Write-Host "[Aurora] Terminating stale Qt camera bridge (PID $pId)"
-                Stop-Process -Id $pId -Force -ErrorAction SilentlyContinue
-                $killedPids += $pId
-            }
-        }
-    } catch {}
-    try {
-        $bridgeProcs = Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue
-        foreach ($proc in $bridgeProcs) {
-            $pId = [int]$proc.ProcessId
-            if ($pId -le 0 -or $pId -eq $PID -or $killedPids -contains $pId) { continue }
-            if (([string]$proc.CommandLine) -match "qt_camera_bridge\.py") {
-                Write-Host "[Aurora] Terminating stale Qt camera bridge process (PID $pId)"
+                Write-Host "[Aurora] Terminating stale Qt camera bridge on port $QtBridgePort (PID $pId)"
                 Stop-Process -Id $pId -Force -ErrorAction SilentlyContinue
                 $killedPids += $pId
             }
@@ -219,12 +272,20 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
 $Python = Get-PythonExecutable
+$env:AURORA_PYTHON = $Python
+$CompanionOwnerState = Join-Path $ScriptDir ".companion_owner.json"
+$QtBridgeOwnerState = Join-Path $ScriptDir ".qt_bridge_owner.json"
 Start-AuroraBootstrap -Disabled:$SkipAurora
-Stop-StaleCompanionOnPort -BindPort $Port
-Stop-StaleQtBridge
+Stop-StaleCompanionOnPort -BindPort $Port -OwnerStatePath $CompanionOwnerState
+Stop-StaleQtBridge -OwnerStatePath $QtBridgeOwnerState
 Wait-PortReleased -BindHost $ListenHost -BindPort $Port -TimeoutSeconds 5 | Out-Null
 $ResolvedPort = Resolve-AvailablePort -BindHost $ListenHost -PreferredPort $Port
 $browserUrl = "http://127.0.0.1:$ResolvedPort"
 
 Start-BrowserWhenReady -ReadyPort $ResolvedPort -Url $browserUrl
-& $Python aurora_companion.py --device $Device --port $ResolvedPort --host $ListenHost --source $Source
+try {
+    Save-OwnerState -StatePath $CompanionOwnerState -OwnerPid $PID -OwnerPort $ResolvedPort -ScriptPath (Join-Path $ScriptDir "aurora_companion.py")
+    & $Python aurora_companion.py --device $Device --port $ResolvedPort --host $ListenHost --source $Source
+} finally {
+    Clear-OwnerState -StatePath $CompanionOwnerState
+}
