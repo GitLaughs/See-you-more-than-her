@@ -17,6 +17,7 @@ def _patched_path_exists(self):
 
 with mock.patch("pathlib.Path.exists", new=_patched_path_exists):
     aurora_companion = importlib.import_module("tools.aurora.aurora_companion")
+    qt_camera_bridge = importlib.import_module("tools.aurora.qt_camera_bridge")
 
 
 class QtBridgeLifecycleTests(unittest.TestCase):
@@ -87,6 +88,21 @@ class QtBridgeLifecycleTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()["success"])
         cleanup_mock.assert_called_once()
+
+
+    def test_bridge_write_json_ignores_client_abort(self):
+        handler = object.__new__(qt_camera_bridge.BridgeHandler)
+        handler.send_response = mock.Mock()
+        handler.send_header = mock.Mock()
+        handler.end_headers = mock.Mock()
+        handler.wfile = mock.Mock()
+        handler.wfile.write.side_effect = ConnectionAbortedError("client disconnected")
+
+        qt_camera_bridge.BridgeHandler._write_json(handler, {"success": False}, status=503)
+
+        handler.send_response.assert_called_once_with(503)
+        handler.end_headers.assert_called_once_with()
+        handler.wfile.write.assert_called_once()
 
 
 if __name__ == "__main__":
