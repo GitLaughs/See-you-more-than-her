@@ -15,9 +15,8 @@ This repo is not single app. It is A1 vision robot stack with four main first-pa
 - **ROS2 workspace** — `src/ros2_ws/`
   - Separate Jazzy workspace for chassis control and later ROS integration.
   - Not same thing as default board-side runtime path.
-- **Windows host tools** — `tools/aurora/` and `tools/testgpio/`
+- **Windows host tools** — `tools/aurora/`
   - Aurora: camera preview, serial debugging, STM32 control, ROS bridge.
-  - testgpio: local Flask panel to launch board GPIO tx/rx/loop tests over SSH and collect logs.
 
 Prefer edits in `scripts/`, `tools/`, `src/ros2_ws/`, `docs/`, and `.../ssne_ai_demo/`. Treat rest of `smartsens_sdk/`, `third_party/ultralytics/`, and vendor ROS packages as imported/vendor-heavy code.
 
@@ -106,30 +105,6 @@ python -m pytest tools/aurora/tests/test_aurora_startup.py -q
 python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_terminal.py tools/aurora/relay_comm.py tools/aurora/qt_camera_bridge.py tools/aurora/chassis_comm.py tools/aurora/ros_bridge.py
 ```
 
-### GPIO host panel
-
-```bash
-python tools/testgpio_tests.py
-```
-
-Single-file test entry:
-
-```bash
-python -m unittest tools.testgpio_tests
-```
-
-From repo root on Windows:
-
-```powershell
-.\tools\testgpio\launch.ps1
-```
-
-Server entry if needed:
-
-```bash
-python -m testgpio.server
-```
-
 ## Build and runtime architecture
 
 ### 1. Firmware build flow
@@ -181,19 +156,6 @@ Keep these two debug/control paths separate:
 - **Relay-through-A1 path**: PC COM13 → A1 `A1_TEST` CLI → A1 UART0 → STM32 UART3
 
 Many Aurora bugs are really confusion between these two paths.
-
-### 5. GPIO test path
-
-Board-side GPIO support lives in `ssne_ai_demo` behind `--gpio-test` args. Host-side control panel lives in `tools/testgpio/`.
-
-Current host flow:
-- `tools/testgpio/launch.ps1` starts browser and `python -m testgpio.server`
-- Flask app in `testgpio.app` exposes `/api/gpio/config`, `/api/gpio/start`, `/api/gpio/status`
-- `testgpio.runner.GpioRunner` builds either local command or SSH-wrapped remote command
-- remote execution shape is `ssh <host> "cd <remote_workdir> && ./ssne_ai_demo --gpio-test ..."`
-- logs are written under `tools/testgpio/logs/`
-
-If task touches GPIO panel behavior, expect coordinated edits across `tools/testgpio/app.py`, `tools/testgpio/runner.py`, template HTML, and `tools/testgpio_tests.py`.
 
 ## Existing repo guidance worth keeping in mind
 
