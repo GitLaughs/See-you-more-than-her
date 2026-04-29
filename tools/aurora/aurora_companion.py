@@ -135,6 +135,7 @@ QT_BRIDGE_HOST = "127.0.0.1"
 QT_BRIDGE_URL = f"http://{QT_BRIDGE_HOST}:{QT_BRIDGE_PORT}"
 QT_BRIDGE_PROTOCOL_VERSION = 2
 QT_BRIDGE_OWNER_STATE_FILE = Path(__file__).with_name(".qt_bridge_owner.json")
+AURORA_PYTHON_ENV_VAR = "AURORA_PYTHON"
 CAMERA_SOURCE_WINDOWS = "windows"
 CAMERA_SOURCE_A1 = "a1"
 CAMERA_SOURCE_AUTO = "auto"
@@ -533,21 +534,23 @@ def _python_has_module(python_exe: str, module_name: str) -> bool:
 
 def _select_qt_bridge_python() -> str:
     repo_root = Path(__file__).resolve().parents[2]
-    candidates = [
+    preferred_python = str(os.environ.get(AURORA_PYTHON_ENV_VAR, "")).strip()
+    candidates = []
+    if preferred_python:
+        candidates.append(preferred_python)
+    candidates.extend([
         repo_root / "venv_39" / "Scripts" / "python.exe",
         Path(sys.executable),
-    ]
+    ])
     if sys.platform == "win32":
-        candidates.append(Path("python"))
+        candidates.append("python")
     seen = set()
     for candidate in candidates:
-        key = str(candidate).lower()
+        python_exe = str(candidate)
+        key = python_exe.lower()
         if key in seen:
             continue
         seen.add(key)
-        if str(candidate) != "python" and not candidate.exists():
-            continue
-        python_exe = str(candidate)
         if _python_has_module(python_exe, "PySide6"):
             return python_exe
     return sys.executable
@@ -567,14 +570,6 @@ foreach ($conn in $connections) {{
     if ($cmd -match "qt_camera_bridge\.py") {{
         Write-Host "[Aurora] Terminating stale Qt camera bridge on port {QT_BRIDGE_PORT} (PID $procId)"
         Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
-    }}
-}}
-$bridgeProcs = Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue
-foreach ($proc in $bridgeProcs) {{
-    $cmd = [string]$proc.CommandLine
-    if ($cmd -match "qt_camera_bridge\.py") {{
-        Write-Host "[Aurora] Terminating stale Qt camera bridge process (PID $($proc.ProcessId))"
-        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
     }}
 }}
 Start-Sleep -Milliseconds 400

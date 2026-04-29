@@ -21,18 +21,128 @@ function Initialize-Utf8Console {
     $env:no_proxy = $loopbackBypass
 }
 
+function Get-QtBridgeOwnerStatePath {
+    return Join-Path $ScriptDir ".qt_bridge_owner.json"
+}
+
+function Get-RepoVenvRoot {
+    return [System.IO.Path]::GetFullPath((Join-Path $ScriptDir "..\..\venv_39"))
+}
+
+function Get-VenvBasePython {
+    param([string]$VenvRoot)
+
+    $cfgPath = Join-Path $VenvRoot "pyvenv.cfg"
+    if (-not (Test-Path $cfgPath)) {
+        return $null
+    }
+
+    try {
+        $homeLine = Get-Content -Path $cfgPath | Where-Object { $_ -match '^\s*home\s*=' } | Select-Object -First 1
+        if (-not $homeLine) {
+            return $null
+        }
+        $baseHome = ($homeLine -split '=', 2)[1].Trim()
+        if (-not $baseHome) {
+            return $null
+        }
+        $basePython = Join-Path $baseHome "python.exe"
+        if (Test-Path $basePython) {
+            return [System.IO.Path]::GetFullPath($basePython)
+        }
+    } catch {}
+
+    return $null
+}
+
+function Set-AuroraPythonEnvironment {
+    param([string]$PythonExecutable)
+
+    $venvRoot = Get-RepoVenvRoot
+    $cfgPath = Join-Path $venvRoot "pyvenv.cfg"
+    if (-not (Test-Path $cfgPath)) {
+        return
+    }
+
+    $sitePackages = Join-Path $venvRoot "Lib\site-packages"
+    $scriptsDir = Join-Path $venvRoot "Scripts"
+    $pythonDir = Split-Path $PythonExecutable -Parent
+
+    $env:VIRTUAL_ENV = $venvRoot
+    if (Test-Path $sitePackages) {
+        if ([string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
+            $env:PYTHONPATH = [System.IO.Path]::GetFullPath($sitePackages)
+        } else {
+            $env:PYTHONPATH = ([System.IO.Path]::GetFullPath($sitePackages)) + ";" + $env:PYTHONPATH
+        }
+    }
+
+    $prependPath = @()
+    if (Test-Path $scriptsDir) {
+        $prependPath += [System.IO.Path]::GetFullPath($scriptsDir)
+    }
+    if ($pythonDir) {
+        $prependPath += $pythonDir
+    }
+    if ($prependPath.Count -gt 0) {
+        $env:PATH = ($prependPath -join ";") + ";" + $env:PATH
+    }
+}
+
 function Get-PythonExecutable {
-    $candidates = @(
-        (Join-Path $ScriptDir "..\..\venv_39\Scripts\python.exe"),
-        "python"
-    ) | Where-Object { Test-Path $_ }
+    $venvRoot = Get-RepoVenvRoot
+    $venvPython = Join-Path $venvRoot "Scripts\python.exe"
+    $basePython = Get-VenvBasePython -VenvRoot $venvRoot
+    $candidates = @()
+    if ($basePython) {
+        $candidates += $basePython
+    }
+    if (Test-Path $venvPython) {
+        $candidates += [System.IO.Path]::GetFullPath($venvPython)
+    }
+    $candidates += "python"
+
     foreach ($candidate in $candidates) {
         try {
             $version = & $candidate --version 2>&1
-            if ($version -match "Python 3") { return $candidate }
+            if ($version -match "Python 3") {
+                return $candidate
+            }
         } catch {}
     }
     return "python"
+}
+
+function Stop-OwnedQtBridge {
+    $statePath = Get-QtBridgeOwnerStatePath
+    if (-not (Test-Path $statePath)) {
+        return @()
+    }
+
+    try {
+        $state = Get-Content -Raw -Path $statePath | ConvertFrom-Json
+    } catch {
+        Remove-Item $statePath -Force -ErrorAction SilentlyContinue
+        return @()
+    }
+
+    $ownerPid = 0
+    try { $ownerPid = [int]$state.pid } catch { $ownerPid = 0 }
+    if ($ownerPid -le 0 -or $ownerPid -eq $PID) {
+        Remove-Item $statePath -Force -ErrorAction SilentlyContinue
+        return @()
+    }
+
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$ownerPid" -ErrorAction SilentlyContinue
+    if ($proc -and ([string]$proc.CommandLine) -match "qt_camera_bridge\.py") {
+        Write-Host "[Aurora] Terminating owned Qt camera bridge (PID $ownerPid)"
+        Stop-Process -Id $ownerPid -Force -ErrorAction SilentlyContinue
+        Remove-Item $statePath -Force -ErrorAction SilentlyContinue
+        return @($ownerPid)
+    }
+
+    Remove-Item $statePath -Force -ErrorAction SilentlyContinue
+    return @()
 }
 
 function Start-AuroraBootstrap {
@@ -142,12 +252,12 @@ function Stop-StaleCompanionOnPort {
     try {
         $connections = Get-NetTCPConnection -LocalPort $BindPort -State Listen -ErrorAction SilentlyContinue
         foreach ($conn in $connections) {
-            $pId = [int]$conn.OwningProcess
-            if ($pId -le 0 -or $pId -eq $PID) { continue }
-            $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pId" -ErrorAction SilentlyContinue
+            $ownerPid = [int]$conn.OwningProcess
+            if ($ownerPid -le 0 -or $ownerPid -eq $PID) { continue }
+            $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$ownerPid" -ErrorAction SilentlyContinue
             if ($proc -and ([string]$proc.CommandLine) -match "aurora_companion\.py") {
-                Write-Host "[Aurora] Releasing stale Companion port $BindPort (PID $pId)"
-                Stop-Process -Id $pId -Force -ErrorAction SilentlyContinue
+                Write-Host "[Aurora] Releasing stale Companion port $BindPort (PID $ownerPid)"
+                Stop-Process -Id $ownerPid -Force -ErrorAction SilentlyContinue
             }
         }
     } catch {}
@@ -155,27 +265,15 @@ function Stop-StaleCompanionOnPort {
 
 function Stop-StaleQtBridge {
     $QtBridgePort = 5911
-    $killedPids = @()
+    $killedPids = @(Stop-OwnedQtBridge)
     try {
         $connections = Get-NetTCPConnection -LocalPort $QtBridgePort -State Listen -ErrorAction SilentlyContinue
         foreach ($conn in $connections) {
             $pId = [int]$conn.OwningProcess
-            if ($pId -le 0 -or $pId -eq $PID) { continue }
+            if ($pId -le 0 -or $pId -eq $PID -or $killedPids -contains $pId) { continue }
             $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pId" -ErrorAction SilentlyContinue
             if ($proc -and ([string]$proc.CommandLine) -match "qt_camera_bridge\.py") {
                 Write-Host "[Aurora] Terminating stale Qt camera bridge (PID $pId)"
-                Stop-Process -Id $pId -Force -ErrorAction SilentlyContinue
-                $killedPids += $pId
-            }
-        }
-    } catch {}
-    try {
-        $bridgeProcs = Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue
-        foreach ($proc in $bridgeProcs) {
-            $pId = [int]$proc.ProcessId
-            if ($pId -le 0 -or $pId -eq $PID -or $killedPids -contains $pId) { continue }
-            if (([string]$proc.CommandLine) -match "qt_camera_bridge\.py") {
-                Write-Host "[Aurora] Terminating stale Qt camera bridge process (PID $pId)"
                 Stop-Process -Id $pId -Force -ErrorAction SilentlyContinue
                 $killedPids += $pId
             }
@@ -219,6 +317,8 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
 $Python = Get-PythonExecutable
+Set-AuroraPythonEnvironment -PythonExecutable $Python
+$env:AURORA_PYTHON = $Python
 Start-AuroraBootstrap -Disabled:$SkipAurora
 Stop-StaleCompanionOnPort -BindPort $Port
 Stop-StaleQtBridge
@@ -227,4 +327,4 @@ $ResolvedPort = Resolve-AvailablePort -BindHost $ListenHost -PreferredPort $Port
 $browserUrl = "http://127.0.0.1:$ResolvedPort"
 
 Start-BrowserWhenReady -ReadyPort $ResolvedPort -Url $browserUrl
-& $Python aurora_companion.py --device $Device --port $ResolvedPort --host $ListenHost --source $Source
+& $env:AURORA_PYTHON aurora_companion.py --device $Device --port $ResolvedPort --host $ListenHost --source $Source

@@ -139,10 +139,43 @@ class AuroraStartupTests(unittest.TestCase):
 
         self.assertEqual(selected, aurora_companion.sys.executable)
 
+    def test_qt_bridge_python_selector_prefers_launch_env(self):
+        repo_root = Path(aurora_companion.__file__).resolve().parents[2]
+        preferred_python = repo_root / ".venv39" / "Scripts" / "python.exe"
+
+        with mock.patch.dict(aurora_companion.os.environ, {"AURORA_PYTHON": str(preferred_python)}, clear=False), \
+             mock.patch.object(aurora_companion, "_python_has_module", return_value=True) as has_module:
+            selected = aurora_companion._select_qt_bridge_python()
+
+        self.assertEqual(Path(selected), preferred_python)
+        has_module.assert_called_once_with(str(preferred_python), "PySide6")
+
+    def test_launch_script_defines_qt_bridge_owner_state_path_helper(self):
+        launch_script = Path("tools/aurora/launch.ps1").read_text(encoding="utf-8")
+        self.assertIn("function Get-QtBridgeOwnerStatePath", launch_script)
+        self.assertIn('return Join-Path $ScriptDir ".qt_bridge_owner.json"', launch_script)
+
     def test_launch_script_uses_single_repo_python_env(self):
         launch_script = Path("tools/aurora/launch.ps1").read_text(encoding="utf-8")
-        self.assertIn('venv_39\\Scripts\\python.exe', launch_script)
         self.assertNotIn('.venv39\\Scripts\\python.exe', launch_script)
+        self.assertIn('$env:AURORA_PYTHON = $Python', launch_script)
+        self.assertIn('Set-AuroraPythonEnvironment -PythonExecutable $Python', launch_script)
+        self.assertIn('& $env:AURORA_PYTHON aurora_companion.py', launch_script)
+
+    def test_launch_script_uses_base_python_with_venv_packages(self):
+        launch_script = Path("tools/aurora/launch.ps1").read_text(encoding="utf-8")
+        self.assertIn("pyvenv.cfg", launch_script)
+        self.assertIn("$env:VIRTUAL_ENV", launch_script)
+        self.assertIn("$env:PYTHONPATH", launch_script)
+
+    def test_launch_script_companion_cleanup_avoids_pid_variable_collision(self):
+        launch_script = Path("tools/aurora/launch.ps1").read_text(encoding="utf-8")
+        start = launch_script.index("function Stop-StaleCompanionOnPort")
+        end = launch_script.index("function Stop-StaleQtBridge")
+        cleanup_block = launch_script[start:end]
+        self.assertNotIn("$pId = [int]$conn.OwningProcess", cleanup_block)
+        self.assertIn("$ownerPid = [int]$conn.OwningProcess", cleanup_block)
+        self.assertIn("$ownerPid -le 0 -or $ownerPid -eq $PID", cleanup_block)
 
 
 if __name__ == "__main__":
