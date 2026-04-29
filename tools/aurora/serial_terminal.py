@@ -46,6 +46,29 @@ _rx_last_data_ts = 0.0
 
 _PARTIAL_IDLE_FLUSH_SEC = 3.0  # 增加到3秒，避免频繁刷新部分行
 _PARTIAL_BUFFER_LIMIT = 8192
+_LOCK_SNAPSHOT_TIMEOUT_SEC = 0.02
+
+
+def _serial_snapshot() -> Dict[str, Any]:
+    state = _snapshot_state()
+    acquired = _ser_lock.acquire(timeout=_LOCK_SNAPSHOT_TIMEOUT_SEC)
+    if not acquired:
+        return {
+            "connected": False,
+            "port": state.get("port") or _DEFAULT_PORT,
+            "baud": int(state.get("baud") or 115200),
+            "busy": True,
+        }
+    try:
+        connected = _ser is not None and _ser.is_open
+        return {
+            "connected": connected,
+            "port": str(_ser.port) if connected else (state.get("port") or _DEFAULT_PORT),
+            "baud": int(_ser.baudrate) if connected else int(state.get("baud") or 115200),
+            "busy": False,
+        }
+    finally:
+        _ser_lock.release()
 
 
 def _snapshot_state() -> Dict[str, Any]:
@@ -179,8 +202,39 @@ def _flush_partial_buffer(force: bool = False) -> None:
     pass
 
 
+def _should_merge_partial(previous_text: str, next_text: str) -> bool:
+    if not previous_text or not next_text:
+        return False
+    if previous_text[-1].isspace() or next_text[0].isspace():
+        return False
+    if previous_text[-1].isascii() and previous_text[-1].isalnum() and next_text[0].isascii() and next_text[0].isalnum():
+        return True
+    return False
+
+
 def _append_rx_entry(raw: bytes, text: str, partial: bool = False) -> None:
     global _rx_seq
+    if text and not partial and _rx_log:
+        previous = _rx_log[0]
+        prev_text = str(previous.get("text") or "")
+        if previous.get("partial") and _should_merge_partial(prev_text, text):
+            merged_text = prev_text + text
+            merged_raw = bytes.fromhex(str(previous.get("hex") or "").replace(" ", "")) + raw
+            entry = {
+                "ts": time.strftime("%H:%M:%S"),
+                "hex": merged_raw.hex(" ").upper(),
+                "text": merged_text,
+                "partial": False,
+            }
+            _rx_log.popleft()
+            if _latest_lines and _latest_lines[0] is previous:
+                _latest_lines.popleft()
+            _rx_log.appendleft(entry)
+            _latest_lines.appendleft(entry)
+            with _rx_cond:
+                _rx_seq += 1
+                _rx_cond.notify_all()
+            return
     entry = {
         "ts": time.strftime("%H:%M:%S"),
         "hex": raw.hex(" ").upper(),
@@ -257,22 +311,15 @@ def _disconnect_serial() -> None:
 
 
 def is_connected() -> bool:
-    with _ser_lock:
-        return _ser is not None and _ser.is_open
+    return bool(_serial_snapshot()["connected"])
 
 
 def current_port() -> Optional[str]:
-    with _ser_lock:
-        if _ser is not None and _ser.is_open:
-            return str(_ser.port)
-    return _snapshot_state().get("port") or _DEFAULT_PORT
+    return str(_serial_snapshot()["port"])
 
 
 def current_baud() -> int:
-    with _ser_lock:
-        if _ser is not None and _ser.is_open:
-            return int(_ser.baudrate)
-    return int(_snapshot_state().get("baud") or 115200)
+    return int(_serial_snapshot()["baud"])
 
 
 def current_timeout() -> float:
@@ -299,6 +346,36 @@ def ensure_connected(baud: Optional[int] = None, timeout: Optional[float] = None
     if is_connected():
         return {"success": True, "port": current_port(), "baud": current_baud()}
     return _auto_connect(baud=baud or 115200, timeout=timeout)
+
+
+def ensure_connected_to(port: str, baud: Optional[int] = None, timeout: Optional[float] = None) -> Dict[str, Any]:
+    target_port = str(port or "").strip() or _DEFAULT_PORT
+    serial_timeout = float(timeout if timeout is not None else current_timeout())
+    baudrate = int(baud or current_baud() or 115200)
+    snapshot = _serial_snapshot()
+    if snapshot["connected"] and str(snapshot["port"]).lower() == target_port.lower():
+        return {"success": True, "port": snapshot["port"], "baud": snapshot["baud"]}
+    try:
+        _connect_serial(target_port, baudrate, serial_timeout)
+        with _state_lock:
+            _state["port"] = target_port
+            _state["baud"] = baudrate
+            _state["timeout"] = serial_timeout
+        return {"success": True, "port": target_port, "baud": baudrate}
+    except Exception as exc:
+        return {"success": False, "error": str(exc), "port": target_port}
+
+
+def is_shared_port(port: Optional[str]) -> bool:
+    target = str(port or "").strip().lower()
+    if not target:
+        return False
+    return target == str(_snapshot_state().get("port") or _DEFAULT_PORT).strip().lower() or target == _DEFAULT_PORT.lower()
+
+
+def send_raw_payload(payload: bytes, text: Optional[str] = None) -> Dict[str, Any]:
+    display = text if text is not None else payload.hex(" ").upper()
+    return _send_payload(payload, display, hex_mode=text is None)
 
 
 def send_text_line(line: str, wait_tokens: Optional[List[str]] = None, timeout_sec: float = 0.8) -> Dict[str, Any]:
@@ -423,16 +500,14 @@ def config():
 @serial_term_bp.route("/status")
 def status():
     state = _snapshot_state()
-    with _ser_lock:
-        connected = _ser is not None and _ser.is_open
-        port = _ser.port if connected else state.get("port")
-        baud = _ser.baudrate if connected else state.get("baud")
+    serial_state = _serial_snapshot()
     return jsonify({
         "success": True,
         "available": _SERIAL_AVAILABLE,
-        "connected": connected,
-        "port": port,
-        "baud": baud,
+        "connected": serial_state["connected"],
+        "port": serial_state["port"],
+        "baud": serial_state["baud"],
+        "busy": serial_state["busy"],
         "append_newline": state.get("append_newline", True),
         "latest_lines": list(_latest_lines),
         "rx_count": len(_rx_log),
@@ -515,8 +590,8 @@ def send_test():
         "测试回传成功",
     ]
 
-    with _ser_lock:
-        connected = _ser is not None and _ser.is_open
+    serial_state = _serial_snapshot()
+    connected = serial_state["connected"]
     if not connected and auto_connect_first:
         result = _auto_connect()
         if not result.get("success"):
