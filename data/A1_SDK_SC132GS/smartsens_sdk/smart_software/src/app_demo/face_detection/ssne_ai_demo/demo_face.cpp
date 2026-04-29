@@ -16,22 +16,7 @@
 #include "include/chassis_controller.hpp"
 #include "include/utils.hpp"
 
-namespace {
-
-struct RuntimeState {
-    bool exit_requested = false;
-    bool link_test_enabled = cfg::LINK_TEST_ENABLED;
-    bool manual_active = false;
-    int16_t manual_vx = 0;
-    int16_t manual_vy = 0;
-    int16_t manual_vz = 0;
-    uint64_t manual_until_us = 0;
-    uint64_t frame_count = 0;
-    uint64_t detection_count = 0;
-    std::string backend = cfg::USE_SCRFD_BACKEND ? "scrfd_gray" : "yolov8_gray";
-    std::string last_command = "boot";
-    bool chassis_ready = false;
-};
+using namespace std;
 
 bool g_exit_flag = false;
 std::mutex g_mtx;
@@ -100,7 +85,6 @@ void keyboard_listener() {
         }
         std::cout << "输入无效（仅 'q' 有效），请重新输入：" << std::endl;
     }
-    return out;
 }
 
 bool check_exit_flag() {
@@ -260,8 +244,7 @@ int main(int argc, char** argv) {
     };
 
     if (ssne_initial()) {
-        std::fprintf(stderr, "[A1] SSNE initialization failed\n");
-        return 1;
+        fprintf(stderr, "SSNE initialization failed!\n");
     }
 
     array<int, 2> img_shape = {img_width, img_height};
@@ -362,8 +345,8 @@ int main(int argc, char** argv) {
     visualizer.Release();
 
     if (ssne_release()) {
-        std::fprintf(stderr, "[A1] SSNE release failed\n");
-        return 1;
+        fprintf(stderr, "SSNE release failed!\n");
+        return -1;
     }
 
     return 0;

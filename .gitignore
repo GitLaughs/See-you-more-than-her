@@ -39,6 +39,7 @@ CLIProxyAPI_6.9.40_windows_amd64
 .worktrees/
 .playwright-mcp
 .claude
+tools\aurora\.qt_bridge_owner.json
 # Aurora 拍照工具保留在版本控制中: tools/aurora/
 
 # Local editor / IDE
@@ -62,3 +63,5 @@ Aurora-*/
 .vscode/settings.json
 data/data
 tools/aurora/__pycache__/aurora_companion.cpython-39.pyc
+tools/aurora/.qt_bridge_owner.json
+tools/aurora/.qt_bridge_owner.json

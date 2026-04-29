@@ -49,6 +49,11 @@ try:
 except ImportError:
     _SERIAL_AVAILABLE = False
 
+try:
+    import serial_terminal as shared_serial
+except ImportError:
+    from tools.aurora import serial_terminal as shared_serial
+
 # ─── 协议常量 ─────────────────────────────────────────────────────────────────
 FRAME_HEADER = 0x7B
 FRAME_TAIL   = 0x7D
@@ -59,12 +64,17 @@ CMD_DOCK     = 0x03
 
 TX_LEN = 11
 RX_LEN = 24
+_DIRECT_TRANSPORT = "direct_serial"
+_SHARED_TRANSPORT = "shared_com13"
 
 # ─── 全局串口状态 ─────────────────────────────────────────────────────────────
 _ser: Optional["serial.Serial"] = None  # type: ignore
 _ser_lock = threading.Lock()
 _rx_thread: Optional[threading.Thread] = None
 _running = False
+_transport_mode = _DIRECT_TRANSPORT
+_connected_port: Optional[str] = None
+_connected_baud = 115200
 
 _telemetry: dict = {}
 _tx_log: deque = deque(maxlen=30)
@@ -84,13 +94,6 @@ def _bcc(data: bytes) -> int:
 
 
 def build_cmd(vx: int, vy: int, vz: int, cmd: int = CMD_NORMAL) -> bytes:
-    """构建 11 字节指令帧 (A1→STM32)
-    Args:
-        vx: X轴线速度 mm/s (int16)
-        vy: Y轴线速度 mm/s (int16)
-        vz: Z轴角速度 mrad/s (int16)
-        cmd: 命令字节
-    """
     frame = bytearray(11)
     frame[0] = FRAME_HEADER
     frame[1] = cmd
@@ -98,13 +101,12 @@ def build_cmd(vx: int, vy: int, vz: int, cmd: int = CMD_NORMAL) -> bytes:
     struct.pack_into(">h", frame, 3, max(-32768, min(32767, vx)))
     struct.pack_into(">h", frame, 5, max(-32768, min(32767, vy)))
     struct.pack_into(">h", frame, 7, max(-32768, min(32767, vz)))
-    frame[9]  = _bcc(bytes(frame[:9]))
+    frame[9] = _bcc(bytes(frame[:9]))
     frame[10] = FRAME_TAIL
     return bytes(frame)
 
 
 def parse_rx(data: bytes) -> Optional[dict]:
-    """解析 24 字节遥测帧 (STM32→A1)"""
     if len(data) != RX_LEN:
         return None
     if data[0] != FRAME_HEADER or data[23] != FRAME_TAIL:
@@ -113,31 +115,113 @@ def parse_rx(data: bytes) -> Optional[dict]:
         return None
 
     flag_stop = data[1]
-    vx  = struct.unpack_from(">h", data,  2)[0]
-    vy  = struct.unpack_from(">h", data,  4)[0]
-    vz  = struct.unpack_from(">h", data,  6)[0]
-    ax  = struct.unpack_from(">h", data,  8)[0]
-    ay  = struct.unpack_from(">h", data, 10)[0]
-    az  = struct.unpack_from(">h", data, 12)[0]
-    gx  = struct.unpack_from(">h", data, 14)[0]
-    gy  = struct.unpack_from(">h", data, 16)[0]
-    gz  = struct.unpack_from(">h", data, 18)[0]
+    vx = struct.unpack_from(">h", data, 2)[0]
+    vy = struct.unpack_from(">h", data, 4)[0]
+    vz = struct.unpack_from(">h", data, 6)[0]
+    ax = struct.unpack_from(">h", data, 8)[0]
+    ay = struct.unpack_from(">h", data, 10)[0]
+    az = struct.unpack_from(">h", data, 12)[0]
+    gx = struct.unpack_from(">h", data, 14)[0]
+    gy = struct.unpack_from(">h", data, 16)[0]
+    gz = struct.unpack_from(">h", data, 18)[0]
     vol = struct.unpack_from(">h", data, 20)[0]
 
     return {
-        "flag_stop":  flag_stop,
-        "vx":         vx,
-        "vy":         vy,
-        "vz":         vz,
-        "accel_x":    round(ax  * 0.001, 4),
-        "accel_y":    round(ay  * 0.001, 4),
-        "accel_z":    round(az  * 0.001, 4),
-        "gyro_x":     round(gx  * 0.001, 4),
-        "gyro_y":     round(gy  * 0.001, 4),
-        "gyro_z":     round(gz  * 0.001, 4),
-        "voltage":    round(vol * 0.001, 3),
-        "ts":         time.strftime("%H:%M:%S"),
+        "flag_stop": flag_stop,
+        "vx": vx,
+        "vy": vy,
+        "vz": vz,
+        "accel_x": round(ax * 0.001, 4),
+        "accel_y": round(ay * 0.001, 4),
+        "accel_z": round(az * 0.001, 4),
+        "gyro_x": round(gx * 0.001, 4),
+        "gyro_y": round(gy * 0.001, 4),
+        "gyro_z": round(gz * 0.001, 4),
+        "voltage": round(vol * 0.001, 3),
+        "ts": time.strftime("%H:%M:%S"),
     }
+
+
+def _is_shared_mode() -> bool:
+    return _transport_mode == _SHARED_TRANSPORT
+
+
+def _shared_snapshot() -> dict:
+    return shared_serial._serial_snapshot()  # type: ignore[attr-defined]
+
+
+def _direct_connected() -> bool:
+    with _ser_lock:
+        return _ser is not None and _ser.is_open
+
+
+def _current_port() -> Optional[str]:
+    if _is_shared_mode():
+        return shared_serial.current_port()
+    with _ser_lock:
+        if _ser is not None and _ser.is_open:
+            return str(_ser.port)
+    return _connected_port
+
+
+def _current_connected() -> bool:
+    if _is_shared_mode():
+        snapshot = _shared_snapshot()
+        return bool(snapshot.get("connected")) and shared_serial.is_shared_port(_connected_port)
+    return _direct_connected()
+
+
+def _set_shared_backend(port: str, baud: int) -> dict:
+    global _transport_mode, _connected_port, _connected_baud, _running, _ser
+    result = shared_serial.ensure_connected_to(port, baud=baud)
+    if not result.get("success"):
+        return result
+    _running = False
+    with _ser_lock:
+        if _ser and _ser.is_open:
+            _ser.close()
+        _ser = None
+    _transport_mode = _SHARED_TRANSPORT
+    _connected_port = str(result.get("port") or port)
+    _connected_baud = int(result.get("baud") or baud)
+    return {"success": True, "port": _connected_port, "baud": _connected_baud, "transport": _SHARED_TRANSPORT}
+
+
+def _set_direct_backend(port: str, baud: int) -> dict:
+    global _ser, _rx_thread, _running, _telemetry, _rx_seq, _transport_mode, _connected_port, _connected_baud
+    with _ser_lock:
+        if _ser and _ser.is_open:
+            _ser.close()
+        try:
+            _ser = serial.Serial(port, baud, timeout=0.1)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    _running = True
+    _telemetry = {}
+    _rx_seq = 0
+    _transport_mode = _DIRECT_TRANSPORT
+    _connected_port = port
+    _connected_baud = baud
+    _rx_thread = threading.Thread(target=_rx_worker, daemon=True, name="chassis-rx")
+    _rx_thread.start()
+    return {"success": True, "port": port, "baud": baud, "transport": _DIRECT_TRANSPORT}
+
+
+def _write_payload(payload: bytes, tx_entry: dict) -> dict:
+    if _is_shared_mode():
+        result = shared_serial.send_raw_payload(payload)
+        if not result.get("success"):
+            return result
+    else:
+        with _ser_lock:
+            if _ser is None or not _ser.is_open:
+                return {"success": False, "error": "未连接串口"}
+            try:
+                _ser.write(payload)
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+    _tx_log.appendleft(tx_entry)
+    return {"success": True}
 
 
 # ─── 接收线程 ─────────────────────────────────────────────────────────────────
@@ -156,7 +240,6 @@ def _rx_worker():
             chunk = ser.read(max(1, min(waiting, 128)))
             if chunk:
                 buf.extend(chunk)
-                # 扫描完整帧
                 while len(buf) >= RX_LEN:
                     idx = buf.find(FRAME_HEADER)
                     if idx < 0:
@@ -186,13 +269,11 @@ def _rx_worker():
 
 @chassis_bp.route("/available")
 def available():
-    """检查 pyserial 是否可用"""
     return jsonify({"available": _SERIAL_AVAILABLE})
 
 
 @chassis_bp.route("/ports")
 def list_ports():
-    """列出可用串口"""
     if not _SERIAL_AVAILABLE:
         return jsonify([])
     ports = [
@@ -204,104 +285,89 @@ def list_ports():
 
 @chassis_bp.route("/connect", methods=["POST"])
 def connect():
-    global _ser, _rx_thread, _running, _telemetry, _rx_seq
+    global _telemetry, _rx_seq
     if not _SERIAL_AVAILABLE:
         return jsonify({"success": False, "error": "pyserial 未安装，请运行: pip install pyserial"})
 
     d = request.get_json(silent=True) or {}
-    port = d.get("port", "")
+    port = str(d.get("port", "") or "").strip()
     baud = int(d.get("baud", 115200))
     if not port:
         return jsonify({"success": False, "error": "需要指定串口号"})
 
-    with _ser_lock:
-        if _ser and _ser.is_open:
-            _ser.close()
-        try:
-            _ser = serial.Serial(port, baud, timeout=0.1)
-        except Exception as e:
-            return jsonify({"success": False, "error": str(e)})
-
-    _running = True
     _telemetry = {}
     _rx_seq = 0
-    _rx_thread = threading.Thread(target=_rx_worker, daemon=True, name="chassis-rx")
-    _rx_thread.start()
-    print(f"[CHASSIS] 已连接 {port} @ {baud}")
-    return jsonify({"success": True, "port": port, "baud": baud})
+    if shared_serial.is_shared_port(port):
+        result = _set_shared_backend(port, baud)
+    else:
+        result = _set_direct_backend(port, baud)
+    if result.get("success"):
+        print(f"[CHASSIS] 已连接 {result['port']} @ {result['baud']} ({result['transport']})")
+    return jsonify(result)
 
 
 @chassis_bp.route("/disconnect", methods=["POST"])
 def disconnect():
-    global _ser, _running, _telemetry, _rx_seq
+    global _ser, _running, _telemetry, _rx_seq, _transport_mode, _connected_port
+    _telemetry = {}
+    _rx_seq = 0
+    if _is_shared_mode():
+        _transport_mode = _DIRECT_TRANSPORT
+        _connected_port = None
+        print("[CHASSIS] 已断开逻辑共享通道")
+        return jsonify({"success": True, "transport": _SHARED_TRANSPORT, "shared_owner": "serial_terminal"})
     _running = False
     with _ser_lock:
         if _ser and _ser.is_open:
             _ser.close()
         _ser = None
-    _telemetry = {}
-    _rx_seq = 0
+    _connected_port = None
     print("[CHASSIS] 已断开")
-    return jsonify({"success": True})
+    return jsonify({"success": True, "transport": _DIRECT_TRANSPORT})
 
 
 @chassis_bp.route("/status")
 def status():
-    with _ser_lock:
-        connected = _ser is not None and _ser.is_open
-        port = _ser.port if connected else None
     return jsonify({
-        "connected": connected,
-        "port": port,
+        "connected": _current_connected(),
+        "port": _current_port(),
         "telemetry": _telemetry,
+        "transport": _transport_mode,
     })
 
 
 @chassis_bp.route("/move", methods=["POST"])
 def move():
-    """发送运动指令
-    Body: {"vx": mm/s, "vy": mm/s, "vz": mrad/s, "cmd": 0}
-    """
     d = request.get_json(silent=True) or {}
-    vx  = int(d.get("vx",  0))
-    vy  = int(d.get("vy",  0))
-    vz  = int(d.get("vz",  0))
+    vx = int(d.get("vx", 0))
+    vy = int(d.get("vy", 0))
+    vz = int(d.get("vz", 0))
     cmd = int(d.get("cmd", CMD_NORMAL))
 
     frame = build_cmd(vx, vy, vz, cmd)
-
-    with _ser_lock:
-        if _ser is None or not _ser.is_open:
-            return jsonify({"success": False, "error": "未连接串口"})
-        try:
-            _ser.write(frame)
-        except Exception as e:
-            return jsonify({"success": False, "error": str(e)})
-
-    _tx_log.appendleft({
+    tx_entry = {
         "hex": frame.hex(" ").upper(),
         "vx": vx, "vy": vy, "vz": vz, "cmd": cmd,
         "ts": time.strftime("%H:%M:%S"),
-    })
-    return jsonify({"success": True, "frame": frame.hex(" ").upper()})
+    }
+    result = _write_payload(frame, tx_entry)
+    if not result.get("success"):
+        return jsonify(result)
+    return jsonify({"success": True, "frame": frame.hex(" ").upper(), "transport": _transport_mode})
 
 
 @chassis_bp.route("/stop", methods=["POST"])
 def stop():
-    """发送急停指令 (Vx=Vy=Vz=0)"""
     frame = build_cmd(0, 0, 0)
-    with _ser_lock:
-        if _ser and _ser.is_open:
-            try:
-                _ser.write(frame)
-            except Exception:
-                pass
-    _tx_log.appendleft({
+    tx_entry = {
         "hex": frame.hex(" ").upper(),
         "vx": 0, "vy": 0, "vz": 0, "cmd": 0,
         "ts": time.strftime("%H:%M:%S"),
-    })
-    return jsonify({"success": True})
+    }
+    result = _write_payload(frame, tx_entry)
+    if not result.get("success"):
+        return jsonify(result)
+    return jsonify({"success": True, "transport": _transport_mode})
 
 
 @chassis_bp.route("/tx_log")
@@ -316,9 +382,6 @@ def rx_log():
 
 @chassis_bp.route("/raw_send", methods=["POST"])
 def raw_send():
-    """发送原始十六进制帧（调试用）
-    Body: {"hex": "7B 00 00 ..."}
-    """
     d = request.get_json(silent=True) or {}
     hex_str = d.get("hex", "").replace(" ", "")
     try:
@@ -326,47 +389,43 @@ def raw_send():
     except ValueError as e:
         return jsonify({"success": False, "error": f"十六进制格式错误: {e}"})
 
-    with _ser_lock:
-        if _ser is None or not _ser.is_open:
-            return jsonify({"success": False, "error": "未连接串口"})
-        try:
-            _ser.write(raw)
-        except Exception as e:
-            return jsonify({"success": False, "error": str(e)})
-
-    _tx_log.appendleft({
+    tx_entry = {
         "hex": raw.hex(" ").upper(),
         "raw": True,
         "ts": time.strftime("%H:%M:%S"),
-    })
-    return jsonify({"success": True, "bytes_sent": len(raw)})
+    }
+    result = _write_payload(raw, tx_entry)
+    if not result.get("success"):
+        return jsonify(result)
+    return jsonify({"success": True, "bytes_sent": len(raw), "transport": _transport_mode})
 
 
 @chassis_bp.route("/ping", methods=["POST"])
 def ping():
-    """A1 ↔ STM32 联通测试
-    发送一个零速度指令帧，等待最多 500ms，若收到有效遥测帧则判断为连通。
-    返回: {"success": bool, "connected": bool, "frame_tx": str, "telemetry": ...}
-    """
     import time as _time
     global _rx_seq
+    if _is_shared_mode():
+        snapshot = _shared_snapshot()
+        connected = bool(snapshot.get("connected")) and shared_serial.is_shared_port(_connected_port)
+        return jsonify({
+            "success": True,
+            "connected": connected,
+            "frame_tx": None,
+            "transport": _SHARED_TRANSPORT,
+            "note": "共享 COM13/A1_TEST 通道不提供直连 STM32 遥测 ping，请使用 relay debug_status。",
+        })
+
     frame = build_cmd(0, 0, 0)
     rx_seq_before = _rx_seq
-    with _ser_lock:
-        if _ser is None or not _ser.is_open:
-            return jsonify({"success": False, "error": "串口未连接"})
-        try:
-            _ser.write(frame)
-        except Exception as e:
-            return jsonify({"success": False, "error": str(e)})
-
-    _tx_log.appendleft({
+    tx_entry = {
         "hex": frame.hex(" ").upper(),
         "vx": 0, "vy": 0, "vz": 0, "cmd": 0,
         "ts": _time.strftime("%H:%M:%S"),
-    })
+    }
+    result = _write_payload(frame, tx_entry)
+    if not result.get("success"):
+        return jsonify(result)
 
-    # 等待遥测数据（只认本次发包之后收到的新帧，避免历史数据误判）
     deadline = _time.monotonic() + 0.6
     while _time.monotonic() < deadline:
         if _rx_seq > rx_seq_before:
@@ -379,13 +438,14 @@ def ping():
                 "connected": True,
                 "frame_tx": frame.hex(" ").upper(),
                 "telemetry": tele,
+                "transport": _DIRECT_TRANSPORT,
             })
         _time.sleep(0.05)
 
-    # 超时：发送成功但未收到遥测（单向连通或遥测线未接）
     return jsonify({
         "success": True,
         "connected": False,
         "frame_tx": frame.hex(" ").upper(),
         "note": "发送成功，未收到 STM32 遥测帧（请检查 RX 接线）",
+        "transport": _DIRECT_TRANSPORT,
     })
