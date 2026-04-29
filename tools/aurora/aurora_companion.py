@@ -63,11 +63,12 @@ CAMERA_FPS = 30
 
 CAPTURE_FORMATS = {
     "720x1280": (720, 1280),   # 原始灰度图（传感器采集分辨率）
-    "640x480":  (640,  480),   # YOLOv8 训练集尺寸（中心裁剪）
+    "640x480":  (640,  480),   # A1 训练集尺寸（中心裁剪）
 }
 DEFAULT_CAPTURE_FORMAT = "720x1280"
 
 app = Flask(__name__, template_folder="templates")
+JUDGE_TEMPLATE = "judge_ui.html"
 _ros_detection_hook = None
 try:
     from chassis_comm import chassis_bp
@@ -148,7 +149,7 @@ _qt_bridge_lock = threading.Lock()
 
 # ─── YOLOv8 检测器（PC 端 ONNX 推理）────────────────────────────────────────
 MODEL_ROOT = Path(__file__).parent.parent.parent / "models"
-_DETECT_MODEL_PATH = MODEL_ROOT / "best_a1_formal.onnx"
+_DETECT_MODEL_PATH = MODEL_ROOT / "best_a1_640x480.onnx"
 _DETECT_MODEL_MODE = "standard"
 _SUPPORTED_DETECT_MODEL_SUFFIXES = (".onnx", ".pt")
 _DETECT_MODEL_PREF_FILE = Path(__file__).with_name(".a1_detect_model")
@@ -160,7 +161,7 @@ _DETECT_TOP_K = 30
 _ort_session = None
 _pt_model = None
 _ort_session_lock = threading.Lock()
-_CLASS_NAMES = {0: "person", 1: "forward", 2: "stop", 3: "obstacle_box"}
+_CLASS_NAMES = {0: "person", 1: "gesture1", 2: "gesture2", 3: "obstacle_box"}
 _CLASS_COLORS = [(0, 200, 80), (80, 140, 255), (255, 160, 50), (255, 80, 80)]
 _detect_state_lock = threading.Lock()
 _last_detect_snapshot: Dict[str, Any] = {
@@ -508,6 +509,70 @@ def _qt_bridge_is_current(status: Optional[dict]) -> bool:
     if status is None or not status.get("available", False):
         return False
     return int(status.get("bridge_version") or 0) >= QT_BRIDGE_PROTOCOL_VERSION
+
+
+def summarize_qt_bridge_status(status: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    payload = status if isinstance(status, dict) else {}
+    if not payload.get("available", False):
+        detail = str(payload.get("error") or payload.get("message") or "Qt 相机桥不可用")
+        return {"state": "unavailable", "detail": detail}
+
+    if not payload.get("connected", False):
+        detail = str(payload.get("message") or "Qt 相机桥未连接设备")
+        return {"state": "disconnected", "detail": detail}
+
+    frame_count = int(payload.get("frame_count") or 0)
+    detail = str(payload.get("message") or "Qt 相机桥已连接")
+    if frame_count <= 0:
+        return {"state": "waiting_for_first_frame", "detail": f"{detail}，等待首帧"}
+    return {"state": "streaming", "detail": detail}
+
+
+def classify_qt_bridge_failure(status: Optional[Dict[str, Any]], error_text: str) -> Dict[str, str]:
+    payload = status if isinstance(status, dict) else {}
+    text = str(error_text or payload.get("error") or payload.get("message") or "Qt 相机桥错误")
+    lowered = text.lower()
+
+    if "未找到设备" in text or "device not found" in lowered:
+        return {
+            "code": "device_not_found",
+            "severity": "error",
+            "hint": "确认相机已连接，并在 Aurora.exe 打开后重试刷新摄像头。",
+            "detail": text,
+        }
+
+    if "未收到视频帧" in text or "no frame" in lowered:
+        device_name = payload.get("device_name") or "当前设备"
+        return {
+            "code": "no_frame_after_switch",
+            "severity": "error",
+            "hint": f"Qt 相机桥已切到 {device_name} 但还没出帧。先确认 Aurora.exe 已打开，再重试刷新摄像头。",
+            "detail": text,
+        }
+
+    summary = summarize_qt_bridge_status(payload)
+    if summary["state"] == "unavailable":
+        return {
+            "code": "bridge_unavailable",
+            "severity": "error",
+            "hint": "检查 PySide6 / QtMultimedia 依赖，或重启 Qt 相机桥。",
+            "detail": text,
+        }
+
+    if summary["state"] == "disconnected":
+        return {
+            "code": "bridge_disconnected",
+            "severity": "error",
+            "hint": "确认目标相机存在，然后重新切换设备。",
+            "detail": text,
+        }
+
+    return {
+        "code": "unknown",
+        "severity": "error",
+        "hint": "查看 Qt 相机桥状态与 Aurora 日志，再重试。",
+        "detail": text,
+    }
 
 
 def _python_has_module(python_exe: str, module_name: str) -> bool:
@@ -1338,6 +1403,18 @@ def _letterbox(img_gray: np.ndarray, target: int = 640):
     return canvas, scale, pad_x, pad_y
 
 
+def _resize_for_a1_train(frame_gray: np.ndarray) -> np.ndarray:
+    cropped = crop_center(frame_gray, 720, 540)
+    return cv2.resize(cropped, (640, 480))
+
+
+def _prepare_detect_input(frame_gray: np.ndarray):
+    resized = _resize_for_a1_train(frame_gray)
+    rgb3 = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB).astype(np.float32) / 255.0
+    inp = np.transpose(rgb3, (2, 0, 1))[np.newaxis]
+    return resized, inp
+
+
 def _sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
 
@@ -1514,20 +1591,19 @@ def detect_on_frame(frame_gray: np.ndarray):
     if sess is None:
         return []
 
-    lb, scale, pad_x, pad_y = _letterbox(frame_gray, 640)
-    rgb3 = cv2.cvtColor(lb, cv2.COLOR_GRAY2RGB).astype(np.float32) / 255.0
-    inp = np.transpose(rgb3, (2, 0, 1))[np.newaxis]
-
+    resized, inp = _prepare_detect_input(frame_gray)
     output_names = [o.name for o in sess.get_outputs()]
     outputs = sess.run(output_names, {sess.get_inputs()[0].name: inp})
     detections = _decode_yolov8_outputs(outputs)
 
     results = []
+    x_scale = float(w) / float(resized.shape[1])
+    y_scale = float(h) / float(resized.shape[0])
     for box, score, cls_id in detections:
-        x1 = max(0.0, (box[0] - pad_x) / scale)
-        y1 = max(0.0, (box[1] - pad_y) / scale)
-        x2 = min(float(w), (box[2] - pad_x) / scale)
-        y2 = min(float(h), (box[3] - pad_y) / scale)
+        x1 = max(0.0, box[0] * x_scale)
+        y1 = max(0.0, box[1] * y_scale)
+        x2 = min(float(w), box[2] * x_scale)
+        y2 = min(float(h), box[3] * y_scale)
         results.append((x1, y1, x2, y2, score, cls_id))
     return results
 
@@ -1572,6 +1648,48 @@ def _update_detection_runtime(detections, frame_shape: Tuple[int, int]) -> Dict[
     with _detect_state_lock:
         _last_detect_snapshot.update(summary)
         return dict(_last_detect_snapshot)
+
+
+def _judge_action_from_snapshot(snapshot: Dict[str, Any]) -> str:
+    counts = snapshot.get("class_counts") or {}
+    if counts.get("gesture2", 0) > 0:
+        return "stop"
+    if counts.get("obstacle_box", 0) > 0:
+        return "avoid"
+    if counts.get("gesture1", 0) > 0:
+        return "forward"
+    return "idle"
+
+
+def _judge_risk_from_snapshot(snapshot: Dict[str, Any]) -> str:
+    items = snapshot.get("items") or []
+    frame_w = float(snapshot.get("frame_width") or CAMERA_WIDTH)
+    frame_h = float(snapshot.get("frame_height") or CAMERA_HEIGHT)
+    best_score = 0.0
+    best_area = 0.0
+    best_bottom = 0.0
+    for item in items:
+        if item.get("class_name") != "obstacle_box":
+            continue
+        box = item.get("box") or [0, 0, 0, 0]
+        if len(box) != 4:
+            continue
+        x1, y1, x2, y2 = [float(v) for v in box]
+        area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+        area_ratio = area / max(1.0, frame_w * frame_h)
+        bottom_ratio = y2 / max(1.0, frame_h)
+        score = float(item.get("score") or 0.0)
+        if area_ratio + score * 0.05 > best_area + best_score * 0.05:
+            best_score = score
+            best_area = area_ratio
+            best_bottom = bottom_ratio
+    if best_area >= 0.20 or best_bottom >= 0.72:
+        return "high"
+    if best_area >= 0.10 or best_bottom >= 0.58:
+        return "medium"
+    if best_score > 0:
+        return "low"
+    return "clear"
 
 
 def _save_capture(frame: np.ndarray, fmt: str) -> dict:
@@ -1751,6 +1869,11 @@ def index():
     return render_template("companion_ui.html", output_dir=output_dir)
 
 
+@app.route("/judge")
+def judge_page():
+    return render_template(JUDGE_TEMPLATE, default_stream="detect")
+
+
 @app.route("/shutdown", methods=["POST"])
 def shutdown():
     result = shutdown_qt_bridge()
@@ -1821,6 +1944,8 @@ def detect_latest():
     snapshot["model_name"] = _DETECT_MODEL_PATH.name
     snapshot["model_mode"] = _DETECT_MODEL_MODE
     snapshot["model_backend"] = _detect_model_backend_from_path(_DETECT_MODEL_PATH)
+    snapshot["judge_action"] = _judge_action_from_snapshot(snapshot)
+    snapshot["judge_risk"] = _judge_risk_from_snapshot(snapshot)
     return jsonify(snapshot)
 
 
@@ -1839,6 +1964,8 @@ def detect_snapshot():
         "model_name": _DETECT_MODEL_PATH.name,
         "model_mode": _DETECT_MODEL_MODE,
         "model_backend": _detect_model_backend_from_path(_DETECT_MODEL_PATH),
+        "judge_action": _judge_action_from_snapshot(snapshot),
+        "judge_risk": _judge_risk_from_snapshot(snapshot),
         **snapshot,
     })
 

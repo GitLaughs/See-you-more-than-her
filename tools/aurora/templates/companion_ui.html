@@ -467,7 +467,7 @@ body{
 .console-toolbar-group{display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:center;}
 .console-toolbar-group.compact{gap:var(--space-1);}
 .console-toolbar-actions .btn{justify-content:center;}
-.console-grid{display:grid;grid-template-columns:minmax(0, 1.35fr) minmax(320px, 1fr);gap:var(--space-3);align-items:start;}
+.console-grid{display:grid;grid-template-columns:minmax(0, 1.2fr) minmax(360px, 1.5fr);gap:var(--space-3);align-items:start;}
 .console-output-shell,.console-input-shell{display:flex;flex-direction:column;gap:var(--space-2);min-width:0;}
 .terminal-primary-card .console-output-shell{min-width:0;}
 .console-output{min-height:320px;max-height:420px;background:#f7faff;border-color:#cbd9ec;color:#23384f;box-shadow:inset 0 0 0 1px rgba(47,111,236,0.05);}
@@ -885,9 +885,9 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
       <div class="card-head">YOLOv8 检测信息</div>
       <div class="det-panel">
         <table>
-          <tr><td>模型</td><td><span class="det-badge" id="detModelName">best_a1_formal.onnx</span></td></tr>
+          <tr><td>模型</td><td><span class="det-badge" id="detModelName">best_a1_640x480.onnx</span></td></tr>
           <tr><td>格式</td><td id="detModelMode">标准输出</td></tr>
-          <tr><td>输入尺寸</td><td>640 × 640 (letterbox)</td></tr>
+          <tr><td>输入尺寸</td><td>640 × 480 (中心裁剪)</td></tr>
           <tr><td>类别数</td><td id="detNumCls">4</td></tr>
           <tr><td>置信度</td><td id="detConf">≥ 0.40</td></tr>
           <tr><td>NMS IoU</td><td>0.45</td></tr>
@@ -903,7 +903,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
         <table class="info-tbl">
           <tr><td>输入源</td><td>原始摄像头 / A1 Y8 灰度流</td></tr>
           <tr><td>预览分辨率</td><td>720 × 1280</td></tr>
-          <tr><td>推理输入</td><td>640 × 640 (letterbox)</td></tr>
+          <tr><td>推理输入</td><td>720×540 中心裁剪 -> 640 × 480</td></tr>
           <tr><td>训练裁剪</td><td>640 × 480</td></tr>
           <tr><td>输出格式</td><td>PNG / JPEG</td></tr>
           <tr><td>输出目录</td><td>{{ output_dir }}</td></tr>
@@ -945,7 +945,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
             <div class="form-row mb-6">
               <label>切换模型</label>
               <div class="btn-row-single">
-                <input type="text" id="modelSelect" list="modelOptions" placeholder="best_a1_formal.onnx / best.pt">
+                <input type="text" id="modelSelect" list="modelOptions" placeholder="best_a1_640x480.onnx / best.pt">
                 <datalist id="modelOptions"></datalist>
               </div>
             </div>
@@ -953,7 +953,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
               <button class="btn btn-ghost" onclick="loadDetectModels()">检测模型列表</button>
               <button class="btn btn-blue" onclick="switchDetectModel()">实时切换推理</button>
             </div>
-            <div id="modelHint" class="source-desc stack-6">模型即时切换 (onnx/pt)。推理基于当前摄像头灰度帧，A1 Y8 源会先修正为 720×1280。</div>
+            <div id="modelHint" class="source-desc stack-6">模型即时切换 (onnx/pt)。推理基于当前摄像头灰度帧，统一走 720×540 中心裁剪后缩放到 640×480 的 A1 主链。</div>
           </div>
         </div>
         <div class="card chs-conn">
@@ -1711,7 +1711,7 @@ function loadDetectStatus() {
   fetch('/detect_status').then(r => r.json()).then(d => {
     const warn = document.getElementById('detWarn');
     const rt = document.getElementById('detRuntime');
-    const modelName = d.model_name || 'best_a1_formal.onnx';
+    const modelName = d.model_name || 'best_a1_640x480.onnx';
     const modelMode = d.model_mode || 'standard';
     const modelBackend = d.model_backend || (modelName.toLowerCase().endsWith('.pt') ? 'pt' : 'onnx');
     const runtimeName = DETECT_MODEL_BACKEND_TITLES[modelBackend] || modelBackend;
