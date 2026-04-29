@@ -1,4 +1,4 @@
-#
+# Buildroot root configuration
 
 mainmenu "Buildroot $BR2_VERSION Configuration"
 

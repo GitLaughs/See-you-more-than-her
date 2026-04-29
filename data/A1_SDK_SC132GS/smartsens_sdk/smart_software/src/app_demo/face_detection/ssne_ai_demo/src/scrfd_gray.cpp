@@ -1,3 +1,11 @@
+/*
+ * @Filename: scrfd_gray.cpp
+ * @Author: Hongying He
+ * @Email: hongying.he@smartsenstech.com
+ * @Date: 2025-12-30 14-57-47
+ * @Copyright (c) 2025 SmartSens
+ * @Description: SCRFD灰度图人脸检测实现文件
+ */
 #include <assert.h>
 #include "../include/utils.hpp"
 #include <iostream>
@@ -22,6 +30,7 @@ void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high) {
   std::vector<std::array<float, 4>> temp_boxes(boxes);
   std::vector<float> temp_scores(scores);
   std::vector<int> temp_class_ids(class_ids);
+  const bool has_class_ids = class_ids.size() == scores.size();
   size_t i = low;      // 左半部分的索引
   size_t j = mid + 1;  // 右半部分的索引
   size_t k = i;        // 合并结果的索引
@@ -30,12 +39,12 @@ void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high) {
     if (temp_scores[i] >= temp_scores[j]) {
       scores[k] = temp_scores[i];
       boxes[k] = temp_boxes[i];
-      if (!class_ids.empty()) class_ids[k] = temp_class_ids[i];
+      if (has_class_ids) class_ids[k] = temp_class_ids[i];
       i++;
     } else {
       scores[k] = temp_scores[j];
       boxes[k] = temp_boxes[j];
-      if (!class_ids.empty()) class_ids[k] = temp_class_ids[j];
+      if (has_class_ids) class_ids[k] = temp_class_ids[j];
       j++;
     }
   }
@@ -43,7 +52,7 @@ void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high) {
   while (i <= mid) {
     scores[k] = temp_scores[i];
     boxes[k] = temp_boxes[i];
-    if (!class_ids.empty()) class_ids[k] = temp_class_ids[i];
+    if (has_class_ids) class_ids[k] = temp_class_ids[i];
     k++;
     i++;
   }
@@ -51,7 +60,7 @@ void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high) {
   while (j <= high) {
     scores[k] = temp_scores[j];
     boxes[k] = temp_boxes[j];
-    if (!class_ids.empty()) class_ids[k] = temp_class_ids[j];
+    if (has_class_ids) class_ids[k] = temp_class_ids[j];
     k++;
     j++;
   }
@@ -121,7 +130,7 @@ void NMS(FaceDetectionResult* result, float iou_threshold, int top_k) {
       if (suppressed[j] == 1) {
         continue;  // 跳过已被抑制的框
       }
-      if (!result->class_ids.empty() &&
+      if (result->class_ids.size() == result->boxes.size() &&
           result->class_ids[i] != result->class_ids[j]) {
         continue;
       }
@@ -157,7 +166,7 @@ void NMS(FaceDetectionResult* result, float iou_threshold, int top_k) {
     }
     result->boxes.emplace_back(backup.boxes[i]);
     result->scores.push_back(backup.scores[i]);
-    if (!backup.class_ids.empty()) {
+    if (backup.class_ids.size() == backup.boxes.size()) {
       result->class_ids.push_back(backup.class_ids[i]);
     }
     // 如果有关键点信息，也一并复制
@@ -218,7 +227,9 @@ void FaceDetectionResult::Reserve(int size) {
 void FaceDetectionResult::Resize(int size) {
   boxes.resize(size);
   scores.resize(size);
-  class_ids.resize(size);
+  if (!class_ids.empty()) {
+    class_ids.resize(size);
+  }
   if (landmarks_per_face > 0) {
     landmarks.resize(size * landmarks_per_face);
   }
@@ -575,4 +586,3 @@ void SCRFDGRAY::saveFloatBin(const float* data, int length, const char* filename
         std::cerr << "failed to write " << filename << std::endl;
     }
 }
-

@@ -1,7 +1,8 @@
-numpy
+numpy<2
 opencv-python
 Pillow
 flask
 pyserial
 onnxruntime
 ultralytics
+PySide6==6.5.3
