@@ -1,14 +1,15 @@
 /*
  * @Filename: yolov8_gray.cpp
- * @Description: YOLOv8 灰度图人物检测器实现 (head6 切分模型, CPU 后处理)
+ * @Description: YOLOv8 灰度图检测器实现 (head6 切分模型, CPU 后处理)
  *
  * 处理流程:
- *   SC132GS 1280×720 Y8
- *     → RunAiPreprocessPipe 硬件缩放 → 640×360 Y8
+ *   SC132GS 720×1280 Y8
+ *     → pipeline_image.cpp 在线裁剪 720×540
+ *     → RunAiPreprocessPipe 硬件缩放 → 640×480 Y8
  *     → ssne_inference (M1 NPU)
  *     → ssne_getoutput (6 head: cv3×3 分类 + cv2×3 回归)
  *     → DFL softmax decode + sigmoid + NMS (CPU)
- *     → 坐标 ×2 映射回 1280×720
+ *     → 坐标映射回 720×540 裁剪空间
  *
  * 输出 head 格式 (NPU 输出, NHWC 布局):
  *   outputs[0]: cls stride-8  [H0, W0, num_cls]
@@ -18,10 +19,10 @@
  *   outputs[4]: reg stride-16 [H1, W1, 64]
  *   outputs[5]: reg stride-32 [H2, W2, 64]
  *
- * 特征图尺寸 (640×360 输入, ceil 整除):
- *   stride  8: W=80, H=45
- *   stride 16: W=40, H=23  (ceil(45/2)=23)
- *   stride 32: W=20, H=12  (ceil(23/2)=12)
+ * 特征图尺寸 (640×480 输入):
+ *   stride  8: W=80, H=60
+ *   stride 16: W=40, H=30
+ *   stride 32: W=20, H=15
  */
 
 #include "../include/common.hpp"
@@ -31,11 +32,22 @@
 #include <cmath>
 #include <cstdio>
 #include <numeric>
+#include <sys/time.h>
+#include <unistd.h>
 
 // ─── DFL/YOLOv8 专用常量 ─────────────────────────────────────────────────────
 static constexpr int kNumClasses  = cfg::YOLO_NUM_CLASSES;  // 训练类别数
 static constexpr int kRegBins     = cfg::YOLO_REG_BINS;     // DFL bins (16)
 static constexpr int kRegChannels = kRegBins * 4;           // = 64
+
+namespace {
+uint64_t monotonic_time_us() {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return static_cast<uint64_t>(tv.tv_sec) * 1000000ULL +
+           static_cast<uint64_t>(tv.tv_usec);
+}
+}
 
 // ─── 特征图尺寸计算辅助 ───────────────────────────────────────────────────────
 static inline int ceildiv(int a, int b) { return (a + b - 1) / b; }
@@ -136,12 +148,23 @@ void YOLOV8::Initialize(std::string&        model_path,
            img_shape[0], img_shape[1], det_shape[0], det_shape[1],
            w_scale, h_scale);
 
+    if (access(model_path.c_str(), F_OK) != 0) {
+        fprintf(stderr, "[YOLOV8][ERROR] 模型文件不存在: %s\n", model_path.c_str());
+    } else {
+        printf("[YOLOV8] 模型文件存在: %s\n", model_path.c_str());
+    }
+
     // 加载 NPU 模型
     char* path = const_cast<char*>(model_path.c_str());
     model_id   = ssne_loadmodel(path, SSNE_STATIC_ALLOC);
-    printf("[YOLOV8] 模型加载完成, model_id=%d\n", model_id);
+    if (model_id < 0) {
+        fprintf(stderr, "[YOLOV8][ERROR] ssne_loadmodel failed, model_id=%d, path=%s\n",
+                model_id, model_path.c_str());
+    } else {
+        printf("[YOLOV8] 模型加载完成, model_id=%d\n", model_id);
+    }
 
-    // 创建推理输入 tensor (640×360 Y8)
+    // 创建推理输入 tensor (640×480 Y8)
     const uint32_t dw = static_cast<uint32_t>(det_shape[0]);
     const uint32_t dh = static_cast<uint32_t>(det_shape[1]);
     inputs[0] = create_tensor(dw, dh, SSNE_Y_8, SSNE_BUF_AI);
@@ -154,16 +177,37 @@ void YOLOV8::Initialize(std::string&        model_path,
 void YOLOV8::Predict(ssne_tensor_t* img, FaceDetectionResult* result,
                      float conf_threshold)
 {
-    // ── 1. 硬件预处理: 1280×720 → 640×360 ────────────────────────────────
+    static uint64_t last_error_log_us = 0;
+    static uint64_t last_detect_log_us = 0;
+    if (model_id < 0) {
+        const uint64_t now_us = monotonic_time_us();
+        if (now_us - last_error_log_us >= 5000000ULL) {
+            fprintf(stderr, "[YOLOV8][ERROR] 跳过推理: model_id=%d (模型未成功加载)\n", model_id);
+            last_error_log_us = now_us;
+        }
+        return;
+    }
+
+    // ── 1. 硬件预处理: 720×540 裁剪图 → 640×480 ──────────────────────────
     int ret = RunAiPreprocessPipe(pipe_offline, *img, inputs[0]);
     if (ret != 0) {
-        printf("[YOLOV8][ERROR] RunAiPreprocessPipe failed, ret=%d\n", ret);
+        const uint64_t now_us = monotonic_time_us();
+        if (now_us - last_error_log_us >= 5000000ULL) {
+            printf("[YOLOV8][ERROR] RunAiPreprocessPipe failed, ret=%d\n", ret);
+            last_error_log_us = now_us;
+        }
         return;
     }
 
     // ── 2. NPU 推理 ───────────────────────────────────────────────────────
-    if (ssne_inference(model_id, 1, inputs) != 0) {
-        fprintf(stderr, "[YOLOV8][ERROR] ssne_inference failed\n");
+    ret = ssne_inference(model_id, 1, inputs);
+    if (ret != 0) {
+        const uint64_t now_us = monotonic_time_us();
+        if (now_us - last_error_log_us >= 5000000ULL) {
+            fprintf(stderr, "[YOLOV8][ERROR] ssne_inference failed, ret=%d, model_id=%d\n",
+                    ret, model_id);
+            last_error_log_us = now_us;
+        }
         return;
     }
 
@@ -179,10 +223,10 @@ void YOLOV8::Predict(ssne_tensor_t* img, FaceDetectionResult* result,
     const float* reg2 = static_cast<const float*>(get_data(outputs[5]));
 
     // ── 4. 三个 FPN 尺度逐一解码 ─────────────────────────────────────────
-    //   特征图尺寸 (640×360 输入, ceil 整除):
-    //     stride  8: W=80, H=45
-    //     stride 16: W=40, H=23
-    //     stride 32: W=20, H=12
+    //   特征图尺寸 (640×480 输入):
+    //     stride  8: W=80, H=60
+    //     stride 16: W=40, H=30
+    //     stride 32: W=20, H=15
     const int w0 = det_shape[0] / 8,                   h0 = det_shape[1] / 8;
     const int w1 = det_shape[0] / 16,                  h1 = ceildiv(det_shape[1], 16);
     const int w2 = det_shape[0] / 32,                  h2 = ceildiv(det_shape[1], 32);
@@ -199,7 +243,7 @@ void YOLOV8::Predict(ssne_tensor_t* img, FaceDetectionResult* result,
     DecodeHeadOutputs(cls1, reg1,  h1, w1, 16, conf_threshold, boxes, scores_vec, class_ids);
     DecodeHeadOutputs(cls2, reg2,  h2, w2, 32, conf_threshold, boxes, scores_vec, class_ids);
 
-    // ── 5. 填充检测结果 (person-only, 复用现有 NMS) ─────────────────────
+    // ── 5. 填充检测结果（多类别，复用现有 NMS）─────────────────────
     result->Clear();
     result->Reserve(static_cast<int>(boxes.size()));
     for (size_t i = 0; i < boxes.size(); ++i) {
@@ -211,7 +255,7 @@ void YOLOV8::Predict(ssne_tensor_t* img, FaceDetectionResult* result,
     // ── 6. NMS ────────────────────────────────────────────────────────────
     utils::NMS(result, nms_threshold, top_k);
 
-    // ── 7. 坐标映射回原图 (640×360 → 1280×720) ───────────────────────────
+    // ── 7. 坐标映射回 720×540 裁剪空间 ─────────────────────────────────
     const int final_count = std::min(static_cast<int>(result->boxes.size()), keep_top_k);
     result->Resize(final_count);
     for (int i = 0; i < final_count; ++i) {
@@ -221,8 +265,12 @@ void YOLOV8::Predict(ssne_tensor_t* img, FaceDetectionResult* result,
         result->boxes[i][3] *= h_scale;
     }
 
-    printf("[YOLOV8] 检测到 %d 个目标 (conf>=%.2f)\n",
-           final_count, conf_threshold);
+    const uint64_t now_us = monotonic_time_us();
+    if (now_us - last_detect_log_us >= 5000000ULL) {
+        printf("[YOLOV8] 检测到 %d 个目标 (conf>=%.2f)\n",
+               final_count, conf_threshold);
+        last_detect_log_us = now_us;
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

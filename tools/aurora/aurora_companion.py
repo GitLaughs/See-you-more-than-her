@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
 """
-Aurora Companion — Windows/A1 摄像头可视化采集伴侣
+Aurora Companion — 原始摄像头/A1 摄像头可视化采集伴侣
 
 增强版拍照工具，在 aurora_capture 基础上提供：
-  - 精心设计的现代暗色玻璃态 UI
+  - 精心设计的现代白色玻璃态 UI
   - 摄像头断联自动检测 + 一键刷新恢复
   - 实时 FPS 及连接状态显示
   - 最近拍摄缩略图画廊 (最多 8 张)
-    - Windows 纯预览 / A1 采集源，训练输出 640×360 (中心裁剪)
+    - 原始摄像头 / A1 采集源，训练输出 640×480 (中心裁剪)
   - A1↔STM32 底盘通信调试 + 联通性测试
   - 键盘快捷键：1/2/R
 
 用法:
-    python aurora_companion.py [--device 0] [--output ../../data/yolov8_dataset/raw/images] [--port 5801]
+    python aurora_companion.py [--device 0] [--output ../../data/yolov8_dataset/raw] [--port 5801]
 """
 
 import argparse
 import base64
 import contextlib
+import json
 import os
-import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -27,6 +28,9 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+from urllib import error as urllib_error
+from urllib import parse as urllib_parse
+from urllib import request as urllib_request
 
 import cv2
 import numpy as np
@@ -52,17 +56,19 @@ except Exception:
     _ULTRALYTICS_AVAILABLE = False
 
 # ─── 摄像头参数 ───────────────────────────────────────────────────────────────
-# SC132GS 传感器采集为 1280×720 灰度帧
-CAMERA_WIDTH = 1280
-CAMERA_HEIGHT = 720
+# A1 / SC132GS 通过 USB 输出 720×1280 Y8 灰度帧
+CAMERA_WIDTH = 720
+CAMERA_HEIGHT = 1280
 CAMERA_FPS = 30
 
 CAPTURE_FORMATS = {
-    "1280x720": (1280, 720),   # 原始灰度图（传感器采集分辨率）
-    "640x360":  (640,  360),   # YOLOv8 训练集尺寸（16:9 中心裁剪）
+    "720x1280": (720, 1280),   # 原始灰度图（传感器采集分辨率）
+    "640x480":  (640,  480),   # A1 训练集尺寸（中心裁剪）
 }
+DEFAULT_CAPTURE_FORMAT = "720x1280"
 
 app = Flask(__name__, template_folder="templates")
+JUDGE_TEMPLATE = "judge_ui.html"
 _ros_detection_hook = None
 try:
     from chassis_comm import chassis_bp
@@ -73,9 +79,15 @@ except ImportError:
 try:
     from relay_comm import relay_bp
     app.register_blueprint(relay_bp)
-    print("[INFO] A1 Relay 模块已加载")
+    print("[INFO] COM13 经由 A1 控制模块已加载")
 except ImportError:
-    print("[WARN] relay_comm 未找到，A1 Relay 功能不可用")
+    print("[WARN] relay_comm 未找到，COM13 经由 A1 控制不可用")
+try:
+    from serial_terminal import serial_term_bp
+    app.register_blueprint(serial_term_bp)
+    print("[INFO] A1 终端模块已加载")
+except ImportError:
+    print("[WARN] serial_terminal 未找到，A1 终端模块不可用")
 try:
     from ros_bridge import handle_yolo_detections, ros_bp
 
@@ -86,12 +98,15 @@ except ImportError:
     print("[WARN] ros_bridge 未找到，ROS 联动功能不可用")
 
 # ─── 全局状态 ─────────────────────────────────────────────────────────────────
-camera: Optional[cv2.VideoCapture] = None
+camera: Optional[Any] = None
 camera_lock = threading.Lock()
 device_id_global = 0
 camera_source_global = "auto"
 camera_bootstrap_active = False
 camera_devices_snapshot: list = []
+camera_scan_active = False
+camera_scan_error = ""
+camera_scan_started_at = 0.0
 output_dir: str = ""
 capture_count = 0
 recent_captures: deque = deque(maxlen=8)
@@ -106,18 +121,35 @@ _last_reconnect_time = 0.0
 
 MAX_DEVICE_SCAN = 5
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
+PREFERRED_SOURCE_FILE = Path(__file__).with_name(".a1_camera_source")
+AURORA_EXE_PATH = Path(__file__).resolve().parents[2] / "Aurora-2.0.0-ciciec.16" / "Aurora.exe"
+PREFERRED_A1_CAMERA_NAME = "Smartsens-FlyingChip-A1-1"
+PREFERRED_A1_CAMERA_HINTS = (
+    "smartsens-flyingchip-a1",
+    "flyingchip",
+    "smartsens",
+    "sc132",
+)
+QT_BRIDGE_SCRIPT = Path(__file__).with_name("qt_camera_bridge.py")
+QT_BRIDGE_PORT = 5911
+QT_BRIDGE_HOST = "127.0.0.1"
+QT_BRIDGE_URL = f"http://{QT_BRIDGE_HOST}:{QT_BRIDGE_PORT}"
+QT_BRIDGE_PROTOCOL_VERSION = 2
+QT_BRIDGE_OWNER_STATE_FILE = Path(__file__).with_name(".qt_bridge_owner.json")
 CAMERA_SOURCE_WINDOWS = "windows"
 CAMERA_SOURCE_A1 = "a1"
 CAMERA_SOURCE_AUTO = "auto"
 SOURCE_LABELS = {
-    CAMERA_SOURCE_WINDOWS: "Windows 摄像头",
+    CAMERA_SOURCE_WINDOWS: "原始摄像头",
     CAMERA_SOURCE_A1: "A1 开发板",
     CAMERA_SOURCE_AUTO: "自动识别",
 }
+_qt_bridge_process: Optional[subprocess.Popen] = None
+_qt_bridge_lock = threading.Lock()
 
 # ─── YOLOv8 检测器（PC 端 ONNX 推理）────────────────────────────────────────
 MODEL_ROOT = Path(__file__).parent.parent.parent / "models"
-_DETECT_MODEL_PATH = MODEL_ROOT / "best_a1_formal.onnx"
+_DETECT_MODEL_PATH = MODEL_ROOT / "best_a1_640x480.onnx"
 _DETECT_MODEL_MODE = "standard"
 _SUPPORTED_DETECT_MODEL_SUFFIXES = (".onnx", ".pt")
 _DETECT_MODEL_PREF_FILE = Path(__file__).with_name(".a1_detect_model")
@@ -129,7 +161,7 @@ _DETECT_TOP_K = 30
 _ort_session = None
 _pt_model = None
 _ort_session_lock = threading.Lock()
-_CLASS_NAMES = {0: "person", 1: "forward", 2: "stop", 3: "obstacle_box"}
+_CLASS_NAMES = {0: "person", 1: "gesture1", 2: "gesture2", 3: "obstacle_box"}
 _CLASS_COLORS = [(0, 200, 80), (80, 140, 255), (255, 160, 50), (255, 80, 80)]
 _detect_state_lock = threading.Lock()
 _last_detect_snapshot: Dict[str, Any] = {
@@ -141,6 +173,23 @@ _last_detect_snapshot: Dict[str, Any] = {
     "frame_width": CAMERA_WIDTH,
     "frame_height": CAMERA_HEIGHT,
 }
+
+def _mark_camera_connected() -> None:
+    global camera_connected, _fail_streak, _consecutive_failures
+    camera_connected = True
+    _fail_streak = 0
+    _consecutive_failures = 0
+
+
+def _mark_camera_disconnected() -> None:
+    global camera_connected
+    camera_connected = False
+
+
+def _reset_camera_failure_state() -> None:
+    global _fail_streak, _consecutive_failures
+    _fail_streak = 0
+    _consecutive_failures = 0
 
 
 # ─── 摄像头操作 ───────────────────────────────────────────────────────────────
@@ -167,14 +216,31 @@ def _suppress_c_stderr():
 
 def _open_raw_camera(device_id: int) -> cv2.VideoCapture:
     with _suppress_c_stderr():
-        cap = cv2.VideoCapture(device_id, cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_V4L2)
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(device_id)
+        if sys.platform == "win32":
+            backends = [cv2.CAP_MSMF, cv2.CAP_DSHOW, cv2.CAP_ANY]
+        else:
+            backends = [cv2.CAP_V4L2, cv2.CAP_ANY]
+        cap = cv2.VideoCapture()
+        for backend in backends:
+            trial = cv2.VideoCapture(device_id, backend)
+            if trial.isOpened():
+                cap = trial
+                break
+            trial.release()
     return cap
 
 
 def _source_label(source: str) -> str:
     return SOURCE_LABELS.get(source, source)
+
+
+def _device_name_looks_like_a1(device_name: str) -> bool:
+    text = str(device_name or "").strip().lower()
+    if not text:
+        return False
+    if PREFERRED_A1_CAMERA_NAME.lower() in text:
+        return True
+    return any(token in text for token in PREFERRED_A1_CAMERA_HINTS)
 
 
 def _infer_device_source(info: dict) -> str:
@@ -187,16 +253,86 @@ def _infer_device_source(info: dict) -> str:
 
 
 def _normalize_frame_for_display(frame: np.ndarray) -> np.ndarray:
-    """统一画面朝向和尺寸，但保留原始通道数。"""
+    """统一 A1 原始帧尺寸，但保留原始通道数。"""
     if frame is None:
         return frame
     if len(frame.shape) >= 2:
+        current_source = camera_source_global
         height, width = frame.shape[:2]
-        if height > width:
-            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-        if frame.shape[:2] != (CAMERA_HEIGHT, CAMERA_WIDTH):
-            frame = cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
+        if current_source == CAMERA_SOURCE_A1:
+            # 某些后端会把 Y8/UYVY 误判为 2 字节/像素格式，暴露为 360×1280。
+            # 对于360×1280，先尝试提取有效的Y通道
+            if height >= 1000 and width <= 400:
+                if len(frame.shape) == 3:
+                    # 如果是彩色格式，可能需要特殊处理
+                    if frame.shape[2] == 3 or frame.shape[2] == 2:
+                        # 尝试提取Y通道或直接展开
+                        try:
+                            if frame.shape[2] == 2:
+                                # 可能是UYVY或YUYV被解释为2通道
+                                # 尝试提取第一个通道作为Y
+                                y_channel = frame[:, :, 0]
+                                frame = cv2.resize(y_channel, (width * 2, height), interpolation=cv2.INTER_NEAREST)
+                            else:
+                                # 3通道，提取最佳通道
+                                frame = _extract_best_mono_channel(frame)
+                                frame = cv2.resize(frame, (width * 2, height), interpolation=cv2.INTER_NEAREST)
+                        except Exception:
+                            # 出错则回退到简单resize
+                            frame = cv2.resize(frame, (width * 2, height), interpolation=cv2.INTER_NEAREST)
+                    else:
+                        # 其他通道情况
+                        frame = cv2.resize(frame, (width * 2, height), interpolation=cv2.INTER_NEAREST)
+                else:
+                    # 单通道，直接resize
+                    frame = cv2.resize(frame, (width * 2, height), interpolation=cv2.INTER_NEAREST)
+            
+            # 确保最终尺寸正确
+            if frame is not None and len(frame.shape) >= 2:
+                fh, fw = frame.shape[:2]
+                if (fh, fw) != (CAMERA_HEIGHT, CAMERA_WIDTH):
+                    frame = cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT), interpolation=cv2.INTER_NEAREST)
+            return frame
     return frame
+
+
+def _display_dims_for_device(info: dict) -> Tuple[int, int]:
+    width = int(info.get("actual_width") or 0)
+    height = int(info.get("actual_height") or 0)
+    source = info.get("source", CAMERA_SOURCE_WINDOWS)
+    pixel = str(info.get("pixel_format") or "").lower()
+    if source == CAMERA_SOURCE_A1 and height >= 1000 and width <= 400 and any(token in pixel for token in ("uyvy", "yuyv", "yuv")):
+        return width * 2, height
+    return width, height
+
+
+def _is_effectively_grayscale(frame: np.ndarray) -> bool:
+    """判断 3 通道图像是否本质上仍是灰度。"""
+    if frame is None or len(frame.shape) != 3 or frame.shape[2] < 3:
+        return len(frame.shape) == 2 if frame is not None else False
+    sample = frame[::8, ::8, :3].astype(np.int16, copy=False)
+    bg = np.abs(sample[:, :, 0] - sample[:, :, 1])
+    gr = np.abs(sample[:, :, 1] - sample[:, :, 2])
+    return int(bg.max(initial=0)) <= 2 and int(gr.max(initial=0)) <= 2
+
+
+def _extract_best_mono_channel(frame: np.ndarray) -> np.ndarray:
+    """从异常伪彩帧中选取信息量最高的单通道作为亮度图。"""
+    if frame is None:
+        return frame
+    if len(frame.shape) == 2:
+        return frame
+    if frame.shape[2] == 1:
+        return frame[:, :, 0]
+    if frame.shape[2] == 2:
+        return frame[:, :, 0]
+
+    stats = []
+    for idx in range(min(frame.shape[2], 3)):
+        channel = frame[::8, ::8, idx].astype(np.float32, copy=False)
+        stats.append((float(np.std(channel)), idx))
+    best_idx = max(stats)[1] if stats else 0
+    return frame[:, :, best_idx]
 
 
 def _frame_to_gray(frame: np.ndarray) -> np.ndarray:
@@ -210,31 +346,14 @@ def _frame_to_gray(frame: np.ndarray) -> np.ndarray:
 
 
 def _configure_camera_for_source(cap: cv2.VideoCapture, source: str) -> bool:
-    """按源类型配置摄像头，返回是否成功锁定灰度格式。"""
-    if source != CAMERA_SOURCE_A1:
-        cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
-        return False
-
-    gray_fourccs = [
-        cv2.VideoWriter_fourcc(*"Y800"),
-        cv2.VideoWriter_fourcc(*"GREY"),
-        cv2.VideoWriter_fourcc(*"Y8  "),
-        cv2.VideoWriter_fourcc(*"Y16 "),
-    ]
-    format_set = False
-    for fourcc in gray_fourccs:
-        cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-        if int(cap.get(cv2.CAP_PROP_FOURCC)) == fourcc:
-            fourcc_str = "".join([chr((fourcc >> (8 * i)) & 0xFF) for i in range(4)])
-            print(f"[INFO] 摄像头格式设置为: {fourcc_str}")
-            format_set = True
-            break
-    if format_set:
-        cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
-    else:
-        cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
-        print("[INFO] A1 源未锁定到灰度格式，将以彩色模式读取后转灰度")
-    return format_set
+    """按源类型配置摄像头；OpenCV 只作为兜底，不强行改写驱动像素格式。"""
+    cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
+    if source == CAMERA_SOURCE_A1:
+        print("[INFO] A1 OpenCV 兜底以驱动默认格式读取，随后按 Aurora 风格转灰度")
+        # 尝试设置为更合适的分辨率
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1280)
+    return False
 
 
 def load_preferred_device() -> Optional[int]:
@@ -256,7 +375,511 @@ def save_preferred_device(device_id: int) -> None:
         pass
 
 
+def save_preferred_source(source: str) -> None:
+    try:
+        PREFERRED_SOURCE_FILE.write_text(str(source), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def load_preferred_source() -> Optional[str]:
+    try:
+        if not PREFERRED_SOURCE_FILE.exists():
+            return None
+        text = PREFERRED_SOURCE_FILE.read_text(encoding="utf-8").strip().lower()
+        if text in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1, CAMERA_SOURCE_AUTO}:
+            return text
+    except Exception:
+        return None
+    return None
+
+
+def _qt_bridge_request(path: str, method: str = "GET", payload: Optional[dict] = None, timeout: float = 2.5) -> dict:
+    url = QT_BRIDGE_URL + path
+    data = None
+    headers = {}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json; charset=utf-8"
+    req = urllib_request.Request(url, data=data, headers=headers, method=method)
+    with urllib_request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read()
+    return json.loads(raw.decode("utf-8")) if raw else {}
+
+
+def _qt_bridge_stop(timeout: float = 5.0) -> dict:
+    try:
+        return _qt_bridge_request("/stop", method="POST", timeout=timeout)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _qt_bridge_status(timeout: float = 1.0) -> Optional[dict]:
+    try:
+        return _qt_bridge_request("/status", timeout=timeout)
+    except Exception:
+        return None
+
+
+def _qt_bridge_shutdown(timeout: float = 5.0) -> dict:
+    try:
+        return _qt_bridge_request("/shutdown", method="POST", timeout=timeout)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def load_qt_bridge_owner_state() -> Optional[dict]:
+    try:
+        if not QT_BRIDGE_OWNER_STATE_FILE.exists():
+            return None
+        payload = json.loads(QT_BRIDGE_OWNER_STATE_FILE.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def save_qt_bridge_owner_state(pid: int) -> None:
+    payload = {
+        "pid": int(pid),
+        "port": QT_BRIDGE_PORT,
+        "script": str(QT_BRIDGE_SCRIPT),
+    }
+    QT_BRIDGE_OWNER_STATE_FILE.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def clear_qt_bridge_owner_state() -> None:
+    with contextlib.suppress(FileNotFoundError):
+        QT_BRIDGE_OWNER_STATE_FILE.unlink()
+
+
+def cleanup_qt_bridge_owner_process() -> None:
+    state = load_qt_bridge_owner_state()
+    if not state:
+        return
+    pid = int(state.get("pid") or 0)
+    if pid <= 0:
+        clear_qt_bridge_owner_state()
+        return
+    if sys.platform == "win32":
+        script = rf"""
+$proc = Get-CimInstance Win32_Process -Filter "ProcessId={pid}" -ErrorAction SilentlyContinue
+if ($proc) {{
+    $cmd = [string]$proc.CommandLine
+    if ($cmd -match "qt_camera_bridge\.py") {{
+        Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 300
+    }}
+}}
+"""
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script],
+                capture_output=True,
+                timeout=6,
+                check=False,
+            )
+        except Exception:
+            pass
+    clear_qt_bridge_owner_state()
+
+
+def shutdown_qt_bridge(timeout: float = 5.0) -> dict:
+    global _qt_bridge_process
+
+    result = _qt_bridge_shutdown(timeout=timeout)
+    proc = _qt_bridge_process
+    if proc is not None and proc.poll() is None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=timeout)
+        except Exception:
+            with contextlib.suppress(Exception):
+                proc.kill()
+                proc.wait(timeout=1.0)
+    else:
+        cleanup_qt_bridge_owner_process()
+    _qt_bridge_process = None
+    clear_qt_bridge_owner_state()
+    if result.get("success"):
+        return result
+    return {"success": True, "message": "Qt bridge stopped"}
+
+
+def _qt_bridge_is_current(status: Optional[dict]) -> bool:
+    if status is None or not status.get("available", False):
+        return False
+    return int(status.get("bridge_version") or 0) >= QT_BRIDGE_PROTOCOL_VERSION
+
+
+def summarize_qt_bridge_status(status: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    payload = status if isinstance(status, dict) else {}
+    if not payload.get("available", False):
+        detail = str(payload.get("error") or payload.get("message") or "Qt 相机桥不可用")
+        return {"state": "unavailable", "detail": detail}
+
+    if not payload.get("connected", False):
+        detail = str(payload.get("message") or "Qt 相机桥未连接设备")
+        return {"state": "disconnected", "detail": detail}
+
+    frame_count = int(payload.get("frame_count") or 0)
+    detail = str(payload.get("message") or "Qt 相机桥已连接")
+    if frame_count <= 0:
+        return {"state": "waiting_for_first_frame", "detail": f"{detail}，等待首帧"}
+    return {"state": "streaming", "detail": detail}
+
+
+def classify_qt_bridge_failure(status: Optional[Dict[str, Any]], error_text: str) -> Dict[str, str]:
+    payload = status if isinstance(status, dict) else {}
+    text = str(error_text or payload.get("error") or payload.get("message") or "Qt 相机桥错误")
+    lowered = text.lower()
+
+    if "未找到设备" in text or "device not found" in lowered:
+        return {
+            "code": "device_not_found",
+            "severity": "error",
+            "hint": "确认相机已连接，并在 Aurora.exe 打开后重试刷新摄像头。",
+            "detail": text,
+        }
+
+    if "未收到视频帧" in text or "no frame" in lowered:
+        device_name = payload.get("device_name") or "当前设备"
+        return {
+            "code": "no_frame_after_switch",
+            "severity": "error",
+            "hint": f"Qt 相机桥已切到 {device_name} 但还没出帧。先确认 Aurora.exe 已打开，再重试刷新摄像头。",
+            "detail": text,
+        }
+
+    summary = summarize_qt_bridge_status(payload)
+    if summary["state"] == "unavailable":
+        return {
+            "code": "bridge_unavailable",
+            "severity": "error",
+            "hint": "检查 PySide6 / QtMultimedia 依赖，或重启 Qt 相机桥。",
+            "detail": text,
+        }
+
+    if summary["state"] == "disconnected":
+        return {
+            "code": "bridge_disconnected",
+            "severity": "error",
+            "hint": "确认目标相机存在，然后重新切换设备。",
+            "detail": text,
+        }
+
+    return {
+        "code": "unknown",
+        "severity": "error",
+        "hint": "查看 Qt 相机桥状态与 Aurora 日志，再重试。",
+        "detail": text,
+    }
+
+
+def _python_has_module(python_exe: str, module_name: str) -> bool:
+    probe_code = (
+        "import importlib; "
+        f"importlib.import_module({module_name!r})"
+    )
+    if module_name == "PySide6":
+        probe_code = "import PySide6; from PySide6.QtMultimedia import QMediaDevices, QCamera, QVideoSink"
+    try:
+        result = subprocess.run(
+            [python_exe, "-c", probe_code],
+            cwd=str(Path(__file__).resolve().parent),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _select_qt_bridge_python() -> str:
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        repo_root / "venv_39" / "Scripts" / "python.exe",
+        Path(sys.executable),
+    ]
+    if sys.platform == "win32":
+        candidates.append(Path("python"))
+    seen = set()
+    for candidate in candidates:
+        key = str(candidate).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if str(candidate) != "python" and not candidate.exists():
+            continue
+        python_exe = str(candidate)
+        if _python_has_module(python_exe, "PySide6"):
+            return python_exe
+    return sys.executable
+
+
+def _stop_stale_qt_bridge_on_port() -> None:
+    if sys.platform != "win32":
+        return
+    script = rf"""
+$connections = Get-NetTCPConnection -LocalPort {QT_BRIDGE_PORT} -State Listen -ErrorAction SilentlyContinue
+foreach ($conn in $connections) {{
+    $procId = [int]$conn.OwningProcess
+    if ($procId -le 0) {{ continue }}
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$procId" -ErrorAction SilentlyContinue
+    if (-not $proc) {{ continue }}
+    $cmd = [string]$proc.CommandLine
+    if ($cmd -match "qt_camera_bridge\.py") {{
+        Write-Host "[Aurora] Terminating stale Qt camera bridge on port {QT_BRIDGE_PORT} (PID $procId)"
+        Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+    }}
+}}
+$bridgeProcs = Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue
+foreach ($proc in $bridgeProcs) {{
+    $cmd = [string]$proc.CommandLine
+    if ($cmd -match "qt_camera_bridge\.py") {{
+        Write-Host "[Aurora] Terminating stale Qt camera bridge process (PID $($proc.ProcessId))"
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+    }}
+}}
+Start-Sleep -Milliseconds 400
+"""
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            capture_output=True,
+            timeout=8,
+            check=False,
+        )
+        if result.stdout and len(result.stdout) > 0:
+            print(result.stdout.decode('utf-8', errors='replace'))
+    except Exception as e:
+        print(f"[WARN] Stopping stale Qt bridge: {e}")
+        pass
+
+
+def _start_aurora_desktop() -> Dict[str, Any]:
+    if sys.platform != "win32":
+        return {"started": False, "running": False, "error": "Aurora.exe 启动仅支持 Windows"}
+    if not AURORA_EXE_PATH.exists():
+        return {"started": False, "running": False, "error": f"未找到 Aurora.exe: {AURORA_EXE_PATH}"}
+
+    script = f"""
+$auroraExe = [System.IO.Path]::GetFullPath('{str(AURORA_EXE_PATH).replace("'", "''")}')
+$auroraDir = Split-Path -Parent $auroraExe
+$existing = Get-Process -Name "Aurora" -ErrorAction SilentlyContinue | Where-Object {{
+    try {{ $_.Path -and [System.StringComparer]::OrdinalIgnoreCase.Equals($_.Path, $auroraExe) }} catch {{ $false }}
+}} | Select-Object -First 1
+if ($existing) {{
+    Write-Output "running:$($existing.Id)"
+    exit 0
+}}
+Start-Process -FilePath $auroraExe -WorkingDirectory $auroraDir | Out-Null
+Start-Sleep -Seconds 3
+Write-Output "started"
+"""
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=12,
+        check=False,
+    )
+    output = (result.stdout or result.stderr or "").strip()
+    if result.returncode != 0:
+        raise RuntimeError(output or "Aurora.exe 启动失败")
+    if output.startswith("running:"):
+        return {"started": False, "running": True, "path": str(AURORA_EXE_PATH), "pid": output.split(":", 1)[1]}
+    return {"started": True, "running": True, "path": str(AURORA_EXE_PATH)}
+
+
+def ensure_qt_bridge_running(timeout: float = 12.0) -> dict:
+    global _qt_bridge_process
+
+    status = _qt_bridge_status(timeout=0.6)
+    if _qt_bridge_is_current(status):
+        return status
+    if status is not None:
+        print("[Aurora] Found stale Qt bridge, stopping...")
+        cleanup_qt_bridge_owner_process()
+        _stop_stale_qt_bridge_on_port()
+        time.sleep(0.8)
+
+    with _qt_bridge_lock:
+        status = _qt_bridge_status(timeout=0.6)
+        if _qt_bridge_is_current(status):
+            return status
+        if status is not None:
+            cleanup_qt_bridge_owner_process()
+            _stop_stale_qt_bridge_on_port()
+            time.sleep(0.8)
+
+        if not QT_BRIDGE_SCRIPT.exists():
+            raise RuntimeError(f"Qt 相机桥脚本不存在: {QT_BRIDGE_SCRIPT}")
+
+        if _qt_bridge_process is None or _qt_bridge_process.poll() is not None:
+            bridge_python = _select_qt_bridge_python()
+            kwargs: Dict[str, Any] = {
+                "cwd": str(Path(__file__).resolve().parent),
+            }
+            _qt_bridge_process = subprocess.Popen(
+                [bridge_python, str(QT_BRIDGE_SCRIPT.resolve()), "--host", QT_BRIDGE_HOST, "--port", str(QT_BRIDGE_PORT)],
+                **kwargs,
+            )
+            save_qt_bridge_owner_state(_qt_bridge_process.pid)
+            print(f"[Aurora] Qt bridge started (PID: {_qt_bridge_process.pid})")
+
+        deadline = time.time() + timeout
+        last_status = None
+        while time.time() < deadline:
+            last_status = _qt_bridge_status(timeout=0.8)
+            if last_status is not None:
+                return last_status
+            if _qt_bridge_process is not None and _qt_bridge_process.poll() is not None:
+                break
+            time.sleep(0.3)
+
+        if last_status is not None:
+            return last_status
+        raise RuntimeError("Qt 相机桥启动失败")
+
+
+def _qt_bridge_devices() -> list:
+    try:
+        status = ensure_qt_bridge_running()
+        if not status.get("available", False):
+            return []
+        payload = _qt_bridge_request("/devices", timeout=4.0)
+        if not payload.get("success", False):
+            return []
+        devices = payload.get("devices", []) or []
+        devices.sort(key=lambda item: (
+            _device_name_looks_like_a1(item.get("device_name") or ""),
+            item.get("source") == CAMERA_SOURCE_A1,
+            int(item.get("score") or 0),
+        ), reverse=True)
+        return devices
+    except Exception:
+        return []
+
+
+def _qt_bridge_probe_device(device_id: int) -> Optional[dict]:
+    for item in _qt_bridge_devices():
+        if int(item.get("id", -999)) == int(device_id):
+            return item
+    return None
+
+
+def _qt_bridge_fetch_frame(mode: str = "color", timeout: float = 2.5) -> Optional[np.ndarray]:
+    raw = _qt_bridge_fetch_frame_bytes(mode=mode, timeout=timeout)
+    if not raw:
+        return None
+    flags = cv2.IMREAD_GRAYSCALE if mode == "gray" else cv2.IMREAD_COLOR
+    arr = np.frombuffer(raw, dtype=np.uint8)
+    return cv2.imdecode(arr, flags)
+
+
+def _qt_bridge_fetch_frame_bytes(mode: str = "color", timeout: float = 2.5) -> Optional[bytes]:
+    query = urllib_parse.urlencode({"mode": mode})
+    req = urllib_request.Request(f"{QT_BRIDGE_URL}/frame.jpg?{query}", method="GET")
+    raw = b""
+    for _ in range(2):
+        try:
+            with urllib_request.urlopen(req, timeout=timeout) as resp:
+                if resp.status != 200:
+                    raw = b""
+                else:
+                    raw = resp.read()
+            if raw:
+                break
+        except urllib_error.URLError:
+            raw = b""
+        except Exception:
+            raw = b""
+        time.sleep(0.03)
+    return raw or None
+
+
+def _qt_bridge_wait_for_frame(mode: str = "color", timeout: float = 5.0) -> bool:
+    deadline = time.time() + max(0.2, timeout)
+    while time.time() < deadline:
+        if _qt_bridge_fetch_frame_bytes(mode=mode, timeout=0.9):
+            return True
+        time.sleep(0.08)
+    return False
+
+
+class QtBridgeCapture:
+    """使用独立 QtMultimedia 桥进程获取相机画面。"""
+
+    def __init__(self, device_id: int, source: str):
+        self.device_id = int(device_id)
+        self.source = source if source in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1} else CAMERA_SOURCE_AUTO
+        self._last_status: Dict[str, Any] = {}
+        self._open()
+
+    def _open(self) -> None:
+        status = ensure_qt_bridge_running()
+        if not status.get("available", False):
+            error_text = status.get("error") or "PySide6 / QtMultimedia 不可用"
+            raise RuntimeError(f"Qt 相机桥不可用: {error_text}")
+        payload = _qt_bridge_request(
+            "/switch",
+            method="POST",
+            payload={"device": self.device_id, "source": self.source},
+            timeout=6.0,
+        )
+        if not payload.get("success", False):
+            raise RuntimeError(payload.get("error") or "Qt 相机桥切换摄像头失败")
+        self._last_status = payload.get("status", {}) or {}
+        if not _qt_bridge_wait_for_frame(mode="color", timeout=5.0):
+            device_name = self._last_status.get("device_name") or f"device {self.device_id}"
+            raise RuntimeError(f"Qt 相机桥已切换到 {device_name}，但 5 秒内未收到视频帧")
+
+    def isOpened(self) -> bool:
+        try:
+            status = _qt_bridge_status(timeout=0.8)
+            if status is None:
+                return False
+            self._last_status = status
+            return bool(status.get("connected"))
+        except Exception:
+            return False
+
+    def release(self) -> None:
+        try:
+            result = _qt_bridge_stop(timeout=5.0)
+            print(f"[INFO] Camera released: {result.get('message', '')}")
+        except Exception as e:
+            print(f"[WARN] Error releasing camera: {e}")
+        return
+
+    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+        return self.read_color()
+
+    def read_color(self) -> Tuple[bool, Optional[np.ndarray]]:
+        frame = _qt_bridge_fetch_frame(mode="color")
+        return (frame is not None), frame
+
+    def read_color_jpeg(self) -> Tuple[bool, Optional[bytes]]:
+        payload = _qt_bridge_fetch_frame_bytes(mode="color")
+        return (payload is not None), payload
+
+    def read_gray(self) -> Tuple[bool, Optional[np.ndarray]]:
+        frame = _qt_bridge_fetch_frame(mode="gray")
+        return (frame is not None), frame
+
+    def read_gray_jpeg(self) -> Tuple[bool, Optional[bytes]]:
+        payload = _qt_bridge_fetch_frame_bytes(mode="gray")
+        return (payload is not None), payload
+
+
 def probe_camera_device(device_id: int) -> dict:
+    bridge_info = _qt_bridge_probe_device(device_id)
+    if bridge_info is not None:
+        return bridge_info
     cap = _open_raw_camera(device_id)
     if not cap.isOpened():
         return {
@@ -273,20 +896,8 @@ def probe_camera_device(device_id: int) -> dict:
         }
 
     with _suppress_c_stderr():
-        gray_fourccs = [
-            cv2.VideoWriter_fourcc(*"Y800"),
-            cv2.VideoWriter_fourcc(*"GREY"),
-            cv2.VideoWriter_fourcc(*"Y8  "),
-            cv2.VideoWriter_fourcc(*"Y16 "),
-        ]
         supports_gray_fourcc = False
-        for fourcc in gray_fourccs:
-            cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-            actual = int(cap.get(cv2.CAP_PROP_FOURCC))
-            if actual == fourcc:
-                supports_gray_fourcc = True
-                break
-
+        cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
         # 丢弃前几帧：DirectShow 管道初始化期间第 1 帧通常为全黑
@@ -368,8 +979,12 @@ def probe_camera_device(device_id: int) -> dict:
 
 
 def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
-    """串行探测摄像头设备（避免并行 DirectShow 调用干扰驱动状态）。"""
+    """串行探测摄像头设备（优先 QtMultimedia，OpenCV 仅兜底）。"""
     devices = []
+    bridge_devices = _qt_bridge_devices()
+    if bridge_devices:
+        devices.extend(bridge_devices)
+        return devices
     for i in range(max_scan):
         info = probe_camera_device(i)
         if info["opened"]:
@@ -377,61 +992,104 @@ def list_camera_devices(max_scan: int = MAX_DEVICE_SCAN) -> list:
     return devices
 
 
-def choose_camera_device(requested_device: int) -> Tuple[int, list]:
+def _scan_camera_devices_background() -> None:
+    global camera_devices_snapshot, camera_scan_active, camera_scan_error
+    try:
+        devices = list_camera_devices()
+        camera_devices_snapshot = list(devices)
+        camera_scan_error = ""
+    except Exception as exc:
+        camera_scan_error = str(exc)
+    finally:
+        camera_scan_active = False
+
+
+def choose_camera_device(requested_device: int, requested_source: Optional[str] = None) -> Tuple[int, list]:
     """返回 (device_id, candidates)。requested_device=-1 时自动优先 A1。"""
     if requested_device >= 0:
         return requested_device, list_camera_devices()
 
+    candidates = list_camera_devices()
+    preferred_source = requested_source if requested_source in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1, CAMERA_SOURCE_AUTO} else None
+    if preferred_source is None:
+        preferred_source = load_preferred_source()
+
+    def matches_requested_source(info: dict) -> bool:
+        if preferred_source in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1}:
+            return info.get("source") == preferred_source
+        return True
+
     preferred = load_preferred_device()
     if preferred is not None:
-        preferred_info = probe_camera_device(preferred)
-        if preferred_info["opened"] and (preferred_info.get("has_content") or preferred_info.get("supports_gray_fourcc")):
-            return preferred, [preferred_info]
+        preferred_info = next((c for c in candidates if int(c.get("id", -999)) == int(preferred)), None)
+        if preferred_info is None:
+            preferred_info = probe_camera_device(preferred)
+        auto_has_a1 = (
+            preferred_source == CAMERA_SOURCE_AUTO
+            and any(c.get("source") == CAMERA_SOURCE_A1 for c in candidates)
+            and preferred_info.get("source") != CAMERA_SOURCE_A1
+        )
+        if (preferred_info["opened"]
+                and not auto_has_a1
+                and matches_requested_source(preferred_info)
+                and (preferred_info.get("has_content") or preferred_info.get("supports_gray_fourcc"))):
+            if not any(int(c.get("id", -999)) == int(preferred) for c in candidates):
+                candidates.append(preferred_info)
+            return preferred, candidates
 
-    candidates = list_camera_devices()
     if not candidates:
         return 0, []
+
+    if preferred_source in {CAMERA_SOURCE_A1, CAMERA_SOURCE_AUTO, None}:
+        a1_candidates = [c for c in candidates if c.get("source") == CAMERA_SOURCE_A1]
+        if a1_candidates:
+            a1_candidates.sort(
+                key=lambda item: (
+                    bool(item.get("supports_gray_fourcc")),
+                    _device_name_looks_like_a1(item.get("device_name") or ""),
+                    int(item.get("score") or 0),
+                    -abs(int(item.get("actual_width") or 0) - CAMERA_WIDTH)
+                    - abs(int(item.get("actual_height") or 0) - CAMERA_HEIGHT),
+                ),
+                reverse=True,
+            )
+            selected = a1_candidates[0]["id"]
+            candidates_sorted = sorted(candidates, key=lambda x: (
+                x.get("source") == CAMERA_SOURCE_A1,
+                bool(x.get("supports_gray_fourcc")),
+                _device_name_looks_like_a1(x.get("device_name") or ""),
+                int(x.get("score") or 0),
+                x["id"],
+            ), reverse=True)
+            return selected, candidates_sorted
 
     candidates_sorted = sorted(candidates, key=lambda x: (x["score"], x["id"]), reverse=True)
     return candidates_sorted[0]["id"], candidates_sorted
 
 
-def open_camera(device_id: int, source: str = CAMERA_SOURCE_AUTO) -> Optional[cv2.VideoCapture]:
-    """打开摄像头，并按源类型配置预览/检测格式。"""
-    cap = _open_raw_camera(device_id)
-    if not cap.isOpened():
-        raise RuntimeError(f"无法打开摄像头设备 {device_id}")
-
+def open_camera(device_id: int, source: str = CAMERA_SOURCE_AUTO) -> Optional[Any]:
+    """打开物理摄像头输入源（仅使用Qt桥）。"""
     if source == CAMERA_SOURCE_AUTO:
         source = camera_source_global if camera_source_global != CAMERA_SOURCE_AUTO else CAMERA_SOURCE_WINDOWS
 
-    format_set = _configure_camera_for_source(cap, source)
-    if source == CAMERA_SOURCE_WINDOWS:
-        print("[INFO] Windows 摄像头以纯图像模式读取")
-    elif source == CAMERA_SOURCE_A1 and not format_set:
-        print("[INFO] A1 摄像头以兼容模式读取")
-
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-    cap.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
-
-    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps_actual = cap.get(cv2.CAP_PROP_FPS)
-    print(f"[INFO] 摄像头已打开: {w}×{h} @ {fps_actual:.1f}fps (设备 {device_id})")
-    if w != CAMERA_WIDTH or h != CAMERA_HEIGHT:
-        print(f"[WARN] 实际分辨率 {w}×{h} 与预期 {CAMERA_WIDTH}×{CAMERA_HEIGHT} 不匹配")
-    return cap
+    cap = QtBridgeCapture(device_id, source)
+    if cap.isOpened():
+        status = _qt_bridge_status(timeout=0.8) or {}
+        msg = status.get("message") or f"Qt 相机桥已连接设备 {device_id}"
+        print(f"[INFO] {msg}")
+        return cap
+    
+    raise RuntimeError(f"Qt相机桥无法打开设备 {device_id}")
 
 
-def bootstrap_camera(requested_device: int) -> None:
+def bootstrap_camera(requested_device: int, requested_source: str = CAMERA_SOURCE_AUTO) -> None:
     """在后台完成摄像头自动探测与打开，避免阻塞 Web 服务启动。"""
     global camera, device_id_global, camera_source_global, camera_connected, _fail_streak, _consecutive_failures
     global camera_bootstrap_active, camera_devices_snapshot
 
     camera_bootstrap_active = True
     try:
-        selected_device, candidates = choose_camera_device(requested_device)
+        selected_device, candidates = choose_camera_device(requested_device, requested_source)
         if candidates:
             selected_info = next((c for c in candidates if c["id"] == selected_device), None)
             if selected_info is None:
@@ -441,7 +1099,10 @@ def bootstrap_camera(requested_device: int) -> None:
 
         camera_devices_snapshot = list(candidates) if candidates else [selected_info]
 
-        camera_source_global = selected_info.get("source", CAMERA_SOURCE_WINDOWS)
+        if requested_source in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1}:
+            camera_source_global = requested_source
+        else:
+            camera_source_global = selected_info.get("source", CAMERA_SOURCE_WINDOWS)
         device_id_global = selected_device
 
         if requested_device < 0:
@@ -464,7 +1125,8 @@ def bootstrap_camera(requested_device: int) -> None:
             opened_camera = None
 
         # 到这里 snapshot 已设置，/camera_devices 可正常应答，再做初始帧预热
-        if opened_camera is not None and opened_camera.isOpened():
+        if (opened_camera is not None and opened_camera.isOpened()
+                and not isinstance(opened_camera, QtBridgeCapture)):
             print("[INFO] 刷新 DirectShow 初始化队列帧...")
             with _suppress_c_stderr():
                 for _ in range(5):
@@ -475,27 +1137,34 @@ def bootstrap_camera(requested_device: int) -> None:
                 camera.release()
             camera = opened_camera
 
-        camera_connected = opened_camera is not None and opened_camera.isOpened()
-        if camera_connected:
-            _fail_streak = 0
-            _consecutive_failures = 0
+        if opened_camera is not None and opened_camera.isOpened():
+            _mark_camera_connected()
+        else:
+            _mark_camera_disconnected()
+            _reset_camera_failure_state()
     except Exception as e:
         print(f"[WARN] 摄像头后台初始化失败: {e}")
         with camera_lock:
             if camera:
                 camera.release()
             camera = None
-        camera_connected = False
+        _mark_camera_disconnected()
     finally:
         camera_bootstrap_active = False
 
 
-def _read_display_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
+def _read_display_frame(cap: Any) -> Optional[np.ndarray]:
     with camera_lock:
-        ret, frame = cap.read()
+        if isinstance(cap, QtBridgeCapture):
+            ret, frame = cap.read_color()
+        else:
+            ret, frame = cap.read()
     if not ret or frame is None:
         return None
 
+    current_source = camera_source_global
+    if current_source == CAMERA_SOURCE_A1 and len(frame.shape) == 3 and frame.shape[2] >= 3 and not _is_effectively_grayscale(frame):
+        frame = _extract_best_mono_channel(frame)
     corrected = _normalize_frame_for_display(frame)
     if corrected is None:
         return None
@@ -504,10 +1173,26 @@ def _read_display_frame(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
         corrected = cv2.cvtColor(corrected, cv2.COLOR_GRAY2BGR)
     elif corrected.shape[2] == 1:
         corrected = cv2.cvtColor(corrected[:, :, 0], cv2.COLOR_GRAY2BGR)
+    elif current_source == CAMERA_SOURCE_A1:
+        # A1 源理论上应为单通道灰度；少数驱动会把 Y 通道伪装成 2/3 通道彩色帧。
+        mono = None
+        if corrected.shape[2] == 2:
+            mono = _extract_best_mono_channel(corrected)
+        elif corrected.shape[2] >= 3 and not _is_effectively_grayscale(corrected):
+            mono = _extract_best_mono_channel(corrected)
+        if mono is not None:
+            corrected = cv2.cvtColor(mono, cv2.COLOR_GRAY2BGR)
     return corrected
 
 
-def _read_gray(cap: cv2.VideoCapture) -> Optional[np.ndarray]:
+def _read_gray(cap: Any) -> Optional[np.ndarray]:
+    if isinstance(cap, QtBridgeCapture):
+        with camera_lock:
+            ret, frame = cap.read_gray()
+        if not ret or frame is None:
+            return None
+        corrected = _normalize_frame_for_display(frame)
+        return _frame_to_gray(corrected)
     frame = _read_display_frame(cap)
     if frame is None:
         return None
@@ -529,7 +1214,8 @@ def _read_detect_model_preference() -> Optional[str]:
         if not _DETECT_MODEL_PREF_FILE.exists():
             return None
         text = _DETECT_MODEL_PREF_FILE.read_text(encoding="utf-8").strip()
-        return text or None
+        first_line = text.split('\n')[0].strip()
+        return first_line or None
     except Exception:
         return None
 
@@ -626,10 +1312,18 @@ def _initial_detect_model_path() -> Path:
         resolved = _resolve_detect_model_path(preferred_name)
         if resolved is not None:
             return resolved
+    if MODEL_ROOT.exists():
+        for suffix in (".onnx", ".pt"):
+            for path in sorted(MODEL_ROOT.iterdir(), key=lambda item: item.name.lower()):
+                if path.is_file() and path.suffix.lower() == suffix:
+                    return path.resolve()
     return _DETECT_MODEL_PATH
 
 
-set_detect_model_path(_initial_detect_model_path(), persist=False)
+try:
+    set_detect_model_path(_initial_detect_model_path(), persist=False)
+except Exception as exc:
+    print(f"[WARN] 初始检测模型不可用: {exc}")
 
 
 def crop_center(img: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
@@ -707,6 +1401,18 @@ def _letterbox(img_gray: np.ndarray, target: int = 640):
     pad_x = (target - new_w) // 2
     canvas[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = resized
     return canvas, scale, pad_x, pad_y
+
+
+def _resize_for_a1_train(frame_gray: np.ndarray) -> np.ndarray:
+    cropped = crop_center(frame_gray, 720, 540)
+    return cv2.resize(cropped, (640, 480))
+
+
+def _prepare_detect_input(frame_gray: np.ndarray):
+    resized = _resize_for_a1_train(frame_gray)
+    rgb3 = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB).astype(np.float32) / 255.0
+    inp = np.transpose(rgb3, (2, 0, 1))[np.newaxis]
+    return resized, inp
 
 
 def _sigmoid(x):
@@ -845,7 +1551,7 @@ def _decode_yolov8_outputs(outputs):
 
 
 def detect_on_frame(frame_gray: np.ndarray):
-    """对灰度帧运行 YOLOv8 推理，返回 [(x1,y1,x2,y2,score,cls_id)]（1280×720 坐标系）。"""
+    """对灰度帧运行 YOLOv8 推理，返回原始帧坐标系下的检测框。"""
     h, w = frame_gray.shape
     if _DETECT_MODEL_PATH.suffix.lower() == ".pt":
         model = _load_pt_model()
@@ -885,20 +1591,19 @@ def detect_on_frame(frame_gray: np.ndarray):
     if sess is None:
         return []
 
-    lb, scale, pad_x, pad_y = _letterbox(frame_gray, 640)
-    rgb3 = cv2.cvtColor(lb, cv2.COLOR_GRAY2RGB).astype(np.float32) / 255.0
-    inp = np.transpose(rgb3, (2, 0, 1))[np.newaxis]
-
+    resized, inp = _prepare_detect_input(frame_gray)
     output_names = [o.name for o in sess.get_outputs()]
     outputs = sess.run(output_names, {sess.get_inputs()[0].name: inp})
     detections = _decode_yolov8_outputs(outputs)
 
     results = []
+    x_scale = float(w) / float(resized.shape[1])
+    y_scale = float(h) / float(resized.shape[0])
     for box, score, cls_id in detections:
-        x1 = max(0.0, (box[0] - pad_x) / scale)
-        y1 = max(0.0, (box[1] - pad_y) / scale)
-        x2 = min(float(w), (box[2] - pad_x) / scale)
-        y2 = min(float(h), (box[3] - pad_y) / scale)
+        x1 = max(0.0, box[0] * x_scale)
+        y1 = max(0.0, box[1] * y_scale)
+        x2 = min(float(w), box[2] * x_scale)
+        y2 = min(float(h), box[3] * y_scale)
         results.append((x1, y1, x2, y2, score, cls_id))
     return results
 
@@ -945,12 +1650,54 @@ def _update_detection_runtime(detections, frame_shape: Tuple[int, int]) -> Dict[
         return dict(_last_detect_snapshot)
 
 
+def _judge_action_from_snapshot(snapshot: Dict[str, Any]) -> str:
+    counts = snapshot.get("class_counts") or {}
+    if counts.get("gesture2", 0) > 0:
+        return "stop"
+    if counts.get("obstacle_box", 0) > 0:
+        return "avoid"
+    if counts.get("gesture1", 0) > 0:
+        return "forward"
+    return "idle"
+
+
+def _judge_risk_from_snapshot(snapshot: Dict[str, Any]) -> str:
+    items = snapshot.get("items") or []
+    frame_w = float(snapshot.get("frame_width") or CAMERA_WIDTH)
+    frame_h = float(snapshot.get("frame_height") or CAMERA_HEIGHT)
+    best_score = 0.0
+    best_area = 0.0
+    best_bottom = 0.0
+    for item in items:
+        if item.get("class_name") != "obstacle_box":
+            continue
+        box = item.get("box") or [0, 0, 0, 0]
+        if len(box) != 4:
+            continue
+        x1, y1, x2, y2 = [float(v) for v in box]
+        area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+        area_ratio = area / max(1.0, frame_w * frame_h)
+        bottom_ratio = y2 / max(1.0, frame_h)
+        score = float(item.get("score") or 0.0)
+        if area_ratio + score * 0.05 > best_area + best_score * 0.05:
+            best_score = score
+            best_area = area_ratio
+            best_bottom = bottom_ratio
+    if best_area >= 0.20 or best_bottom >= 0.72:
+        return "high"
+    if best_area >= 0.10 or best_bottom >= 0.58:
+        return "medium"
+    if best_score > 0:
+        return "low"
+    return "clear"
+
+
 def _save_capture(frame: np.ndarray, fmt: str) -> dict:
     global capture_count
     tw, th = CAPTURE_FORMATS[fmt]
 
-    if fmt == "640x360":
-        # 传感器 1280×720 → 中心裁剪 640×360
+    if fmt == "640x480":
+        # A1 720×1280 灰度帧 → 中心裁剪 640×480
         out = crop_center(frame, tw, th)
     else:
         out = frame.copy()
@@ -963,14 +1710,17 @@ def _save_capture(frame: np.ndarray, fmt: str) -> dict:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     name = f"capture_{ts}_{capture_count:04d}_{fmt}.png"
     path = os.path.join(output_dir, name)
+    os.makedirs(output_dir, exist_ok=True)
     cv2.imwrite(path, out)
 
-    thumb = cv2.resize(out, (160, 90 if fmt == "640x360" else 80))
+    thumb_h = 120 if fmt == "640x480" else 160
+    thumb = cv2.resize(out, (90 if fmt == "720x1280" else 160, thumb_h))
     _, buf = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 72])
     thumb_b64 = base64.b64encode(buf).decode()
 
     info = {
         "filename": name,
+        "path": path,
         "format": fmt,
         "size": f"{tw}×{th}",
         "thumb": thumb_b64,
@@ -995,10 +1745,28 @@ def generate_frames():
     while True:
         with camera_lock:
             cap = camera
-        frame = _read_display_frame(cap) if cap else None
+        if isinstance(cap, QtBridgeCapture):
+            if camera_source_global == CAMERA_SOURCE_A1:
+                frame = _read_display_frame(cap)
+            else:
+                ret, payload = cap.read_color_jpeg()
+                if ret and payload:
+                    _mark_camera_connected()
+                    _frame_count += 1
+                    now = time.time()
+                    if now - _fps_ts >= 1.0:
+                        current_fps = _frame_count / (now - _fps_ts)
+                        _frame_count = 0
+                        _fps_ts = now
+                    yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                           + payload + b"\r\n")
+                    continue
+                frame = None
+        else:
+            frame = _read_display_frame(cap) if cap else None
 
         if frame is None:
-            camera_connected = False
+            _mark_camera_disconnected()
             _fail_streak += 1
             _consecutive_failures += 1
             now = time.time()
@@ -1006,17 +1774,17 @@ def generate_frames():
                     and _consecutive_failures >= FAIL_THRESHOLD
                     and now - _last_reconnect_time > RECONNECT_INTERVAL):
                 _last_reconnect_time = now
-                _consecutive_failures = 0
-                _fail_streak = 0
+                _reset_camera_failure_state()
                 print("[INFO] 视频流中断，自动尝试重连摄像头...")
                 try:
                     with camera_lock:
                         if camera:
                             camera.release()
                         camera = open_camera(device_id_global, camera_source_global)
-                    camera_connected = True
+                    _mark_camera_connected()
                     print("[INFO] 摄像头自动重连成功")
                 except Exception as e:
+                    _mark_camera_disconnected()
                     print(f"[WARN] 自动重连失败: {e}")
             blk = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH, 3), dtype=np.uint8)
             cv2.putText(blk, "No Signal - Reconnecting...",
@@ -1031,9 +1799,7 @@ def generate_frames():
             time.sleep(0.3)
             continue
 
-        camera_connected = True
-        _fail_streak = 0
-        _consecutive_failures = 0
+        _mark_camera_connected()
         _frame_count += 1
         now = time.time()
         if now - _fps_ts >= 1.0:
@@ -1041,7 +1807,8 @@ def generate_frames():
             _frame_count = 0
             _fps_ts = now
 
-        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
+        quality = 84 if camera_source_global == CAMERA_SOURCE_A1 else 92
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
         yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
                + buf.tobytes() + b"\r\n")
 
@@ -1102,16 +1869,41 @@ def index():
     return render_template("companion_ui.html", output_dir=output_dir)
 
 
+@app.route("/judge")
+def judge_page():
+    return render_template(JUDGE_TEMPLATE, default_stream="detect")
+
+
+@app.route("/shutdown", methods=["POST"])
+def shutdown():
+    result = shutdown_qt_bridge()
+    return jsonify(result)
+
+
 @app.route("/video_feed")
 def video_feed():
-    return Response(generate_frames(),
-                    mimetype="multipart/x-mixed-replace; boundary=frame")
+    return Response(
+        generate_frames(),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.route("/detect_feed")
 def detect_feed():
-    return Response(_generate_detect_frames(),
-                    mimetype="multipart/x-mixed-replace; boundary=frame")
+    return Response(
+        _generate_detect_frames(),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.route("/detect_status")
@@ -1152,6 +1944,8 @@ def detect_latest():
     snapshot["model_name"] = _DETECT_MODEL_PATH.name
     snapshot["model_mode"] = _DETECT_MODEL_MODE
     snapshot["model_backend"] = _detect_model_backend_from_path(_DETECT_MODEL_PATH)
+    snapshot["judge_action"] = _judge_action_from_snapshot(snapshot)
+    snapshot["judge_risk"] = _judge_risk_from_snapshot(snapshot)
     return jsonify(snapshot)
 
 
@@ -1170,6 +1964,8 @@ def detect_snapshot():
         "model_name": _DETECT_MODEL_PATH.name,
         "model_mode": _DETECT_MODEL_MODE,
         "model_backend": _detect_model_backend_from_path(_DETECT_MODEL_PATH),
+        "judge_action": _judge_action_from_snapshot(snapshot),
+        "judge_risk": _judge_risk_from_snapshot(snapshot),
         **snapshot,
     })
 
@@ -1196,7 +1992,7 @@ def switch_detect_model():
 @app.route("/capture", methods=["POST"])
 def do_capture():
     data = request.get_json(silent=True) or {}
-    fmt = data.get("format", "1280x720")
+    fmt = str(data.get("format") or DEFAULT_CAPTURE_FORMAT).strip()
     if fmt not in CAPTURE_FORMATS:
         return jsonify({"success": False, "error": f"不支持的格式: {fmt}"})
     with camera_lock:
@@ -1205,7 +2001,23 @@ def do_capture():
     if frame is None:
         return jsonify({"success": False, "error": "无法获取摄像头画面"})
     info = _save_capture(frame, fmt)
-    return jsonify({"success": True, **info})
+    return jsonify({"success": True, "output_dir": output_dir, **info})
+
+
+@app.route("/release_camera", methods=["POST"])
+def release_camera():
+    global camera
+    try:
+        with camera_lock:
+            if camera:
+                camera.release()
+                camera = None
+            _mark_camera_disconnected()
+        print("[INFO] 摄像头已释放")
+        return jsonify({"success": True, "message": "摄像头已释放"})
+    except Exception as e:
+        print(f"[WARN] 释放摄像头失败: {e}")
+        return jsonify({"success": False, "error": f"释放摄像头失败: {e}"})
 
 
 @app.route("/refresh_camera", methods=["POST"])
@@ -1217,27 +2029,40 @@ def refresh_camera():
                 camera.release()
             camera = open_camera(device_id_global, camera_source_global)
             ok = camera is not None and camera.isOpened()
-    except Exception as e:
+    except Exception:
         ok = False
-        print(f"[WARN] 摄像头刷新异常: {e}")
-    _fail_streak = 0
-    _consecutive_failures = 0
-    camera_connected = ok
+
+    _reset_camera_failure_state()
     if ok:
+        _mark_camera_connected()
         print("[INFO] 摄像头手动刷新成功")
         return jsonify({"success": True, "message": "摄像头已重新连接"})
+
+    _mark_camera_disconnected()
     print("[WARN] 摄像头刷新失败")
     return jsonify({"success": False, "error": "无法连接到摄像头设备"})
 
 
 @app.route("/camera_devices")
 def camera_devices():
-    global camera_devices_snapshot
+    global camera_devices_snapshot, camera_scan_active, camera_scan_error, camera_scan_started_at
 
+    force_refresh = str(request.args.get("refresh") or "").lower() in {"1", "true", "yes"}
+    if camera_scan_active and time.time() - camera_scan_started_at > 20.0:
+        camera_scan_active = False
+        camera_scan_error = "摄像头扫描超过 20 秒，已保留当前列表；可稍后再次扫描"
     bootstrapping = False
-    if camera_devices_snapshot:
+    if force_refresh:
+        if not camera_scan_active:
+            camera_scan_active = True
+            camera_scan_started_at = time.time()
+            camera_scan_error = ""
+            threading.Thread(target=_scan_camera_devices_background, daemon=True, name="camera-device-scan").start()
         devices = list(camera_devices_snapshot)
-    elif camera_bootstrap_active:
+        bootstrapping = True
+    elif camera_devices_snapshot:
+        devices = list(camera_devices_snapshot)
+    elif camera_bootstrap_active or camera_scan_active:
         devices = []
         bootstrapping = True
     else:
@@ -1247,23 +2072,36 @@ def camera_devices():
     for d in devices:
         kind = "Gray" if d.get("is_grayscale") else "Color"
         y8 = "Y8" if d.get("supports_gray_fourcc") else "NoY8"
-        label = f"device {d['id']} - {d['actual_width']}x{d['actual_height']} {kind} {y8} score={d['score']}"
+        device_name = str(d.get("device_name") or f"device {d['id']}").strip()
+        pixel_format = str(d.get("pixel_format") or "").strip()
+        format_suffix = f" {pixel_format}" if pixel_format else ""
+        display_width, display_height = _display_dims_for_device(d)
+        label_kind = "Gray" if d.get("source") == CAMERA_SOURCE_A1 and d.get("supports_gray_fourcc") else kind
+        label = f"{device_name} - {display_width}x{display_height} {label_kind} {y8}{format_suffix} score={d['score']}"
         items.append({
             "id": d["id"],
             "label": label,
             "score": d["score"],
             "actual_width": d["actual_width"],
             "actual_height": d["actual_height"],
+            "display_width": display_width,
+            "display_height": display_height,
             "is_grayscale": d.get("is_grayscale", False),
+            "has_content": d.get("has_content", False),
             "supports_gray_fourcc": d.get("supports_gray_fourcc", False),
             "source": d.get("source", CAMERA_SOURCE_WINDOWS),
             "source_label": d.get("source_label", _source_label(CAMERA_SOURCE_WINDOWS)),
+            "device_name": d.get("device_name"),
+            "pixel_format": d.get("pixel_format"),
+            "raw8_hint": d.get("raw8_hint", False),
         })
     return jsonify({
         "current_device": device_id_global,
         "current_source": camera_source_global,
         "devices": items,
-        "bootstrapping": bootstrapping,
+        "bootstrapping": bootstrapping or camera_scan_active,
+        "scan_error": camera_scan_error,
+        "qt_bridge": _qt_bridge_status(timeout=0.5),
     })
 
 
@@ -1302,14 +2140,13 @@ def switch_camera():
             raise RuntimeError("目标摄像头无法打开")
         device_id_global = new_device
         camera_source_global = requested_source
-        _fail_streak = 0
-        _consecutive_failures = 0
-        camera_connected = True
+        _mark_camera_connected()
         save_preferred_device(new_device)
+        save_preferred_source(requested_source)
         print(f"[INFO] 已切换到摄像头设备 {new_device} ({requested_source})")
         return jsonify({"success": True, "device": new_device, "source": requested_source})
     except Exception as e:
-        camera_connected = False
+        _mark_camera_disconnected()
         return jsonify({"success": False, "error": str(e)})
 
 
@@ -1320,17 +2157,24 @@ def recent_captures_api():
 
 @app.route("/status")
 def status():
-    with camera_lock:
-        connected = camera is not None and camera.isOpened()
+    stream_width = CAMERA_WIDTH
+    stream_height = CAMERA_HEIGHT
+    qt_status = _qt_bridge_status(timeout=0.5)
+    if qt_status:
+        stream_width = int(qt_status.get("frame_width") or stream_width)
+        stream_height = int(qt_status.get("frame_height") or stream_height)
     return jsonify({
-        "connected": connected,
+        "connected": bool(camera_connected),
         "capture_count": capture_count,
         "fps": round(current_fps, 1),
         "output_dir": output_dir,
         "camera_resolution": f"{CAMERA_WIDTH}x{CAMERA_HEIGHT}",
+        "stream_width": stream_width,
+        "stream_height": stream_height,
         "device": device_id_global,
         "source": camera_source_global,
         "source_label": _source_label(camera_source_global),
+        "qt_bridge": qt_status,
         "model_name": _DETECT_MODEL_PATH.name,
         "model_path": str(_DETECT_MODEL_PATH),
         "model_mode": _DETECT_MODEL_MODE,
@@ -1342,13 +2186,15 @@ def status():
 def main():
     global camera, output_dir, device_id_global, camera_source_global
 
-    parser = argparse.ArgumentParser(description="Aurora Companion — Windows/A1 摄像头可视化采集伴侣")
+    parser = argparse.ArgumentParser(description="Aurora Companion — 原始摄像头/A1 摄像头可视化采集伴侣")
     parser.add_argument("--device", type=int, default=-1,   help="摄像头设备 ID (默认: -1 自动优先 A1)")
+    parser.add_argument("--source", type=str, default=CAMERA_SOURCE_AUTO,
+                        help="输入源: windows / a1 / auto")
     parser.add_argument("--output", type=str,
-                        default="../../data/yolov8_dataset/raw/images",
+                        default="../../data/yolov8_dataset/raw",
                         help="拍照保存目录")
     parser.add_argument("--port",   type=int, default=5801, help="Web 服务端口 (默认: 5801)")
-    parser.add_argument("--host",   type=str, default="0.0.0.0", help="监听地址")
+    parser.add_argument("--host",   type=str, default="127.0.0.1", help="监听地址")
     args = parser.parse_args()
 
     script_dir = Path(__file__).parent
@@ -1356,12 +2202,41 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     print(f"[INFO] 输出目录: {output_dir}")
 
+    try:
+        aurora_status = _start_aurora_desktop()
+        if aurora_status.get("running"):
+            if aurora_status.get("started"):
+                print(f"[INFO] Aurora.exe 已启动: {aurora_status.get('path')}")
+            else:
+                print(f"[INFO] Aurora.exe 已在运行: {aurora_status.get('path')}")
+        elif aurora_status.get("error"):
+            print(f"[WARN] Aurora 启动跳过: {aurora_status.get('error')}")
+    except Exception as exc:
+        print(f"[WARN] Aurora 启动失败，但 Companion 将继续启动: {exc}")
+
+    initial_source = str(args.source or CAMERA_SOURCE_AUTO).strip().lower()
+    if initial_source not in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1, CAMERA_SOURCE_AUTO}:
+        initial_source = CAMERA_SOURCE_AUTO
+    camera_source_global = initial_source
+    if initial_source in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1}:
+        save_preferred_source(initial_source)
+
+    try:
+        bridge_status = ensure_qt_bridge_running(timeout=2.0)
+        if bridge_status.get("available", False):
+            print(f"[INFO] Qt 相机桥已就绪: {QT_BRIDGE_URL}")
+        else:
+            print(f"[WARN] Qt 相机桥不可用，将自动回退 OpenCV: {bridge_status.get('error')}")
+    except Exception as exc:
+        print(f"[WARN] Qt 相机桥启动失败，将自动回退 OpenCV: {exc}")
+
     print(f"[INFO] Aurora Companion 正在启动 Web 服务: http://127.0.0.1:{args.port}")
-    print(f"[INFO] 快捷键: 1=1280×720  2=640×360  R=刷新摄像头")
-    camera_bootstrap = threading.Thread(target=bootstrap_camera, args=(args.device,), daemon=True)
+    print(f"[INFO] 快捷键: 1=720×1280  2=640×480  R=刷新摄像头")
+    camera_bootstrap = threading.Thread(target=bootstrap_camera, args=(args.device, initial_source), daemon=True)
     camera_bootstrap.start()
     app.run(host=args.host, port=args.port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":
     main()
+

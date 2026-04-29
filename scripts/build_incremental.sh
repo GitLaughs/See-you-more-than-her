@@ -45,15 +45,15 @@ case "${mode}" in
       ssne_ai_demo|demo)
         echo "[build_incremental.sh] 构建 ssne_ai_demo（人脸检测 + OSD标签 + 底盘控制）"
         rm -rf output/build/ssne_ai_demo/
-        make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg ssne_ai_demo
+        make BR2_EXTERNAL=./smart_software ssne_ai_demo
         ;;
       m1_sdk_lib|lib)
         echo "[build_incremental.sh] 重新构建 SDK 基础库"
-        make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg m1_sdk_lib-rebuild
+        make BR2_EXTERNAL=./smart_software m1_sdk_lib-rebuild
         ;;
       linux|kernel)
         echo "[build_incremental.sh] 重新构建内核 (with initramfs)"
-        make BR2_EXTERNAL=./smart_software:/app/src/buildroot_pkg linux-rebuild-with-initramfs
+        make BR2_EXTERNAL=./smart_software linux-rebuild-with-initramfs
         ;;
       full)
         echo "[build_incremental.sh] 完整 SDK 构建"

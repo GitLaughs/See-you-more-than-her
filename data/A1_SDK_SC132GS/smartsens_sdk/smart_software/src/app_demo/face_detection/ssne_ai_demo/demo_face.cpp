@@ -1,300 +1,353 @@
-#include <fstream>
-#include <iostream>
+/*
+ * @Filename: demo_face.cpp
+ * @Author: Hongying He
+ * @Email: hongying.he@smartsenstech.com
+ * @Date: 2025-12-30 14-57-47
+ * @Copyright (c) 2025 SmartSens
+ */
+#include <algorithm>
+#include <chrono>
 #include <cstring>
-#include <thread>
+#include <iostream>
 #include <mutex>
-#include <fcntl.h>
-#include <regex>
-#include <dirent.h>
+#include <thread>
 #include <unistd.h>
-#include <sys/time.h>
-#include "include/utils.hpp"
+
 #include "include/chassis_controller.hpp"
-#include "project_paths.hpp"
+#include "include/utils.hpp"
 
 using namespace std;
 
-// 全局退出标志（线程安全）
 bool g_exit_flag = false;
-// 保护退出标志的互斥锁
 std::mutex g_mtx;
 
-/**
- * @brief 键盘监听程序，用于结束demo
- */
+struct osdInfo {
+    std::string filename;
+    uint16_t x;
+    uint16_t y;
+};
+
+enum class ActionState {
+    Idle,
+    Forward,
+    StopGesture,
+    AvoidLeft,
+    AvoidRight,
+    Blocked,
+};
+
+struct DetectionSummary {
+    bool found = false;
+    std::array<float, 4> box = {0.f, 0.f, 0.f, 0.f};
+    float score = 0.f;
+    float area_ratio = 0.f;
+    float center_x_ratio = 0.5f;
+    float bottom_ratio = 0.f;
+};
+
+struct RuntimeState {
+    ActionState action = ActionState::Idle;
+    int forward_frames = 0;
+    int stop_frames = 0;
+    int obstacle_frames = 0;
+    int clear_frames = 0;
+    uint64_t frame_index = 0;
+    bool chassis_ready = false;
+    int det_count = 0;
+    DetectionSummary obstacle;
+};
+
+namespace {
+
+const char* action_name(ActionState action) {
+    switch (action) {
+        case ActionState::Idle: return "idle";
+        case ActionState::Forward: return "forward";
+        case ActionState::StopGesture: return "stop_gesture";
+        case ActionState::AvoidLeft: return "avoid_left";
+        case ActionState::AvoidRight: return "avoid_right";
+        case ActionState::Blocked: return "blocked";
+    }
+    return "unknown";
+}
+
 void keyboard_listener() {
     std::string input;
     std::cout << "键盘监听线程已启动，输入 'q' 退出程序..." << std::endl;
 
     while (true) {
-        // 读取键盘输入（会阻塞直到有输入）
         std::cin >> input;
-
-        // 加锁修改退出标志
         std::lock_guard<std::mutex> lock(g_mtx);
         if (input == "q" || input == "Q") {
             g_exit_flag = true;
             std::cout << "检测到退出指令，通知主线程退出..." << std::endl;
             break;
-        } else {
-            std::cout << "输入无效（仅 'q' 有效），请重新输入：" << std::endl;
         }
+        std::cout << "输入无效（仅 'q' 有效），请重新输入：" << std::endl;
     }
 }
 
-/**
- * @brief 检查退出标志的辅助函数（线程安全）
- * @return 是否需要退出
- */
 bool check_exit_flag() {
     std::lock_guard<std::mutex> lock(g_mtx);
     return g_exit_flag;
 }
 
-namespace {
+std::vector<std::array<float, 4>> to_osd_boxes(const FaceDetectionResult& det_result,
+                                               float crop_offset_y)
+{
+    std::vector<std::array<float, 4>> boxes_original_coord;
+    boxes_original_coord.reserve(det_result.boxes.size());
+    for (const auto& box : det_result.boxes) {
+        boxes_original_coord.push_back({
+            box[0],
+            box[1] + crop_offset_y,
+            box[2],
+            box[3] + crop_offset_y,
+        });
+    }
+    return boxes_original_coord;
+}
 
-uint64_t monotonic_time_us() {
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    return static_cast<uint64_t>(tv.tv_sec) * 1000000ULL +
-           static_cast<uint64_t>(tv.tv_usec);
+DetectionSummary summarize_best_detection(const FaceDetectionResult& det_result,
+                                          int class_id,
+                                          float frame_w,
+                                          float frame_h)
+{
+    DetectionSummary summary;
+    float best_rank = -1.0f;
+
+    for (size_t i = 0; i < det_result.boxes.size() && i < det_result.class_ids.size(); ++i) {
+        if (det_result.class_ids[i] != class_id) {
+            continue;
+        }
+
+        const auto& box = det_result.boxes[i];
+        const float width = std::max(0.0f, box[2] - box[0]);
+        const float height = std::max(0.0f, box[3] - box[1]);
+        const float area_ratio = (width * height) / std::max(1.0f, frame_w * frame_h);
+        const float score = i < det_result.scores.size() ? det_result.scores[i] : 0.0f;
+        const float rank = area_ratio * 2.0f + score;
+        if (rank <= best_rank) {
+            continue;
+        }
+
+        best_rank = rank;
+        summary.found = true;
+        summary.box = box;
+        summary.score = score;
+        summary.area_ratio = area_ratio;
+        summary.center_x_ratio = ((box[0] + box[2]) * 0.5f) / std::max(1.0f, frame_w);
+        summary.bottom_ratio = box[3] / std::max(1.0f, frame_h);
+    }
+
+    return summary;
+}
+
+ActionState decide_action(const FaceDetectionResult& det_result,
+                          RuntimeState* runtime,
+                          float frame_w,
+                          float frame_h)
+{
+    const DetectionSummary forward = summarize_best_detection(
+        det_result, cfg::TARGET_CLASS_FORWARD, frame_w, frame_h);
+    const DetectionSummary stop = summarize_best_detection(
+        det_result, cfg::TARGET_CLASS_STOP, frame_w, frame_h);
+    const DetectionSummary obstacle = summarize_best_detection(
+        det_result, cfg::TARGET_CLASS_OBSTACLE_BOX, frame_w, frame_h);
+
+    runtime->det_count = static_cast<int>(det_result.boxes.size());
+    runtime->obstacle = obstacle;
+
+    runtime->forward_frames = forward.found ? runtime->forward_frames + 1 : 0;
+    runtime->stop_frames = stop.found ? runtime->stop_frames + 1 : 0;
+
+    const bool obstacle_confirmed = obstacle.found && (
+        obstacle.area_ratio >= cfg::OBSTACLE_WARN_AREA_RATIO ||
+        obstacle.bottom_ratio >= cfg::OBSTACLE_BOTTOM_RATIO);
+    runtime->obstacle_frames = obstacle_confirmed ? runtime->obstacle_frames + 1 : 0;
+    runtime->clear_frames = obstacle.found ? 0 : runtime->clear_frames + 1;
+
+    if (runtime->stop_frames >= cfg::GESTURE_CONFIRM_FRAMES) {
+        return ActionState::StopGesture;
+    }
+
+    if (runtime->obstacle_frames >= cfg::OBSTACLE_CONFIRM_FRAMES) {
+        const bool near_center = obstacle.center_x_ratio >= cfg::OBSTACLE_CENTER_LEFT &&
+                                 obstacle.center_x_ratio <= cfg::OBSTACLE_CENTER_RIGHT;
+        const bool very_near = obstacle.area_ratio >= cfg::OBSTACLE_NEAR_AREA_RATIO ||
+                               obstacle.bottom_ratio >= cfg::OBSTACLE_BOTTOM_RATIO;
+        if (very_near && near_center) {
+            return ActionState::Blocked;
+        }
+        if (obstacle.center_x_ratio < cfg::OBSTACLE_CENTER_LEFT) {
+            return ActionState::AvoidRight;
+        }
+        if (obstacle.center_x_ratio > cfg::OBSTACLE_CENTER_RIGHT) {
+            return ActionState::AvoidLeft;
+        }
+        return ActionState::Blocked;
+    }
+
+    if (runtime->forward_frames >= cfg::GESTURE_CONFIRM_FRAMES) {
+        return ActionState::Forward;
+    }
+
+    if ((runtime->action == ActionState::AvoidLeft ||
+         runtime->action == ActionState::AvoidRight ||
+         runtime->action == ActionState::Blocked) &&
+        runtime->clear_frames < cfg::CLEAR_CONFIRM_FRAMES) {
+        return runtime->action;
+    }
+
+    return ActionState::Idle;
+}
+
+void select_velocity(ActionState action, int16_t* vx, int16_t* vy, int16_t* vz) {
+    *vx = cfg::VX_STOP;
+    *vy = 0;
+    *vz = 0;
+
+    switch (action) {
+        case ActionState::Forward:
+            *vx = cfg::VX_FORWARD;
+            break;
+        case ActionState::AvoidLeft:
+            *vx = cfg::VX_FORWARD;
+            *vz = cfg::VZ_TURN;
+            break;
+        case ActionState::AvoidRight:
+            *vx = cfg::VX_FORWARD;
+            *vz = -cfg::VZ_TURN;
+            break;
+        case ActionState::StopGesture:
+        case ActionState::Blocked:
+        case ActionState::Idle:
+            break;
+    }
 }
 
 }  // namespace
 
-/**
- * @brief 人物检测演示程序主函数
- * @return 执行结果，0表示成功
- */
-int main() {
-    /******************************************************************************************
-     * 1. 参数配置
-     ******************************************************************************************/
-    
-    // 图像尺寸配置
-    // 传感器采集: 1280×720 (16:9 Y8 灰度)
-    int img_width = 1280;   // 输入图像宽度
-    int img_height = 720;   // 输入图像高度
-    
-    // 模型配置参数
-    // 推理输入: 640×360（由 RunAiPreprocessPipe 从 1280×720 缩放, 16:9 无裁剪）
-    array<int, 2> det_shape = {cfg::DET_WIDTH, cfg::DET_HEIGHT};  // 640×360
-    string path_det = cfg::MODEL_PATH;  // YOLOv8 head6 模型路径
-    
-    /******************************************************************************************
-     * 2. 系统初始化
-     ******************************************************************************************/
-    
-    // SSNE初始化
+int main(int argc, char** argv) {
+    (void)argc;
+    (void)argv;
+
+    int img_width = cfg::SENSOR_WIDTH;
+    int img_height = cfg::SENSOR_HEIGHT;
+    array<int, 2> det_shape = {cfg::DET_WIDTH, cfg::DET_HEIGHT};
+    string path_det = cfg::MODEL_PATH;
+
+    static osdInfo osds[3] = {
+        {"si.ssbmp", 10, 10},
+        {"te.ssbmp", 90, 10},
+        {"wei.ssbmp", 170, 10}
+    };
+
     if (ssne_initial()) {
         fprintf(stderr, "SSNE initialization failed!\n");
     }
-    
-    // 图像处理器初始化
-    array<int, 2> img_shape = {img_width, img_height};  // 原始图像尺寸 1280×720
-    // 废弃旧裁剪参数 crop_shape / crop_offset_y
-    // 新方案: sensor 1280×720 → RunAiPreprocessPipe 缩放 → 640×360 推理
-    // img_shape 同时作为检测器坐标系参考（使 w_scale=2.0, h_scale=2.0）
-    
+
+    array<int, 2> img_shape = {img_width, img_height};
+    array<int, 2> crop_shape = {cfg::PIPE_CROP_WIDTH, cfg::PIPE_CROP_HEIGHT};
+    const float crop_offset_y = static_cast<float>(cfg::PIPE_CROP_Y1);
+
     IMAGEPROCESSOR processor;
-    processor.Initialize(&img_shape);  // 初始化图像处理器（全分辨率 1280×720）
-    
-    // YOLOv8 目标检测器初始化
+    processor.Initialize(&img_shape);
+
     YOLOV8 detector;
-    detector.nms_threshold = cfg::DET_NMS_THRESH;
-    detector.keep_top_k    = cfg::DET_KEEP_TOP_K;
-    detector.top_k         = cfg::DET_TOP_K;
-    // in_img_shape 传入原图 1280×720，使 Postprocess 坐标系与显示分辨率一致（scale=2.0）
-    detector.Initialize(path_det, &img_shape, &det_shape);  // 初始化检测器
-    
-    // 人物检测结果初始化
+    detector.Initialize(path_det, &crop_shape, &det_shape);
+
     FaceDetectionResult* det_result = new FaceDetectionResult;
-    
-    // OSD可视化器初始化（用于绘制检测框）
+
     VISUALIZER visualizer;
-    visualizer.Initialize(img_shape);  // 初始化可视化器（配置图像尺寸）
+    visualizer.Initialize(img_shape);
 
-    // 底盘控制器初始化（A1 UART TX0/RX0 ↔ STM32 UART3，115200 baud）
     ChassisController chassis;
-    bool chassis_ok = chassis.Init();
-    if (chassis_ok) {
-        printf("[INFO] 底盘控制器初始化成功 (UART 115200)\n");
-    } else {
-        fprintf(stderr, "[WARN] 底盘控制器初始化失败，底盘控制不可用\n");
-    }
+    const bool chassis_ready = chassis.Init();
 
-    const uint64_t link_test_start_us = monotonic_time_us();
-    bool last_link_test_forward = false;
-
-    // 系统稳定等待
     cout << "sleep for 0.2 second!" << endl;
-    sleep(0.2);  // 等待系统稳定
-    
-    uint16_t num_frames = 0;  // 帧计数器
-    ssne_tensor_t img_sensor;  // 图像tensor定义
+    usleep(200000);
 
-    // 创建键盘监听线程
+    visualizer.DrawBitmap(osds[0].filename, "shared_colorLUT.sscl", osds[0].x, osds[0].y, 2);
+
+    uint16_t num_frames = 0;
+    uint8_t osd_index = 0;
+    ssne_tensor_t img_sensor;
+    RuntimeState runtime;
+    runtime.chassis_ready = chassis_ready;
+
     std::thread listener_thread(keyboard_listener);
-    
-    /******************************************************************************************
-     * 3. 主处理循环
-     ******************************************************************************************/
-    //循环50000帧后推出，循环次数可以修改，也可以改成while(true)
+    auto last_status_log = std::chrono::steady_clock::now();
+
     while (!check_exit_flag()) {
-        
-        // 从sensor获取图像（裁剪图）
         processor.GetImage(&img_sensor);
-        
-        // 目标检测模型推理（YOLOv8, 置信度阈值来自 cfg::DET_CONF_THRESH）
         detector.Predict(&img_sensor, det_result, cfg::DET_CONF_THRESH);
 
-        /**********************************************************************************
-         * 3.0 A1 ↔ STM32 联通性测试模块（临时）
-         *
-         * 需求背景：当前阶段不是验证“识别到什么动作”，而是先验证 A1 板端 UART
-         * 到 STM32 底盘控制链路是否稳定可达。因此这里故意把正式的“检测结果驱动底盘”
-         * 逻辑整体旁路掉，改成一个非常容易观察、又相对安全的固定节拍：
-         *
-         *   - 每 5 秒为一个周期
-         *   - 周期内前 1 秒发送轻微前进指令
-         *   - 剩余 4 秒持续发送停车指令
-         *
-         * 这样做的好处：
-         *   1. 不依赖模型是否识别到 person / forward，能把“链路问题”和“模型问题”拆开；
-         *   2. 前进速度固定且较低，便于安全观察；
-         *   3. 删除也简单：后续恢复正式识别联动时，直接删掉本代码块，并恢复下面被注释
-         *      标记为“正式识别联动逻辑”的分支即可。
-         *
-         * 注意：这个测试模块只改变底盘控制，不屏蔽检测与 OSD。也就是说，板端仍然会继续
-         * 跑 YOLOv8 并继续画框，所以可以同时观察“链路是否通”和“OSD 是否真正有检测框”。
-         **********************************************************************************/
-        if (cfg::LINK_TEST_ENABLED) {
-            const uint64_t elapsed_us = monotonic_time_us() - link_test_start_us;
-            const uint64_t phase_us = elapsed_us % cfg::LINK_TEST_PERIOD_US;
-            const bool should_forward = phase_us < cfg::LINK_TEST_FORWARD_WINDOW_US;
-
-            if (should_forward != last_link_test_forward) {
-                if (should_forward) {
-                    printf("[LINK_TEST] 周期触发前进 1 秒，vx=%d mm/s\n",
-                           cfg::LINK_TEST_FORWARD_VX);
-                } else {
-                    printf("[LINK_TEST] 周期前进结束，恢复停车 4 秒\n");
-                }
-                last_link_test_forward = should_forward;
-            }
-
-            if (chassis_ok) {
-                if (should_forward) {
-                    chassis.SendVelocity(cfg::LINK_TEST_FORWARD_VX, 0, 0);
-                } else {
-                    chassis.SendVelocity(cfg::VX_STOP, 0, 0);
-                }
-            }
-        }
-        
-        /**********************************************************************************
-         * 3.1 正式识别联动逻辑
-         *
-         * 这一段目前只保留检测统计与 OSD 绘制，不再驱动底盘。
-         * 原因：底盘动作已经被上面的 LINK_TEST 模块接管，用于纯链路联通性测试。
-         * 后续要恢复“识别结果直接控制底盘”时：
-         *   1. 将 cfg::LINK_TEST_ENABLED 改为 false 或删除该配置；
-         *   2. 删掉上面的 3.0 代码块；
-         *   3. 再把这里的动作判断重新绑定到 chassis.SendVelocity()。
-         **********************************************************************************/
-        /**********************************************************************************
-         * 3.1 解析检测结果并根据类别决定底盘动作
-         **********************************************************************************/
-        if (det_result->boxes.size() > 0) {
-            /**********************************************************************************
-             * 3.2 坐标转换：将crop图坐标转换为原图坐标
-             **********************************************************************************/
-            std::vector<std::array<float, 4>> boxes_original_coord;  // 存储转换后的原图坐标
-            
-            bool has_forward = false;
-            bool has_stop = false;
-            bool has_obstacle = false;
-            bool has_backward = false;
-            size_t forward_count = 0;
-            size_t stop_count = 0;
-            size_t obstacle_count = 0;
-            size_t backward_count = 0;
-
-            // 遍历所有检测框进行坐标转换
-            for (size_t i = 0; i < det_result->boxes.size(); i++) {
-                // 检测器已经通过 w_scale=2.0/h_scale=2.0 将坐标映射到 1280×720 空间
-                // 不再需要 crop_offset_y 偏移（废弃旧裁剪方案）
-                float x1_orig = det_result->boxes[i][0];
-                float y1_orig = det_result->boxes[i][1];
-                float x2_orig = det_result->boxes[i][2];
-                float y2_orig = det_result->boxes[i][3];
-                
-                // 保存原图坐标用于OSD绘制
-                boxes_original_coord.push_back({x1_orig, y1_orig, x2_orig, y2_orig});
-
-                const int cls_id =
-                    i < det_result->class_ids.size() ? det_result->class_ids[i] : -1;
-                if (cls_id == cfg::TARGET_CLASS_FORWARD) {
-                    has_forward = true;
-                    forward_count++;
-                } else if (cls_id == cfg::TARGET_CLASS_STOP) {
-                    has_stop = true;
-                    stop_count++;
-                } else if (cls_id == cfg::TARGET_CLASS_OBSTACLE_BOX) {
-                    has_obstacle = true;
-                    obstacle_count++;
-                } else if (cls_id == cfg::TARGET_CLASS_BACKWARD) {
-                    has_backward = true;
-                    backward_count++;
-                }
-            }
-            
-            /**********************************************************************************
-             * 3.3 OSD绘图：使用原图坐标在OSD上绘制检测框
-             **********************************************************************************/
-            visualizer.Draw(boxes_original_coord);
-
-            /**********************************************************************************
-             * 3.4 调试打印：保留类别统计，帮助判断“没有 OSD”究竟是没有检测框，还是 OSD
-             *     绘制链路异常。
-             **********************************************************************************/
-            printf("[DET] count=%zu person=%zu forward=%zu stop=%zu obstacle=%zu backward=%zu\n",
-                   det_result->boxes.size(),
-                   det_result->boxes.size() - forward_count - stop_count - obstacle_count - backward_count,
-                   forward_count,
-                   stop_count,
-                   obstacle_count,
-                   backward_count);
-        }
-        else {
-            // 未检测到目标时清空 OSD。底盘动作由上方 LINK_TEST 模块统一负责。
-            cout << "[DET] 未检测到目标，已清空 OSD 检测框" << endl;
+        if (!det_result->boxes.empty()) {
+            visualizer.Draw(to_osd_boxes(*det_result, crop_offset_y));
+        } else {
             std::vector<std::array<float, 4>> empty_boxes;
-            visualizer.Draw(empty_boxes);  // 传入空向量清除显示
+            visualizer.Draw(empty_boxes);
         }
-        
-        //num_frames += 1;  // 帧计数器递增
+
+        const ActionState next_action = decide_action(
+            *det_result,
+            &runtime,
+            static_cast<float>(crop_shape[0]),
+            static_cast<float>(crop_shape[1]));
+        runtime.action = next_action;
+        runtime.frame_index += 1;
+
+        int16_t vx = 0;
+        int16_t vy = 0;
+        int16_t vz = 0;
+        select_velocity(runtime.action, &vx, &vy, &vz);
+        if (runtime.chassis_ready) {
+            chassis.SendVelocity(vx, vy, vz);
+        }
+
+        ChassisState chassis_state;
+        chassis.ReadTelemetry(chassis_state);
+
+        num_frames += 1;
+        osd_index = (num_frames / 10) % 3;
+        visualizer.DrawBitmap(osds[osd_index].filename, "shared_colorLUT.sscl", osds[osd_index].x, osds[osd_index].y, 2);
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_status_log >= std::chrono::seconds(2)) {
+            printf("[A1] frame=%llu action=%s det=%d obstacle=%.3f center=%.2f bottom=%.2f vx=%d vz=%d tele_vx=%d volt=%.2f\n",
+                   static_cast<unsigned long long>(runtime.frame_index),
+                   action_name(runtime.action),
+                   runtime.det_count,
+                   runtime.obstacle.area_ratio,
+                   runtime.obstacle.center_x_ratio,
+                   runtime.obstacle.bottom_ratio,
+                   vx,
+                   vz,
+                   chassis_state.vx,
+                   chassis_state.volt);
+            last_status_log = now;
+        }
     }
 
-    // 等待监听线程退出，释放资源
+    if (runtime.chassis_ready) {
+        chassis.SendVelocity(0, 0, 0);
+        chassis.Release();
+    }
+
     if (listener_thread.joinable()) {
         listener_thread.join();
     }
-    
-    /******************************************************************************************
-     * 4. 资源释放
-     ******************************************************************************************/
-    
-    delete det_result;  // 释放检测结果
-    detector.Release();  // 释放检测器资源
-    processor.Release();  // 释放图像处理器资源
-    visualizer.Release();  // 释放可视化器资源
-    
+
+    delete det_result;
+    detector.Release();
+    processor.Release();
+    visualizer.Release();
+
     if (ssne_release()) {
         fprintf(stderr, "SSNE release failed!\n");
         return -1;
     }
-    
+
     return 0;
 }
- 

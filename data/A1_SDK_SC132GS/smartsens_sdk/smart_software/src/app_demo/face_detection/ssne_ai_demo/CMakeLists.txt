@@ -25,19 +25,25 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 message([<mode>] "message to display" ${TARGET})
 
 
-# 添加source文件夹下的所有cpp文件
-file(GLOB SRC_FILES "${CMAKE_SOURCE_DIR}/${SRC_DIR}/*.cpp")
-target_sources(ssne_ai_demo PRIVATE ${SRC_FILES})
+set(SSNE_AI_DEMO_SOURCES
+    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/chassis_controller.cpp"
+    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/osd-device.cpp"
+    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/pipeline_image.cpp"
+    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/scrfd_gray.cpp"
+    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/utils.cpp"
+    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/yolov8_gray.cpp"
+)
+target_sources(ssne_ai_demo PRIVATE ${SSNE_AI_DEMO_SOURCES})
 
-target_link_libraries(${PROJECT_NAME} 
+target_link_libraries(${PROJECT_NAME}
                         ${M1_SSNE_LIB}
                         ${M1_CMABUFFER_LIB}
                         ${M1_OSD_LIB}
+                        ${M1_GPIO_LIB}
+                        ${M1_UART_LIB}
                         ${M1_SSZLOG_LIB}
                         ${M1_ZLOG_LIB}
                         ${M1_EMB_LIB}
-                        ${M1_UART_LIB}
-                        ${M1_GPIO_LIB}
 )
 
 install(TARGETS ssne_ai_demo DESTINATION bin)
