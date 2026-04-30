@@ -1,6 +1,41 @@
 #!/usr/bin/env python3
 """Direct PC -> STM32 chassis routes for PC tool."""
 
+"""
+pc_chassis.py — WHEELTEC C50X STM32 底盘通信模块
+
+协议参考: WHEELTEC_C50X_2025.12.26 STM32 源码
+  - data_task.h / data_task.c   → 发送帧定义 (24字节)
+  - uartx_callback.h / .c       → 接收帧解析 (11字节)
+  - UART3 (PB10=TX, PB11=RX)    → A1 / ROS 控制通道
+
+发送帧 (A1→STM32): 11字节
+  [0]     0x7B            帧头
+  [1]     Cmd             命令 (0x00=正常运动, 0x01/0x02=自动回充, 0x03=对接)
+  [2]     0x00            保留
+  [3..4]  Vx (int16 BE)   X轴线速度 mm/s
+  [5..6]  Vy (int16 BE)   Y轴线速度 mm/s
+  [7..8]  Vz (int16 BE)   Z轴角速度 mrad/s
+  [9]     BCC             XOR(bytes[0..8])
+  [10]    0x7D            帧尾
+
+接收帧 (STM32→A1): 24字节
+  [0]      0x7B            帧头
+  [1]      FlagStop        电机失控标志 (0=正常)
+  [2..3]   Vel_X (int16)   X轴当前速度 mm/s
+  [4..5]   Vel_Y
+  [6..7]   Vel_Z
+  [8..9]   Accel_X (int16) 加速度计 (×0.001 → m/s²)
+  [10..11] Accel_Y
+  [12..13] Accel_Z
+  [14..15] Gyro_X (int16)  陀螺仪 (×0.001 → rad/s)
+  [16..17] Gyro_Y
+  [18..19] Gyro_Z
+  [20..21] Voltage (int16) 电池电压 (×0.001 → V)
+  [22]     BCC             XOR(bytes[0..21])
+  [23]     0x7D            帧尾
+"""
+
 import struct
 import threading
 import time
@@ -26,6 +61,7 @@ CMD_DOCK     = 0x03
 
 TX_LEN = 11
 RX_LEN = 24
+DEFAULT_PORT = "COM17"
 _DIRECT_TRANSPORT = "direct_serial"
 
 # ─── 全局串口状态 ─────────────────────────────────────────────────────────────
@@ -65,6 +101,25 @@ def build_cmd(vx: int, vy: int, vz: int, cmd: int = CMD_NORMAL) -> bytes:
     frame[9] = _bcc(bytes(frame[:9]))
     frame[10] = FRAME_TAIL
     return bytes(frame)
+
+
+def _describe_motion(vx: int, vy: int, vz: int) -> str:
+    if vx == 0 and vy == 0 and vz == 0:
+        return "停止"
+    parts = []
+    if vx > 0:
+        parts.append("前进")
+    elif vx < 0:
+        parts.append("后退")
+    if vy > 0:
+        parts.append("左移")
+    elif vy < 0:
+        parts.append("右移")
+    if vz > 0:
+        parts.append("左转")
+    elif vz < 0:
+        parts.append("右转")
+    return " + ".join(parts) or "普通控制"
 
 
 def parse_rx(data: bytes) -> Optional[dict]:
@@ -119,14 +174,65 @@ def _current_connected() -> bool:
     return _direct_connected()
 
 
+def _stop_entry(reason: str) -> dict:
+    return {
+        "hex": build_cmd(0, 0, 0).hex(" ").upper(),
+        "vx": 0,
+        "vy": 0,
+        "vz": 0,
+        "cmd": CMD_NORMAL,
+        "meaning": "停止",
+        "reason": reason,
+        "ts": time.strftime("%H:%M:%S"),
+    }
+
+
+def _write_stop_locked(reason: str) -> dict:
+    if _ser is None or not _ser.is_open:
+        return {"success": False, "error": "未连接串口"}
+    frame = build_cmd(0, 0, 0)
+    try:
+        _ser.write(frame)
+        _ser.flush()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    _tx_log.appendleft(_stop_entry(reason))
+    return {"success": True, "frame": frame.hex(" ").upper()}
+
+
 def _set_direct_backend(port: str, baud: int) -> dict:
     global _ser, _rx_thread, _running, _telemetry, _rx_seq, _transport_mode, _connected_port, _connected_baud
     with _ser_lock:
+        _running = False
         if _ser and _ser.is_open:
+            _write_stop_locked("切换端口前安全停车")
             _ser.close()
+        _ser = None
+        _connected_port = None
         try:
-            _ser = serial.Serial(port, baud, timeout=0.1)
+            next_ser = serial.Serial()
+            next_ser.port = port
+            next_ser.baudrate = baud
+            next_ser.timeout = 0.1
+            next_ser.write_timeout = 0.4
+            next_ser.dsrdtr = False
+            next_ser.rtscts = False
+            try:
+                next_ser.dtr = False
+                next_ser.rts = False
+            except Exception:
+                pass
+            next_ser.open()
+            _ser = next_ser
+            safe_stop = _write_stop_locked("连接后安全停车")
+            if not safe_stop.get("success"):
+                _ser.close()
+                _ser = None
+                return {"success": False, "error": f"串口已打开，但安全停车帧发送失败: {safe_stop.get('error')}"}
         except Exception as e:
+            if _ser and _ser.is_open:
+                _ser.close()
+            _ser = None
             return {"success": False, "error": str(e)}
     _running = True
     _telemetry = {}
@@ -136,7 +242,7 @@ def _set_direct_backend(port: str, baud: int) -> dict:
     _connected_baud = baud
     _rx_thread = threading.Thread(target=_rx_worker, daemon=True, name="pc-chassis-rx")
     _rx_thread.start()
-    return {"success": True, "port": port, "baud": baud, "transport": _DIRECT_TRANSPORT}
+    return {"success": True, "port": port, "baud": baud, "transport": _DIRECT_TRANSPORT, "safe_stop_sent": True}
 
 
 def _write_payload(payload: bytes, tx_entry: dict) -> dict:
@@ -202,12 +308,12 @@ def available():
 @chassis_bp.route("/ports")
 def list_ports():
     if not _SERIAL_AVAILABLE:
-        return jsonify([])
+        return jsonify({"preferred": DEFAULT_PORT, "ports": []})
     ports = [
         {"port": p.device, "desc": p.description, "hwid": p.hwid}
         for p in serial.tools.list_ports.comports()
     ]
-    return jsonify(ports)
+    return jsonify({"preferred": DEFAULT_PORT, "ports": ports})
 
 
 @chassis_bp.route("/connect", methods=["POST"])
@@ -236,13 +342,15 @@ def disconnect():
     _telemetry = {}
     _rx_seq = 0
     _running = False
+    stop_result = None
     with _ser_lock:
         if _ser and _ser.is_open:
+            stop_result = _write_stop_locked("断开前安全停车")
             _ser.close()
         _ser = None
     _connected_port = None
     print("[PC] 已断开")
-    return jsonify({"success": True, "transport": _DIRECT_TRANSPORT})
+    return jsonify({"success": True, "transport": _DIRECT_TRANSPORT, "safe_stop": stop_result})
 
 
 @chassis_bp.route("/status")
@@ -267,6 +375,7 @@ def move():
     tx_entry = {
         "hex": frame.hex(" ").upper(),
         "vx": vx, "vy": vy, "vz": vz, "cmd": cmd,
+        "meaning": _describe_motion(vx, vy, vz),
         "ts": time.strftime("%H:%M:%S"),
     }
     result = _write_payload(frame, tx_entry)
@@ -278,11 +387,7 @@ def move():
 @chassis_bp.route("/stop", methods=["POST"])
 def stop():
     frame = build_cmd(0, 0, 0)
-    tx_entry = {
-        "hex": frame.hex(" ").upper(),
-        "vx": 0, "vy": 0, "vz": 0, "cmd": 0,
-        "ts": time.strftime("%H:%M:%S"),
-    }
+    tx_entry = _stop_entry("手动停止")
     result = _write_payload(frame, tx_entry)
     if not result.get("success"):
         return jsonify(result)
@@ -325,11 +430,7 @@ def ping():
     global _rx_seq
     frame = build_cmd(0, 0, 0)
     rx_seq_before = _rx_seq
-    tx_entry = {
-        "hex": frame.hex(" ").upper(),
-        "vx": 0, "vy": 0, "vz": 0, "cmd": 0,
-        "ts": _time.strftime("%H:%M:%S"),
-    }
+    tx_entry = _stop_entry("联通测试")
     result = _write_payload(frame, tx_entry)
     if not result.get("success"):
         return jsonify(result)

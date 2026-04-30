@@ -35,6 +35,5 @@ function Get-PythonExecutable {
 $Python = Get-PythonExecutable
 Write-Host "[PC] Web port: $Port"
 Write-Host "[PC] Direct STM32 serial module ready"
-Write-Host "[PC] ROS module ready"
 Start-Process "http://127.0.0.1:$Port" | Out-Null
 & $Python pc_tool.py --port $Port --host $ListenHost

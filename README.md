@@ -55,7 +55,7 @@ pip install -r requirements.txt
 
 默认地址：
 - Aurora 视频 / COM13 终端：`http://127.0.0.1:6201`
-- PC 直连 STM32 / ROS 调试：`http://127.0.0.1:6202`
+- PC 直连 STM32：`http://127.0.0.1:6202`
 - A1 中继控制：`http://127.0.0.1:6203`
 
 ## 仓库边界
@@ -100,7 +100,7 @@ pip install -r requirements.txt
 
 ### Windows 工具
 - `tools/aurora/`：视频预览、拍照、COM13 终端、A1_TEST 手动测试
-- `tools/PC/`：电脑直连 STM32 与 ROS 调试
+- `tools/PC/`：电脑直连 STM32 调试
 - `tools/A1/`：COM13 → A1_TEST → STM32 中继控制
 - 当前接受的 Aurora 相机初始化流程：先打开 `Aurora.exe`，再由 Companion 接管
 
@@ -139,6 +139,6 @@ pip install -r requirements.txt
 
 ## 最小验证建议
 - 改文档：检查链接、脚本名、端口、路径是否一致
-- 改 Windows 工具：至少运行 `python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_terminal.py tools/aurora/qt_camera_bridge.py tools/PC/pc_tool.py tools/PC/pc_chassis.py tools/PC/pc_ros.py tools/A1/a1_tool.py tools/A1/a1_relay.py tools/A1/a1_serial.py`
+- 改 Windows 工具：至少运行 `python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_terminal.py tools/aurora/qt_camera_bridge.py tools/PC/pc_tool.py tools/PC/pc_chassis.py tools/A1/a1_tool.py tools/A1/a1_relay.py tools/A1/a1_serial.py`
 - 改 ROS2：优先做包级构建
 - 改板端或镜像：优先做 `build_incremental.sh` 或 `build_complete_evb.sh`

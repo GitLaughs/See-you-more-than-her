@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""relay_comm.py — A1 chassis control over the local COM13 terminal."""
+"""A1 relay control over the local COM13 terminal."""
 
 import time
 from typing import Any, Dict, List, Optional

@@ -69,7 +69,6 @@ CAPTURE_FORMATS = {
 DEFAULT_CAPTURE_FORMAT = "720x1280"
 
 app = Flask(__name__, template_folder="templates")
-JUDGE_TEMPLATE = "judge_ui.html"
 try:
     from serial_terminal import serial_term_bp
     app.register_blueprint(serial_term_bp)
@@ -1978,11 +1977,6 @@ def _generate_detect_frames():
 @app.route("/")
 def index():
     return render_template("companion_ui.html", output_dir=output_dir)
-
-
-@app.route("/judge")
-def judge_page():
-    return render_template(JUDGE_TEMPLATE, default_stream="detect")
 
 
 @app.route("/shutdown", methods=["POST"])

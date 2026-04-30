@@ -2,7 +2,7 @@
 
 Aurora 是 Windows 侧视频与 COM13 调试入口，用于相机预览、训练集拍照、COM13 串口终端、A1_TEST 手动命令和电脑-A1-STM32 联通测试。
 
-直连 STM32 与 ROS 调试已拆到 `tools/PC/`；经 A1 中继的底盘控制已拆到 `tools/A1/`。
+直连 STM32 调试已拆到 `tools/PC/`；经 A1 中继的底盘控制已拆到 `tools/A1/`。
 
 ## 适用场景
 - 预览 A1 / Windows 摄像头
@@ -19,8 +19,6 @@ Aurora 是 Windows 侧视频与 COM13 调试入口，用于相机预览、训练
 | `serial_terminal.py` | A1_TEST 串口终端 |
 | `templates/companion_ui.html` | Aurora Web UI |
 | `launch.ps1` | Windows 启动脚本 |
-
-`chassis_comm.py`、`relay_comm.py`、`ros_bridge.py` 保留为迁移参考/兼容文件，但 Aurora 入口不再注册这些路由。
 
 ## 安装与启动
 
@@ -79,7 +77,7 @@ pip install -r requirements.txt
 
 ## 与其他工具的关系
 - `tools/aurora/`：视频、拍照、COM13 终端、A1_TEST 手动测试，默认 `6201`
-- `tools/PC/`：电脑直连 STM32 与 ROS 调试，默认 `6202`
+- `tools/PC/`：电脑直连 STM32 调试，默认 `6202`
 - `tools/A1/`：COM13 → A1_TEST → STM32 中继控制，默认 `6203`
 
 三套工具使用独立入口、独立启动脚本、独立页面和独立默认端口。
