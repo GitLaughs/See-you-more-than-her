@@ -101,6 +101,9 @@ except ImportError:
 camera: Optional[Any] = None
 camera_lock = threading.Lock()
 device_id_global = 0
+_qt_stream_threads: Dict[Tuple[int, str], threading.Thread] = {}
+_qt_stream_threads_lock = threading.Lock()
+_qt_stream_latest_frames: Dict[Tuple[int, str], "LatestFrameCache"] = {}
 camera_source_global = "auto"
 camera_bootstrap_active = False
 camera_devices_snapshot: list = []
@@ -147,6 +150,32 @@ SOURCE_LABELS = {
 }
 _qt_bridge_process: Optional[subprocess.Popen] = None
 _qt_bridge_lock = threading.Lock()
+
+
+class LatestFrameCache:
+    def __init__(self):
+        self._condition = threading.Condition()
+        self._sequence = 0
+        self._payload: Optional[bytes] = None
+
+    def publish(self, payload: Optional[bytes]) -> int:
+        if not payload:
+            return self._sequence
+        with self._condition:
+            self._sequence += 1
+            self._payload = payload
+            self._condition.notify_all()
+            return self._sequence
+
+    def wait_for_next(self, last_sequence: int = 0, timeout: float = 1.0) -> Optional[Tuple[int, bytes]]:
+        deadline = time.time() + max(0.0, timeout)
+        with self._condition:
+            while self._sequence <= last_sequence or not self._payload:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    return None
+                self._condition.wait(remaining)
+            return self._sequence, self._payload
 
 # ─── YOLOv8 检测器（PC 端 ONNX 推理）────────────────────────────────────────
 MODEL_ROOT = Path(__file__).parent.parent.parent / "models"
@@ -813,7 +842,38 @@ class QtBridgeCapture:
         self.device_id = int(device_id)
         self.source = source if source in {CAMERA_SOURCE_WINDOWS, CAMERA_SOURCE_A1} else CAMERA_SOURCE_AUTO
         self._last_status: Dict[str, Any] = {}
+        self._stream_key = (self.device_id, self.source)
         self._open()
+
+    def stream_key(self) -> Tuple[int, str]:
+        return self._stream_key
+
+    def latest_frame_cache(self) -> LatestFrameCache:
+        with _qt_stream_threads_lock:
+            cache = _qt_stream_latest_frames.get(self._stream_key)
+            if cache is None:
+                cache = LatestFrameCache()
+                _qt_stream_latest_frames[self._stream_key] = cache
+            return cache
+
+    def start_stream_worker(self) -> LatestFrameCache:
+        cache = self.latest_frame_cache()
+        with _qt_stream_threads_lock:
+            worker = _qt_stream_threads.get(self._stream_key)
+            if worker is not None and worker.is_alive():
+                return cache
+            worker = threading.Thread(
+                target=_qt_bridge_stream_worker,
+                args=(self.device_id, self.source, cache),
+                daemon=True,
+                name=f"qt-bridge-stream-{self.device_id}-{self.source}",
+            )
+            _qt_stream_threads[self._stream_key] = worker
+            worker.start()
+        return cache
+
+    def wait_for_next_jpeg(self, last_sequence: int = 0, timeout: float = 1.0) -> Optional[Tuple[int, bytes]]:
+        return self.start_stream_worker().wait_for_next(last_sequence=last_sequence, timeout=timeout)
 
     def _open(self) -> None:
         status = ensure_qt_bridge_running()
@@ -832,6 +892,7 @@ class QtBridgeCapture:
         if not _qt_bridge_wait_for_frame(mode="color", timeout=5.0):
             device_name = self._last_status.get("device_name") or f"device {self.device_id}"
             raise RuntimeError(f"Qt 相机桥已切换到 {device_name}，但 5 秒内未收到视频帧")
+        self.start_stream_worker()
 
     def isOpened(self) -> bool:
         try:
@@ -849,7 +910,6 @@ class QtBridgeCapture:
             print(f"[INFO] Camera released: {result.get('message', '')}")
         except Exception as e:
             print(f"[WARN] Error releasing camera: {e}")
-        return
 
     def read(self) -> Tuple[bool, Optional[np.ndarray]]:
         return self.read_color()
@@ -870,6 +930,40 @@ class QtBridgeCapture:
         payload = _qt_bridge_fetch_frame_bytes(mode="gray")
         return (payload is not None), payload
 
+
+def _qt_bridge_stream_worker(device_id: int, source: str, cache: LatestFrameCache) -> None:
+    stream_key = (int(device_id), source)
+    while True:
+        with camera_lock:
+            cap = camera
+        if not isinstance(cap, QtBridgeCapture) or cap.stream_key() != stream_key:
+            time.sleep(0.05)
+            continue
+        ret, payload = cap.read_color_jpeg()
+        if ret and payload:
+            cache.publish(payload)
+            time.sleep(0.001 if source == CAMERA_SOURCE_A1 else 0.005)
+            continue
+        time.sleep(0.01)
+
+
+def generate_frames_for_capture(cap: Any):
+    last_sequence = 0
+    while True:
+        if isinstance(cap, QtBridgeCapture):
+            item = cap.wait_for_next_jpeg(last_sequence=last_sequence, timeout=1.0)
+            if item is None:
+                continue
+            last_sequence, payload = item
+            _mark_camera_connected()
+            yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + payload + b"\r\n")
+            continue
+        frame = _read_display_frame(cap) if cap else None
+        if frame is None:
+            break
+        quality = 84 if camera_source_global == CAMERA_SOURCE_A1 else 92
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n")
 
 def probe_camera_device(device_id: int) -> dict:
     bridge_info = _qt_bridge_probe_device(device_id)
@@ -1741,22 +1835,19 @@ def generate_frames():
         with camera_lock:
             cap = camera
         if isinstance(cap, QtBridgeCapture):
-            if camera_source_global == CAMERA_SOURCE_A1:
-                frame = _read_display_frame(cap)
-            else:
-                ret, payload = cap.read_color_jpeg()
-                if ret and payload:
-                    _mark_camera_connected()
-                    _frame_count += 1
-                    now = time.time()
-                    if now - _fps_ts >= 1.0:
-                        current_fps = _frame_count / (now - _fps_ts)
-                        _frame_count = 0
-                        _fps_ts = now
-                    yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
-                           + payload + b"\r\n")
-                    continue
-                frame = None
+            item = cap.wait_for_next_jpeg(timeout=1.0)
+            if item is not None:
+                _sequence, payload = item
+                _mark_camera_connected()
+                _frame_count += 1
+                now = time.time()
+                if now - _fps_ts >= 1.0:
+                    current_fps = _frame_count / (now - _fps_ts)
+                    _frame_count = 0
+                    _fps_ts = now
+                yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + payload + b"\r\n")
+                continue
+            frame = None
         else:
             frame = _read_display_frame(cap) if cap else None
 
