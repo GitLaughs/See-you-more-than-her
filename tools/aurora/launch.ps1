@@ -237,7 +237,7 @@ function Resolve-AvailablePort {
     if (Test-PortAvailable -BindHost $BindHost -BindPort $PreferredPort) {
         return $PreferredPort
     }
-    for ($candidate = $PreferredPort + 1; $candidate -le $PreferredPort + 30; $candidate++) {
+    for ($candidate = $PreferredPort + 1; $candidate -le 65535; $candidate++) {
         if (Test-PortAvailable -BindHost $BindHost -BindPort $candidate) {
             return $candidate
         }

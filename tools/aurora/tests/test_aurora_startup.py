@@ -59,7 +59,7 @@ class AuroraStartupTests(unittest.TestCase):
             aurora_companion.main()
 
         start_aurora.assert_called_once_with()
-        ensure_bridge.assert_called_once_with(timeout=2.0)
+        ensure_bridge.assert_called_once_with(timeout=6.0)
         self.assertEqual(events[:2], ["start_aurora", "ensure_qt_bridge_running"])
         thread_cls.assert_called_once()
         thread_instance.start.assert_called_once_with()
@@ -86,7 +86,30 @@ class AuroraStartupTests(unittest.TestCase):
 
             aurora_companion.main()
 
-        ensure_bridge.assert_called_once_with(timeout=2.0)
+        ensure_bridge.assert_called_once_with(timeout=6.0)
+        thread_instance.start.assert_called_once_with()
+        app_run.assert_called_once_with(host="127.0.0.1", port=5801, debug=False, threaded=True)
+
+    def test_main_waits_longer_for_qt_bridge_startup(self):
+        with mock.patch.object(aurora_companion, "AURORA_EXE_PATH", Path("C:/Aurora/Aurora.exe"), create=True), \
+             mock.patch.object(aurora_companion, "_start_aurora_desktop", return_value={"running": True}, create=True), \
+             mock.patch.object(aurora_companion, "ensure_qt_bridge_running", return_value={"available": True}) as ensure_bridge, \
+             mock.patch.object(aurora_companion.threading, "Thread") as thread_cls, \
+             mock.patch.object(aurora_companion.app, "run") as app_run, \
+             mock.patch.object(aurora_companion.os, "makedirs"), \
+             mock.patch.object(aurora_companion.argparse.ArgumentParser, "parse_args", return_value=type("Args", (), {
+                 "device": -1,
+                 "source": "auto",
+                 "output": "../../data/yolov8_dataset/raw",
+                 "port": 5801,
+                 "host": "127.0.0.1",
+             })()):
+            thread_instance = mock.Mock()
+            thread_cls.return_value = thread_instance
+
+            aurora_companion.main()
+
+        ensure_bridge.assert_called_once_with(timeout=6.0)
         thread_instance.start.assert_called_once_with()
         app_run.assert_called_once_with(host="127.0.0.1", port=5801, debug=False, threaded=True)
 
@@ -99,10 +122,11 @@ class AuroraStartupTests(unittest.TestCase):
         with mock.patch.object(aurora_companion, "QT_BRIDGE_SCRIPT", relative_script), \
              mock.patch.object(aurora_companion, "_qt_bridge_process", None), \
              mock.patch.object(aurora_companion, "_qt_bridge_status", side_effect=[None, None, ready_status]), \
-             mock.patch.object(aurora_companion, "_select_qt_bridge_python", return_value="python.exe"), \
+             mock.patch.object(aurora_companion, "_resolve_available_port", return_value=5930), \
              mock.patch.object(aurora_companion, "save_qt_bridge_owner_state"), \
              mock.patch.object(aurora_companion, "cleanup_qt_bridge_owner_process"), \
              mock.patch.object(aurora_companion, "_stop_stale_qt_bridge_on_port"), \
+             mock.patch.object(aurora_companion, "_select_qt_bridge_python", return_value="python.exe"), \
              mock.patch.object(aurora_companion.subprocess, "Popen", return_value=bridge_process) as popen:
             status = aurora_companion.ensure_qt_bridge_running(timeout=0.1)
 
@@ -114,7 +138,7 @@ class AuroraStartupTests(unittest.TestCase):
                 "--host",
                 aurora_companion.QT_BRIDGE_HOST,
                 "--port",
-                str(aurora_companion.QT_BRIDGE_PORT),
+                "5930",
             ],
             cwd=str(Path(aurora_companion.__file__).resolve().parent),
         )
@@ -167,6 +191,14 @@ class AuroraStartupTests(unittest.TestCase):
         self.assertIn("pyvenv.cfg", launch_script)
         self.assertIn("$env:VIRTUAL_ENV", launch_script)
         self.assertIn("$env:PYTHONPATH", launch_script)
+
+    def test_launch_script_port_probe_can_escape_windows_reserved_range(self):
+        launch_script = Path("tools/aurora/launch.ps1").read_text(encoding="utf-8")
+        start = launch_script.index("function Resolve-AvailablePort")
+        end = launch_script.index("function Stop-StaleCompanionOnPort")
+        resolve_block = launch_script[start:end]
+        self.assertNotIn("$PreferredPort + 30", resolve_block)
+        self.assertIn("65535", resolve_block)
 
     def test_launch_script_companion_cleanup_avoids_pid_variable_collision(self):
         launch_script = Path("tools/aurora/launch.ps1").read_text(encoding="utf-8")
