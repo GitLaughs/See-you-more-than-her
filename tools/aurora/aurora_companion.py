@@ -137,6 +137,7 @@ QT_BRIDGE_SCRIPT = Path(__file__).with_name("qt_camera_bridge.py")
 QT_BRIDGE_PORT = 5911
 QT_BRIDGE_HOST = "127.0.0.1"
 QT_BRIDGE_URL = f"http://{QT_BRIDGE_HOST}:{QT_BRIDGE_PORT}"
+COMPANION_PORT = 5801
 QT_BRIDGE_PROTOCOL_VERSION = 2
 QT_BRIDGE_OWNER_STATE_FILE = Path(__file__).with_name(".qt_bridge_owner.json")
 AURORA_PYTHON_ENV_VAR = "AURORA_PYTHON"
@@ -435,6 +436,36 @@ def _qt_bridge_request(path: str, method: str = "GET", payload: Optional[dict] =
     with urllib_request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read()
     return json.loads(raw.decode("utf-8")) if raw else {}
+
+
+def _set_qt_bridge_endpoint(port: int) -> None:
+    global QT_BRIDGE_PORT, QT_BRIDGE_URL
+    QT_BRIDGE_PORT = int(port)
+    QT_BRIDGE_URL = f"http://{QT_BRIDGE_HOST}:{QT_BRIDGE_PORT}"
+
+
+def _port_available(host: str, port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, int(port)))
+        except OSError:
+            return False
+    return True
+
+
+def _resolve_available_port(host: str, preferred_port: int, blocked_ports: Optional[set] = None) -> int:
+    blocked = {int(port) for port in (blocked_ports or set())}
+    if int(preferred_port) not in blocked and _port_available(host, int(preferred_port)):
+        return int(preferred_port)
+    for candidate in range(int(preferred_port) + 1, 65536):
+        if candidate in blocked:
+            continue
+        if _port_available(host, candidate):
+            return candidate
+    raise RuntimeError(f"No available port from {preferred_port}")
 
 
 def _qt_bridge_stop(timeout: float = 5.0) -> dict:
@@ -745,6 +776,8 @@ def ensure_qt_bridge_running(timeout: float = 12.0) -> dict:
 
         if _qt_bridge_process is None or _qt_bridge_process.poll() is not None:
             bridge_python = _select_qt_bridge_python()
+            bridge_port = _resolve_available_port(QT_BRIDGE_HOST, QT_BRIDGE_PORT, blocked_ports={COMPANION_PORT})
+            _set_qt_bridge_endpoint(bridge_port)
             kwargs: Dict[str, Any] = {
                 "cwd": str(Path(__file__).resolve().parent),
             }
@@ -753,7 +786,7 @@ def ensure_qt_bridge_running(timeout: float = 12.0) -> dict:
                 **kwargs,
             )
             save_qt_bridge_owner_state(_qt_bridge_process.pid)
-            print(f"[Aurora] Qt bridge started (PID: {_qt_bridge_process.pid})")
+            print(f"[Aurora] Qt bridge started (PID: {_qt_bridge_process.pid}, port: {QT_BRIDGE_PORT})")
 
         deadline = time.time() + timeout
         last_status = None
@@ -2270,7 +2303,7 @@ def status():
 # ─── 入口 ─────────────────────────────────────────────────────────────────────
 
 def main():
-    global camera, output_dir, device_id_global, camera_source_global
+    global camera, output_dir, device_id_global, camera_source_global, COMPANION_PORT
 
     parser = argparse.ArgumentParser(description="Aurora Companion — 原始摄像头/A1 摄像头可视化采集伴侣")
     parser.add_argument("--device", type=int, default=-1,   help="摄像头设备 ID (默认: -1 自动优先 A1)")
@@ -2282,6 +2315,7 @@ def main():
     parser.add_argument("--port",   type=int, default=5801, help="Web 服务端口 (默认: 5801)")
     parser.add_argument("--host",   type=str, default="127.0.0.1", help="监听地址")
     args = parser.parse_args()
+    COMPANION_PORT = int(args.port)
 
     script_dir = Path(__file__).parent
     output_dir = str((script_dir / args.output).resolve())
@@ -2308,7 +2342,7 @@ def main():
         save_preferred_source(initial_source)
 
     try:
-        bridge_status = ensure_qt_bridge_running(timeout=2.0)
+        bridge_status = ensure_qt_bridge_running(timeout=6.0)
         if bridge_status.get("available", False):
             print(f"[INFO] Qt 相机桥已就绪: {QT_BRIDGE_URL}")
         else:
