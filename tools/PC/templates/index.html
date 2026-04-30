@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PC Tool</title>
+<style>
+body{margin:0;background:#f3f6fb;color:#18324d;font:14px/1.5 "Segoe UI","Noto Sans SC",sans-serif}.top{padding:14px 18px;background:#fff;border-bottom:1px solid #d7e3f4;display:flex;justify-content:space-between}.shell{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px}.card{background:#fff;border:1px solid #d7e3f4;border-radius:14px;overflow:hidden}.head{padding:10px 12px;border-bottom:1px solid #d7e3f4;font-weight:800;color:#4c6d8d}.body{padding:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.row label{min-width:72px;color:#5f7894;font-weight:700}input,select,textarea{border:1px solid #d7e3f4;border-radius:8px;padding:8px}textarea{width:100%;min-height:120px;font-family:Consolas,monospace}.btn{border:1px solid #d7e3f4;border-radius:8px;padding:8px 12px;background:#fff;cursor:pointer;font-weight:700}.blue{background:#2f6fec;color:white;border-color:#2f6fec}.red{background:#df4b48;color:white;border-color:#df4b48}.green{background:#18a957;color:white;border-color:#18a957}.pre{background:#f7fbff;border:1px solid #d7e3f4;border-radius:10px;padding:10px;white-space:pre-wrap;min-height:90px}.muted{color:#5f7894}@media(max-width:900px){.shell{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="top"><b>PC Tool</b><span class="muted">电脑直连 STM32 / ROS 调试 · 6202</span></div>
+<main class="shell">
+<section class="card"><div class="head">电脑直连 STM32</div><div class="body">
+  <div class="row"><label>端口</label><select id="portSelect"></select><button class="btn" onclick="loadPorts()">刷新</button></div>
+  <div class="row"><label>波特率</label><input id="baud" type="number" value="115200"><button class="btn green" onclick="connect()">连接</button><button class="btn red" onclick="disconnect()">断开</button></div>
+  <div class="row"><button class="btn blue" onclick="ping()">联通测试</button><button class="btn" onclick="move(200,0,0)">前进</button><button class="btn" onclick="move(-200,0,0)">后退</button><button class="btn" onclick="move(0,0,500)">左转</button><button class="btn" onclick="move(0,0,-500)">右转</button><button class="btn red" onclick="stop()">停止</button></div>
+  <pre id="chassisResult" class="pre"></pre>
+</div></section>
+<section class="card"><div class="head">底盘信息</div><div class="body"><pre id="telemetry" class="pre"></pre></div></section>
+<section class="card"><div class="head">ROS 状态与调试</div><div class="body">
+  <div class="row"><label>串口</label><input id="rosPort" value="COM7"><label>波特率</label><input id="rosBaud" type="number" value="115200"></div>
+  <div class="row"><button class="btn blue" onclick="startRos('wheeltec_robot_node')">启动底盘节点</button><button class="btn" onclick="stopRos('wheeltec_robot_node')">停止底盘节点</button></div>
+  <div class="row"><button class="btn blue" onclick="startRos('multi_avoidance')">启动避障节点</button><button class="btn" onclick="stopRos('multi_avoidance')">停止避障节点</button></div>
+  <div class="row"><button class="btn" onclick="rosMove()">ROS 前进</button><button class="btn red" onclick="rosStop()">ROS 停车</button><button class="btn" onclick="loadRos()">刷新 ROS 状态</button></div>
+  <pre id="rosResult" class="pre"></pre>
+</div></section>
+<section class="card"><div class="head">通信日志</div><div class="body"><pre id="logs" class="pre"></pre></div></section>
+</main>
+<script>
+function api(url,opt={}){if(opt.body&&!opt.headers)opt.headers={'Content-Type':'application/json'};return fetch(url,opt).then(r=>r.json())}
+function show(id,obj){document.getElementById(id).textContent=typeof obj==='string'?obj:JSON.stringify(obj,null,2)}
+function loadPorts(){api('/api/chassis/ports').then(d=>{const ports=Array.isArray(d)?d:d.ports||[];document.getElementById('portSelect').innerHTML=ports.map(p=>`<option value="${p.port}">${p.port} · ${p.desc}</option>`).join('')})}
+function connect(){api('/api/chassis/connect',{method:'POST',body:JSON.stringify({port:portSelect.value,baud:+baud.value})}).then(d=>show('chassisResult',d))}
+function disconnect(){api('/api/chassis/disconnect',{method:'POST'}).then(d=>show('chassisResult',d))}
+function ping(){api('/api/chassis/ping',{method:'POST'}).then(d=>show('chassisResult',d))}
+function move(vx,vy,vz){api('/api/chassis/move',{method:'POST',body:JSON.stringify({vx,vy,vz})}).then(d=>show('chassisResult',d))}
+function stop(){api('/api/chassis/stop',{method:'POST'}).then(d=>show('chassisResult',d))}
+function status(){api('/api/chassis/status').then(d=>show('telemetry',d));api('/api/chassis/tx_log').then(tx=>api('/api/chassis/rx_log').then(rx=>show('logs',{tx,rx})))}
+function rosPayload(){return {serial_port:rosPort.value,serial_baud:+rosBaud.value}}
+function loadRos(){api('/api/ros/status').then(d=>show('rosResult',d))}
+function startRos(node){api('/api/ros/start_node',{method:'POST',body:JSON.stringify({node,...rosPayload()})}).then(d=>show('rosResult',d))}
+function stopRos(node){api('/api/ros/stop_node',{method:'POST',body:JSON.stringify({node})}).then(d=>show('rosResult',d))}
+function rosMove(){api('/api/ros/move',{method:'POST',body:JSON.stringify({linear_x:.18,angular_z:0})}).then(d=>show('rosResult',d))}
+function rosStop(){api('/api/ros/stop_motion',{method:'POST'}).then(d=>show('rosResult',d))}
+loadPorts();loadRos();setInterval(status,1000);
+</script>
+</body>
+</html>

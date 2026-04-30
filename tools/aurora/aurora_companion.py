@@ -12,7 +12,7 @@ Aurora Companion — 原始摄像头/A1 摄像头可视化采集伴侣
   - 键盘快捷键：1/2/R
 
 用法:
-    python aurora_companion.py [--device 0] [--output ../../data/yolov8_dataset/raw] [--port 5801]
+    python aurora_companion.py [--device 0] [--output ../../data/yolov8_dataset/raw] [--port 6201]
 """
 
 import argparse
@@ -28,6 +28,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+from http.server import BaseHTTPRequestHandler
 from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
@@ -69,33 +70,12 @@ DEFAULT_CAPTURE_FORMAT = "720x1280"
 
 app = Flask(__name__, template_folder="templates")
 JUDGE_TEMPLATE = "judge_ui.html"
-_ros_detection_hook = None
-try:
-    from chassis_comm import chassis_bp
-    app.register_blueprint(chassis_bp)
-    print("[INFO] 底盘通信模块已加载")
-except ImportError:
-    print("[WARN] chassis_comm 未找到，底盘功能不可用")
-try:
-    from relay_comm import relay_bp
-    app.register_blueprint(relay_bp)
-    print("[INFO] COM13 经由 A1 控制模块已加载")
-except ImportError:
-    print("[WARN] relay_comm 未找到，COM13 经由 A1 控制不可用")
 try:
     from serial_terminal import serial_term_bp
     app.register_blueprint(serial_term_bp)
     print("[INFO] A1 终端模块已加载")
 except ImportError:
     print("[WARN] serial_terminal 未找到，A1 终端模块不可用")
-try:
-    from ros_bridge import handle_yolo_detections, ros_bp
-
-    _ros_detection_hook = handle_yolo_detections
-    app.register_blueprint(ros_bp)
-    print("[INFO] ROS 桥接模块已加载")
-except ImportError:
-    print("[WARN] ros_bridge 未找到，ROS 联动功能不可用")
 
 # ─── 全局状态 ─────────────────────────────────────────────────────────────────
 camera: Optional[Any] = None
@@ -437,6 +417,40 @@ def _qt_bridge_request(path: str, method: str = "GET", payload: Optional[dict] =
     return json.loads(raw.decode("utf-8")) if raw else {}
 
 
+def _set_qt_bridge_endpoint(port: int) -> None:
+    global QT_BRIDGE_PORT, QT_BRIDGE_URL
+    QT_BRIDGE_PORT = int(port)
+    QT_BRIDGE_URL = f"http://{QT_BRIDGE_HOST}:{QT_BRIDGE_PORT}"
+
+
+def _qt_bridge_port_available(host: str, port: int) -> bool:
+    from http.server import ThreadingHTTPServer as _ThreadingHTTPServer
+
+    server = None
+    try:
+        server = _ThreadingHTTPServer((host, int(port)), BaseHTTPRequestHandler)
+        return True
+    except OSError:
+        return False
+    finally:
+        if server is not None:
+            with contextlib.suppress(Exception):
+                server.server_close()
+
+
+def _resolve_qt_bridge_port(host: str, preferred_port: int, blocked_ports: Optional[set] = None) -> int:
+    blocked = {int(port) for port in (blocked_ports or set())}
+    preferred = int(preferred_port)
+    if preferred not in blocked and _qt_bridge_port_available(host, preferred):
+        return preferred
+    for candidate in range(preferred + 1, 65536):
+        if candidate in blocked:
+            continue
+        if _qt_bridge_port_available(host, candidate):
+            return candidate
+    raise RuntimeError(f"No available Qt bridge port from {preferred_port}")
+
+
 def _qt_bridge_stop(timeout: float = 5.0) -> dict:
     try:
         return _qt_bridge_request("/stop", method="POST", timeout=timeout)
@@ -513,10 +527,19 @@ if ($proc) {{
     clear_qt_bridge_owner_state()
 
 
-def shutdown_qt_bridge(timeout: float = 5.0) -> dict:
+def _wait_for_qt_bridge_port_release(timeout: float = 2.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _qt_bridge_port_available(QT_BRIDGE_HOST, QT_BRIDGE_PORT):
+            return True
+        time.sleep(0.1)
+    return _qt_bridge_port_available(QT_BRIDGE_HOST, QT_BRIDGE_PORT)
+
+
+def cleanup_qt_bridge_runtime(timeout: float = 5.0) -> dict:
     global _qt_bridge_process
 
-    result = _qt_bridge_shutdown(timeout=timeout)
+    shutdown_result = _qt_bridge_shutdown(timeout=timeout)
     proc = _qt_bridge_process
     if proc is not None and proc.poll() is None:
         try:
@@ -526,13 +549,20 @@ def shutdown_qt_bridge(timeout: float = 5.0) -> dict:
             with contextlib.suppress(Exception):
                 proc.kill()
                 proc.wait(timeout=1.0)
-    else:
-        cleanup_qt_bridge_owner_process()
     _qt_bridge_process = None
+    cleanup_qt_bridge_owner_process()
+    _stop_stale_qt_bridge_on_port()
+    released = _wait_for_qt_bridge_port_release(timeout=2.0)
     clear_qt_bridge_owner_state()
-    if result.get("success"):
-        return result
-    return {"success": True, "message": "Qt bridge stopped"}
+    if shutdown_result.get("success"):
+        return shutdown_result
+    if released:
+        return {"success": True, "message": "Qt bridge stopped"}
+    return {"success": False, "error": shutdown_result.get("error") or "Qt bridge port still busy"}
+
+
+def shutdown_qt_bridge(timeout: float = 5.0) -> dict:
+    return cleanup_qt_bridge_runtime(timeout=timeout)
 
 
 def _qt_bridge_is_current(status: Optional[dict]) -> bool:
@@ -723,28 +753,34 @@ def ensure_qt_bridge_running(timeout: float = 12.0) -> dict:
     global _qt_bridge_process
 
     status = _qt_bridge_status(timeout=0.6)
-    if _qt_bridge_is_current(status):
-        return status
-    if status is not None:
+    proc = _qt_bridge_process
+    should_cleanup = status is not None and not _qt_bridge_is_current(status)
+    if not should_cleanup and proc is not None and proc.poll() is not None:
+        should_cleanup = True
+    if should_cleanup:
         print("[Aurora] Found stale Qt bridge, stopping...")
-        cleanup_qt_bridge_owner_process()
-        _stop_stale_qt_bridge_on_port()
-        time.sleep(0.8)
+        cleanup_qt_bridge_runtime(timeout=3.0)
+        time.sleep(0.3)
 
     with _qt_bridge_lock:
         status = _qt_bridge_status(timeout=0.6)
+        proc = _qt_bridge_process
+        should_cleanup = status is not None and not _qt_bridge_is_current(status)
+        if not should_cleanup and proc is not None and proc.poll() is not None:
+            should_cleanup = True
         if _qt_bridge_is_current(status):
             return status
-        if status is not None:
-            cleanup_qt_bridge_owner_process()
-            _stop_stale_qt_bridge_on_port()
-            time.sleep(0.8)
+        if should_cleanup:
+            cleanup_qt_bridge_runtime(timeout=3.0)
+            time.sleep(0.3)
 
         if not QT_BRIDGE_SCRIPT.exists():
             raise RuntimeError(f"Qt 相机桥脚本不存在: {QT_BRIDGE_SCRIPT}")
 
         if _qt_bridge_process is None or _qt_bridge_process.poll() is not None:
             bridge_python = _select_qt_bridge_python()
+            bridge_port = _resolve_qt_bridge_port(QT_BRIDGE_HOST, QT_BRIDGE_PORT)
+            _set_qt_bridge_endpoint(bridge_port)
             kwargs: Dict[str, Any] = {
                 "cwd": str(Path(__file__).resolve().parent),
             }
@@ -753,7 +789,7 @@ def ensure_qt_bridge_running(timeout: float = 12.0) -> dict:
                 **kwargs,
             )
             save_qt_bridge_owner_state(_qt_bridge_process.pid)
-            print(f"[Aurora] Qt bridge started (PID: {_qt_bridge_process.pid})")
+            print(f"[Aurora] Qt bridge started (PID: {_qt_bridge_process.pid}, port: {QT_BRIDGE_PORT})")
 
         deadline = time.time() + timeout
         last_status = None
@@ -762,7 +798,7 @@ def ensure_qt_bridge_running(timeout: float = 12.0) -> dict:
             if last_status is not None:
                 return last_status
             if _qt_bridge_process is not None and _qt_bridge_process.poll() is not None:
-                break
+                raise RuntimeError(f"Qt 相机桥启动失败，进程已退出 (PID: {_qt_bridge_process.pid})")
             time.sleep(0.3)
 
         if last_status is not None:
@@ -1722,18 +1758,6 @@ def _summarize_detections(detections, frame_shape: Tuple[int, int]) -> Dict[str,
 
 def _update_detection_runtime(detections, frame_shape: Tuple[int, int]) -> Dict[str, Any]:
     summary = _summarize_detections(detections, frame_shape)
-    ros_result = None
-    if _ros_detection_hook is not None:
-        try:
-            ros_result = _ros_detection_hook(detections, frame_shape)
-        except Exception as exc:
-            ros_result = {
-                "enabled": True,
-                "action": "error",
-                "reason": str(exc),
-                "dispatched": False,
-            }
-    summary["ros"] = ros_result
     with _detect_state_lock:
         _last_detect_snapshot.update(summary)
         return dict(_last_detect_snapshot)
@@ -2279,7 +2303,7 @@ def main():
     parser.add_argument("--output", type=str,
                         default="../../data/yolov8_dataset/raw",
                         help="拍照保存目录")
-    parser.add_argument("--port",   type=int, default=5801, help="Web 服务端口 (默认: 5801)")
+    parser.add_argument("--port",   type=int, default=6201, help="Web 服务端口 (默认: 6201)")
     parser.add_argument("--host",   type=str, default="127.0.0.1", help="监听地址")
     args = parser.parse_args()
 
@@ -2308,7 +2332,7 @@ def main():
         save_preferred_source(initial_source)
 
     try:
-        bridge_status = ensure_qt_bridge_running(timeout=2.0)
+        bridge_status = ensure_qt_bridge_running(timeout=6.0)
         if bridge_status.get("available", False):
             print(f"[INFO] Qt 相机桥已就绪: {QT_BRIDGE_URL}")
         else:
