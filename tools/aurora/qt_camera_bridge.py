@@ -716,7 +716,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_header("Pragma", "no-cache")
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
-        self.wfile.write(payload)
+        try:
+            self.wfile.write(payload)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            return
 
     def log_message(self, fmt: str, *args):  # pragma: no cover - 减少控制台噪声
         _ = (fmt, args)

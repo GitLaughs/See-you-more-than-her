@@ -117,6 +117,7 @@ QT_BRIDGE_SCRIPT = Path(__file__).with_name("qt_camera_bridge.py")
 QT_BRIDGE_PORT = 5911
 QT_BRIDGE_HOST = "127.0.0.1"
 QT_BRIDGE_URL = f"http://{QT_BRIDGE_HOST}:{QT_BRIDGE_PORT}"
+COMPANION_PORT = 5801
 QT_BRIDGE_PROTOCOL_VERSION = 2
 QT_BRIDGE_OWNER_STATE_FILE = Path(__file__).with_name(".qt_bridge_owner.json")
 AURORA_PYTHON_ENV_VAR = "AURORA_PYTHON"
@@ -2294,7 +2295,7 @@ def status():
 # ─── 入口 ─────────────────────────────────────────────────────────────────────
 
 def main():
-    global camera, output_dir, device_id_global, camera_source_global
+    global camera, output_dir, device_id_global, camera_source_global, COMPANION_PORT
 
     parser = argparse.ArgumentParser(description="Aurora Companion — 原始摄像头/A1 摄像头可视化采集伴侣")
     parser.add_argument("--device", type=int, default=-1,   help="摄像头设备 ID (默认: -1 自动优先 A1)")
@@ -2306,6 +2307,7 @@ def main():
     parser.add_argument("--port",   type=int, default=6201, help="Web 服务端口 (默认: 6201)")
     parser.add_argument("--host",   type=str, default="127.0.0.1", help="监听地址")
     args = parser.parse_args()
+    COMPANION_PORT = int(args.port)
 
     script_dir = Path(__file__).parent
     output_dir = str((script_dir / args.output).resolve())

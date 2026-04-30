@@ -90,6 +90,46 @@ class QtBridgeLifecycleTests(unittest.TestCase):
         cleanup_mock.assert_called_once()
 
 
+    def test_ensure_qt_bridge_running_uses_available_port_when_default_reserved(self):
+        healthy_status = {"available": True, "bridge_version": aurora_companion.QT_BRIDGE_PROTOCOL_VERSION}
+        fake_process = mock.Mock(pid=54321)
+        fake_process.poll.return_value = None
+        with tempfile.TemporaryDirectory() as tmpdir:
+            owner_state_path = Path(tmpdir) / "qt_bridge_owner.json"
+            original_port = aurora_companion.QT_BRIDGE_PORT
+            original_url = aurora_companion.QT_BRIDGE_URL
+            try:
+                with mock.patch.object(aurora_companion, "QT_BRIDGE_OWNER_STATE_FILE", owner_state_path), \
+                     mock.patch.object(aurora_companion, "_qt_bridge_process", None), \
+                     mock.patch.object(aurora_companion, "_qt_bridge_status", side_effect=[None, None, healthy_status]), \
+                     mock.patch.object(aurora_companion, "_resolve_available_port", return_value=5930, create=True) as resolve_port, \
+                     mock.patch.object(aurora_companion, "save_qt_bridge_owner_state"), \
+                     mock.patch.object(aurora_companion, "cleanup_qt_bridge_owner_process"), \
+                     mock.patch.object(aurora_companion, "_stop_stale_qt_bridge_on_port"), \
+                     mock.patch.object(aurora_companion, "_select_qt_bridge_python", return_value="python"), \
+                     mock.patch.object(aurora_companion.subprocess, "Popen", return_value=fake_process) as popen:
+                    status = aurora_companion.ensure_qt_bridge_running(timeout=0.1)
+            finally:
+                aurora_companion.QT_BRIDGE_PORT = original_port
+                aurora_companion.QT_BRIDGE_URL = original_url
+
+        self.assertEqual(status, healthy_status)
+        resolve_port.assert_called_once_with(aurora_companion.QT_BRIDGE_HOST, original_port, blocked_ports={aurora_companion.COMPANION_PORT})
+        self.assertEqual(aurora_companion.QT_BRIDGE_PORT, 5930)
+        self.assertEqual(aurora_companion.QT_BRIDGE_URL, f"http://{aurora_companion.QT_BRIDGE_HOST}:5930")
+        popen.assert_called_once_with(
+            [
+                "python",
+                str(aurora_companion.QT_BRIDGE_SCRIPT.resolve()),
+                "--host",
+                aurora_companion.QT_BRIDGE_HOST,
+                "--port",
+                "5930",
+            ],
+            cwd=str(Path(aurora_companion.__file__).resolve().parent),
+        )
+
+
     def test_bridge_write_json_ignores_client_abort(self):
         handler = object.__new__(qt_camera_bridge.BridgeHandler)
         handler.send_response = mock.Mock()
@@ -103,6 +143,19 @@ class QtBridgeLifecycleTests(unittest.TestCase):
         handler.send_response.assert_called_once_with(503)
         handler.end_headers.assert_called_once_with()
         handler.wfile.write.assert_called_once()
+    def test_bridge_write_bytes_ignores_client_abort(self):
+        handler = object.__new__(qt_camera_bridge.BridgeHandler)
+        handler.send_response = mock.Mock()
+        handler.send_header = mock.Mock()
+        handler.end_headers = mock.Mock()
+        handler.wfile = mock.Mock()
+        handler.wfile.write.side_effect = ConnectionAbortedError("client disconnected")
+
+        qt_camera_bridge.BridgeHandler._write_bytes(handler, b"jpeg-data")
+
+        handler.send_response.assert_called_once_with(200)
+        handler.end_headers.assert_called_once_with()
+        handler.wfile.write.assert_called_once_with(b"jpeg-data")
 
 
 if __name__ == "__main__":
