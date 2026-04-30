@@ -13,6 +13,7 @@ src/ros2_ws/log/
 .venv39/
 venv_39/
 venv/
+api/claude-code-proxy/
 __pycache__/
 *.pyc
 *.pyo
@@ -30,11 +31,15 @@ tools/aurora/__pycache__/
 tools/aurora/.a1_camera_device
 tools/aurora/.a1_camera_source
 tools/aurora/.a1_detect_model
+tools/testgpio/__pycache__/
+tools/testgpio/logs/
 third_party/ultralytics
 models
+CLIProxyAPI_6.9.40_windows_amd64
 .worktrees/
 .playwright-mcp
 .claude
+tools\aurora\.qt_bridge_owner.json
 # Aurora 拍照工具保留在版本控制中: tools/aurora/
 
 # Local editor / IDE
@@ -58,3 +63,5 @@ Aurora-*/
 .vscode/settings.json
 data/data
 tools/aurora/__pycache__/aurora_companion.cpython-39.pyc
+tools/aurora/.qt_bridge_owner.json
+tools/aurora/.qt_bridge_owner.json

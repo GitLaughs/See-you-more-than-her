@@ -83,6 +83,25 @@ class Task4VideoFirstTemplateTests(unittest.TestCase):
         self.assertIn('.workflow-grid-stm32{', html)
         self.assertIn('grid-template-columns:repeat(2, minmax(0, 1fr));', html)
 
+    def test_render_shows_chain_diagnostics_fields(self):
+        response = self.client.get("/")
+        html = response.get_data(as_text=True)
+
+        self.assertIn('id="diagSerialOwner"', html)
+        self.assertIn('id="diagBreakStage"', html)
+        self.assertIn('id="diagChainView"', html)
+        self.assertIn('function updatePingDiagnostics(', html)
+        self.assertIn('function renderBreakChain(', html)
+
+    def test_render_distinguishes_a1_reply_from_stm32_telemetry_in_ping_ui(self):
+        response = self.client.get("/")
+        html = response.get_data(as_text=True)
+
+        self.assertIn("const hasTelemetry = t && t.vx !== undefined && t.vy !== undefined && t.vz !== undefined", html)
+        self.assertIn("✅ 收到 A1 debug_status 回传", html)
+        self.assertIn("⚠ 未包含 STM32 遥测字段", html)
+        self.assertNotIn("✅ 控制下发成功\n✅ 收到 STM32 遥测", html)
+
 
 if __name__ == "__main__":
     unittest.main()

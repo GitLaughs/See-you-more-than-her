@@ -467,7 +467,7 @@ body{
 .console-toolbar-group{display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:center;}
 .console-toolbar-group.compact{gap:var(--space-1);}
 .console-toolbar-actions .btn{justify-content:center;}
-.console-grid{display:grid;grid-template-columns:minmax(0, 1.35fr) minmax(320px, 1fr);gap:var(--space-3);align-items:start;}
+.console-grid{display:grid;grid-template-columns:minmax(0, 1.2fr) minmax(360px, 1.5fr);gap:var(--space-3);align-items:start;}
 .console-output-shell,.console-input-shell{display:flex;flex-direction:column;gap:var(--space-2);min-width:0;}
 .terminal-primary-card .console-output-shell{min-width:0;}
 .console-output{min-height:320px;max-height:420px;background:#f7faff;border-color:#cbd9ec;color:#23384f;box-shadow:inset 0 0 0 1px rgba(47,111,236,0.05);}
@@ -885,9 +885,9 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
       <div class="card-head">YOLOv8 检测信息</div>
       <div class="det-panel">
         <table>
-          <tr><td>模型</td><td><span class="det-badge" id="detModelName">best_a1_formal.onnx</span></td></tr>
+          <tr><td>模型</td><td><span class="det-badge" id="detModelName">best_a1_640x480.onnx</span></td></tr>
           <tr><td>格式</td><td id="detModelMode">标准输出</td></tr>
-          <tr><td>输入尺寸</td><td>640 × 640 (letterbox)</td></tr>
+          <tr><td>输入尺寸</td><td>640 × 480 (中心裁剪)</td></tr>
           <tr><td>类别数</td><td id="detNumCls">4</td></tr>
           <tr><td>置信度</td><td id="detConf">≥ 0.40</td></tr>
           <tr><td>NMS IoU</td><td>0.45</td></tr>
@@ -903,7 +903,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
         <table class="info-tbl">
           <tr><td>输入源</td><td>原始摄像头 / A1 Y8 灰度流</td></tr>
           <tr><td>预览分辨率</td><td>720 × 1280</td></tr>
-          <tr><td>推理输入</td><td>640 × 640 (letterbox)</td></tr>
+          <tr><td>推理输入</td><td>720×540 中心裁剪 -> 640 × 480</td></tr>
           <tr><td>训练裁剪</td><td>640 × 480</td></tr>
           <tr><td>输出格式</td><td>PNG / JPEG</td></tr>
           <tr><td>输出目录</td><td>{{ output_dir }}</td></tr>
@@ -945,7 +945,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
             <div class="form-row mb-6">
               <label>切换模型</label>
               <div class="btn-row-single">
-                <input type="text" id="modelSelect" list="modelOptions" placeholder="best_a1_formal.onnx / best.pt">
+                <input type="text" id="modelSelect" list="modelOptions" placeholder="best_a1_640x480.onnx / best.pt">
                 <datalist id="modelOptions"></datalist>
               </div>
             </div>
@@ -953,7 +953,7 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
               <button class="btn btn-ghost" onclick="loadDetectModels()">检测模型列表</button>
               <button class="btn btn-blue" onclick="switchDetectModel()">实时切换推理</button>
             </div>
-            <div id="modelHint" class="source-desc stack-6">模型即时切换 (onnx/pt)。推理基于当前摄像头灰度帧，A1 Y8 源会先修正为 720×1280。</div>
+            <div id="modelHint" class="source-desc stack-6">模型即时切换 (onnx/pt)。推理基于当前摄像头灰度帧，统一走 720×540 中心裁剪后缩放到 640×480 的 A1 主链。</div>
           </div>
         </div>
         <div class="card chs-conn">
@@ -1233,6 +1233,18 @@ select:focus, input:focus{outline:none;border-color:var(--color-brand);box-shado
               <button class="btn btn-blue btn-grow" id="pingBtn" onclick="runPingTest()">发起联通测试</button>
             </div>
             <pre id="pingResult" class="panel-pre"></pre>
+            <div class="divider"></div>
+            <div class="grid-two-compact mb-8">
+              <div>
+                <div class="tele-label">串口 owner</div>
+                <div class="tele-value" id="diagSerialOwner">—</div>
+              </div>
+              <div>
+                <div class="tele-label">推断断点</div>
+                <div class="tele-value" id="diagBreakStage">—</div>
+              </div>
+            </div>
+            <div class="meta-secondary-mono" id="diagChainView">PC → 串口 → 目标模块 → 回传</div>
             <div class="divider"></div>
             <div class="text-xs text-muted">直连模式测试的是 PC → STM32；COM13 模式测试的是 PC → COM13 → A1_TEST。</div>
           </div>
@@ -1711,7 +1723,7 @@ function loadDetectStatus() {
   fetch('/detect_status').then(r => r.json()).then(d => {
     const warn = document.getElementById('detWarn');
     const rt = document.getElementById('detRuntime');
-    const modelName = d.model_name || 'best_a1_formal.onnx';
+    const modelName = d.model_name || 'best_a1_640x480.onnx';
     const modelMode = d.model_mode || 'standard';
     const modelBackend = d.model_backend || (modelName.toLowerCase().endsWith('.pt') ? 'pt' : 'onnx');
     const runtimeName = DETECT_MODEL_BACKEND_TITLES[modelBackend] || modelBackend;
@@ -2380,6 +2392,38 @@ function emergencyStop() {
   toast('⬛ 急停', 'info');
 }
 
+function renderBreakChain(target, breakStage, connected) {
+  if (target === 'relay') {
+    const segments = [
+      {label: 'PC → COM13', ok: connected || breakStage !== 'PC -> COM13'},
+      {label: 'COM13 → A1_TEST', ok: connected || breakStage !== 'PC -> COM13'},
+      {label: 'A1_TEST → UART0/STM32', ok: connected || breakStage !== 'A1_TEST -> UART0/STM32'},
+      {label: 'STM32 → A1 → COM13', ok: connected},
+    ];
+    return segments.map(seg => `${seg.ok ? '✓' : '✗'} ${seg.label}`).join('\n');
+  }
+  const segments = [
+    {label: 'PC → STM32', ok: connected || breakStage !== 'PC -> COM13'},
+    {label: 'STM32 → PC', ok: connected},
+  ];
+  return segments.map(seg => `${seg.ok ? '✓' : '✗'} ${seg.label}`).join('\n');
+}
+
+function updatePingDiagnostics(target, data = {}) {
+  const ownerEl = document.getElementById('diagSerialOwner');
+  const breakEl = document.getElementById('diagBreakStage');
+  const chainEl = document.getElementById('diagChainView');
+  if (!ownerEl || !breakEl || !chainEl) return;
+  const connected = !!data.connected;
+  const breakStage = data.break_stage || (connected ? '无' : (target === 'relay' ? 'PC -> COM13' : 'STM32 -> PC'));
+  ownerEl.textContent = data.serial_owner || (target === 'relay' ? 'serial_terminal' : 'chassis_comm');
+  breakEl.textContent = breakStage;
+  chainEl.textContent = renderBreakChain(target, breakStage, connected);
+  if (data.diagnosis && data.diagnosis !== 'ok' && data.note) {
+    chainEl.textContent += `\n提示: ${data.note}`;
+  }
+}
+
 function runPingTest(scope = 'chassis') {
   const suffix = scope === 'page' ? 'Page' : '';
   const btn = document.getElementById('pingBtn' + suffix);
@@ -2394,9 +2438,11 @@ function runPingTest(scope = 'chassis') {
   badge.style.background = 'var(--color-warning)';
   badge.style.color = '#000';
   result.textContent = '正在测试 ' + targetLabel() + ' 链路…';
+  updatePingDiagnostics(controlTarget, {connected: false, break_stage: controlTarget === 'relay' ? 'PC -> COM13' : 'STM32 -> PC'});
 
   apiJson(targetApiBase() + '/ping', {method: 'POST'}).then(d => {
     btn.disabled = false;
+    updatePingDiagnostics(controlTarget, d || {});
     if (!d.success) {
       badge.textContent = '失败';
       badge.style.background = 'var(--color-error)';
@@ -2409,23 +2455,52 @@ function runPingTest(scope = 'chassis') {
       badge.style.background = 'var(--color-success)';
       badge.style.color = '#fff';
       const t = d.telemetry || {};
-      result.textContent =
-        `✅ 目标链路: ${targetLabel()}\n` +
-        `✅ 控制下发成功\n✅ 收到 STM32 遥测\n\n` +
-        `发送帧: ${d.frame_tx}\n\n` +
-        `遥测数据:\n` +
-        `  速度  Vx=${t.vx} Vy=${t.vy} Vz=${t.vz} mm/s\n` +
-        `  加速度 Ax=${t.accel_x?.toFixed(3)} Ay=${t.accel_y?.toFixed(3)} Az=${t.accel_z?.toFixed(3)} m/s²\n` +
-        `  陀螺仪 Gx=${t.gyro_x?.toFixed(3)} Gy=${t.gyro_y?.toFixed(3)} Gz=${t.gyro_z?.toFixed(3)} rad/s\n` +
-        `  电池   ${t.voltage?.toFixed(2)} V`;
+      const hasTelemetry = t && t.vx !== undefined && t.vy !== undefined && t.vz !== undefined;
+      if (controlTarget === 'relay') {
+        result.textContent =
+          `✅ 目标链路: ${targetLabel()}\n` +
+          `✅ 控制下发成功\n✅ 收到 A1 debug_status 回传\n` +
+          `${hasTelemetry ? '✅ 收到 STM32 遥测' : '⚠ 未包含 STM32 遥测字段'}\n\n` +
+          `发送帧: ${d.frame_tx}\n` +
+          `串口 owner: ${d.serial_owner || '—'}\n` +
+          `推断断点: ${d.break_stage || '无'}\n` +
+          `诊断分类: ${d.diagnosis || 'ok'}\n\n` +
+          (hasTelemetry
+            ? `遥测数据:\n` +
+              `  速度  Vx=${t.vx} Vy=${t.vy} Vz=${t.vz} mm/s\n` +
+              `  加速度 Ax=${t.accel_x?.toFixed(3)} Ay=${t.accel_y?.toFixed(3)} Az=${t.accel_z?.toFixed(3)} m/s²\n` +
+              `  陀螺仪 Gx=${t.gyro_x?.toFixed(3)} Gy=${t.gyro_y?.toFixed(3)} Gz=${t.gyro_z?.toFixed(3)} rad/s\n` +
+              `  电池   ${t.voltage?.toFixed(2)} V`
+            : (d.note || '当前只确认 A1 debug_status 回传，未证明 STM32 遥测在线。'));
+      } else {
+        result.textContent =
+          `✅ 目标链路: ${targetLabel()}\n` +
+          `✅ 控制下发成功\n✅ 收到 STM32 遥测\n\n` +
+          `发送帧: ${d.frame_tx}\n` +
+          `串口 owner: ${d.serial_owner || '—'}\n` +
+          `推断断点: ${d.break_stage || '无'}\n\n` +
+          `遥测数据:\n` +
+          `  速度  Vx=${t.vx} Vy=${t.vy} Vz=${t.vz} mm/s\n` +
+          `  加速度 Ax=${t.accel_x?.toFixed(3)} Ay=${t.accel_y?.toFixed(3)} Az=${t.accel_z?.toFixed(3)} m/s²\n` +
+          `  陀螺仪 Gx=${t.gyro_x?.toFixed(3)} Gy=${t.gyro_y?.toFixed(3)} Gz=${t.gyro_z?.toFixed(3)} rad/s\n` +
+          `  电池   ${t.voltage?.toFixed(2)} V`;
+      }
     } else {
       badge.textContent = '单向连通';
       badge.style.background = 'var(--color-warning)';
       badge.style.color = '#000';
+      const diagnosis = d.diagnosis === 'no_a1_reply'
+        ? 'A1 未回 debug_status，或仅连接 A1 未连接 STM32。'
+        : d.diagnosis === 'a1_output_mismatch'
+          ? 'A1 已输出，但格式不匹配当前识别关键字。'
+          : '控制已发送，未收到遥测回传';
       result.textContent =
         `⚠️ 目标链路: ${targetLabel()}\n` +
-        `控制已发送，未收到遥测回传\n\n` +
-        `发送帧: ${d.frame_tx}\n\n` +
+        `${diagnosis}\n\n` +
+        `发送帧: ${d.frame_tx}\n` +
+        `串口 owner: ${d.serial_owner || '—'}\n` +
+        `推断断点: ${d.break_stage || '未知'}\n` +
+        `诊断分类: ${d.diagnosis || 'unknown'}\n\n` +
         (d.note || '请检查 COM13 / A1_TEST 回传状态');
     }
   }).catch(e => {
@@ -2433,6 +2508,7 @@ function runPingTest(scope = 'chassis') {
     badge.textContent = '错误';
     badge.style.background = 'var(--color-error)';
     badge.style.color = '#fff';
+    updatePingDiagnostics(controlTarget, {connected: false, break_stage: controlTarget === 'relay' ? 'PC -> COM13' : 'STM32 -> PC'});
     result.textContent = '✗ 网络错误: ' + e;
   });
 }

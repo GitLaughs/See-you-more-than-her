@@ -11,6 +11,9 @@ import serial_terminal as st
 relay_bp = Blueprint("relay", __name__, url_prefix="/api/relay")
 
 
+_DEBUG_STATUS_WAIT_TOKENS = ["\"success\":true", "\"command\":\"debug_status\"", "\"chassis_ok\":"]
+
+
 def _connected() -> bool:
     return st.is_connected()
 
@@ -27,6 +30,52 @@ def _send_cli(line: str, wait_tokens: Optional[List[str]] = None, timeout_sec: f
     return st.send_text_line(line, wait_tokens=wait_tokens, timeout_sec=timeout_sec)
 
 
+def _looks_like_wait_timeout(result: Dict[str, Any]) -> bool:
+    if result.get("success") or not result.get("transport_success") or result.get("response_received"):
+        return False
+    error = str(result.get("error") or result.get("message") or "")
+    return "未在串口输出中等到预期回传" in error
+
+
+def _classify_debug_status_failure(result: Dict[str, Any]) -> Dict[str, str]:
+    if not _looks_like_wait_timeout(result):
+        return {
+            "break_stage": _infer_break_stage(result),
+            "diagnosis": "transport_error",
+            "note": "COM13 命令下发失败，请检查串口 owner 与 A1_TEST 通道。",
+        }
+
+    latest_lines = st.latest_lines(limit=3)
+    if not latest_lines:
+        return {
+            "break_stage": "A1 -> debug_status 回传",
+            "diagnosis": "no_a1_reply",
+            "note": "A1 未输出任何 debug_status 回传；若只连接 A1 未连接 STM32，也可能是 A1 侧未生成可识别状态。",
+        }
+
+    latest_text = " | ".join(str(item.get("text") or "").strip() for item in latest_lines if str(item.get("text") or "").strip())
+    if latest_text:
+        return {
+            "break_stage": "A1 debug_status 输出格式",
+            "diagnosis": "a1_output_mismatch",
+            "note": f"A1 有输出，但不匹配预期关键字。最近输出: {latest_text}",
+        }
+
+    return {
+        "break_stage": "A1 -> debug_status 回传",
+        "diagnosis": "no_a1_reply",
+        "note": "A1 未输出任何可见 debug_status 回传。",
+    }
+
+
+def _infer_break_stage(result: Dict[str, Any]) -> str:
+    if result.get("success"):
+        return "STM32 -> A1 -> COM13"
+    if result.get("transport_success") and not result.get("response_received"):
+        return "A1_TEST -> UART0/STM32"
+    return "PC -> COM13"
+
+
 def _status_payload() -> Dict[str, Any]:
     return {
         "success": True,
@@ -37,6 +86,7 @@ def _status_payload() -> Dict[str, Any]:
         "telemetry": {},
         "model_name": "COM13 / A1_TEST",
         "transport": "COM13",
+        "serial_owner": "serial_terminal",
         "latest_lines": st.latest_lines(),
     }
 
@@ -73,7 +123,6 @@ def relay_connect():
 
 @relay_bp.route("/disconnect", methods=["POST"])
 def relay_disconnect():
-    # Keep COM13 alive for the shared terminal; this action only clears the logical relay target.
     return jsonify({"success": True, "connected": _connected(), "port": _current_port(), "transport": "COM13"})
 
 
@@ -112,16 +161,21 @@ def relay_raw_send():
 def relay_ping():
     result = _send_cli(
         "A1_TEST debug_status",
-        wait_tokens=["\"success\":true", "\"command\":\"debug_status\"", "\"chassis_ok\":"],
+        wait_tokens=_DEBUG_STATUS_WAIT_TOKENS,
         timeout_sec=1.8,
     )
+    diagnosis = _classify_debug_status_failure(result)
+    note = "COM13 已收到 A1 debug_status 回传；底盘运动请使用 A1_TEST move/stop。" if result.get("success") else diagnosis["note"]
     return jsonify({
         **result,
         "connected": bool(result.get("success")),
         "telemetry": {},
         "frame_tx": "A1_TEST debug_status",
-        "note": "COM13 已收到 A1 debug_status 回传；底盘运动请使用 A1_TEST move/stop。",
+        "note": note,
         "transport": "COM13",
+        "serial_owner": "serial_terminal",
+        "break_stage": "STM32 -> A1 -> COM13" if result.get("success") else diagnosis["break_stage"],
+        "diagnosis": "ok" if result.get("success") else diagnosis["diagnosis"],
         "ts": time.strftime("%H:%M:%S"),
     })
 
