@@ -6,7 +6,7 @@
 - 板端 AI Demo：`data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
 - SDK / 固件打包层：`data/A1_SDK_SC132GS/smartsens_sdk/`
 - ROS2 工作区：`src/ros2_ws/`
-- Windows Aurora 工具：`tools/aurora/`
+- Windows 工具：`tools/aurora/`、`tools/PC/`、`tools/A1/`
 - STM32 集成参考：`src/stm32_akm_driver/`
 
 ## 快速开始
@@ -46,14 +46,17 @@ ssh root@<A1_IP>
 /app_demo/scripts/run.sh
 ```
 
-### 5. Windows 侧 Aurora 联调
+### 5. Windows 侧联调工具
 ```powershell
 cd tools/aurora
 pip install -r requirements.txt
 .\launch.ps1
 ```
 
-默认 Companion 地址：`http://127.0.0.1:5801`
+默认地址：
+- Aurora 视频 / COM13 终端：`http://127.0.0.1:6201`
+- PC 直连 STM32：`http://127.0.0.1:6202`
+- A1 中继控制：`http://127.0.0.1:6203`
 
 ## 仓库边界
 
@@ -95,10 +98,11 @@ pip install -r requirements.txt
 - `scripts/build_ros2_ws.sh` 只扫描 `src/ros2_ws/src/` 下的包
 - 部分可选包刻意保留 `COLCON_IGNORE`
 
-### Aurora
-- `tools/aurora/aurora_companion.py` 是 Windows 侧主入口
-- 支持相机预览、A1_TEST 串口调试、直连 STM32 控制、ROS bridge 联调
-- 当前接受的相机初始化流程：先打开 `Aurora.exe`，再由 Companion 接管
+### Windows 工具
+- `tools/aurora/`：视频预览、拍照、COM13 终端、A1_TEST 手动测试
+- `tools/PC/`：电脑直连 STM32 调试
+- `tools/A1/`：COM13 → A1_TEST → STM32 中继控制
+- 当前接受的 Aurora 相机初始化流程：先打开 `Aurora.exe`，再由 Companion 接管
 
 ## 文档索引
 
@@ -112,6 +116,8 @@ pip install -r requirements.txt
 - [程序概览](docs/06_%E7%A8%8B%E5%BA%8F%E6%A6%82%E8%A7%88.md)
 - [架构设计](docs/07_%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1.md)
 - [Aurora 工具说明](tools/aurora/README.md)
+- [PC 工具说明](tools/PC/README.md)
+- [A1 工具说明](tools/A1/README.md)
 - [STM32 集成参考](src/stm32_akm_driver/README.md)
 
 ### 协作与后续
@@ -133,6 +139,6 @@ pip install -r requirements.txt
 
 ## 最小验证建议
 - 改文档：检查链接、脚本名、端口、路径是否一致
-- 改 Aurora：至少运行 `python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_terminal.py tools/aurora/relay_comm.py tools/aurora/qt_camera_bridge.py tools/aurora/chassis_comm.py tools/aurora/ros_bridge.py`
+- 改 Windows 工具：至少运行 `python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_terminal.py tools/aurora/qt_camera_bridge.py tools/PC/pc_tool.py tools/PC/pc_chassis.py tools/A1/a1_tool.py tools/A1/a1_relay.py tools/A1/a1_serial.py`
 - 改 ROS2：优先做包级构建
 - 改板端或镜像：优先做 `build_incremental.sh` 或 `build_complete_evb.sh`

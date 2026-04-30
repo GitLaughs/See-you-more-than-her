@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""relay_comm.py — A1 chassis control over the local COM13 terminal."""
+"""A1 relay control over the local COM13 terminal."""
 
 import time
 from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request
 
-import serial_terminal as st
+import a1_serial as st
 
-relay_bp = Blueprint("relay", __name__, url_prefix="/api/relay")
+a1_bp = Blueprint("a1", __name__, url_prefix="/api/a1")
 
 
 _DEBUG_STATUS_WAIT_TOKENS = ["\"success\":true", "\"command\":\"debug_status\"", "\"chassis_ok\":"]
@@ -91,7 +91,7 @@ def _status_payload() -> Dict[str, Any]:
     }
 
 
-@relay_bp.route("/config", methods=["GET", "POST"])
+@a1_bp.route("/config", methods=["GET", "POST"])
 def relay_config():
     return jsonify({
         "success": True,
@@ -103,17 +103,17 @@ def relay_config():
     })
 
 
-@relay_bp.route("/status")
+@a1_bp.route("/status")
 def relay_status():
     return jsonify(_status_payload())
 
 
-@relay_bp.route("/ports")
+@a1_bp.route("/ports")
 def relay_ports():
     return jsonify({"success": True, "ports": st.list_ports(), "preferred": _current_port(), "transport": "COM13"})
 
 
-@relay_bp.route("/connect", methods=["POST"])
+@a1_bp.route("/connect", methods=["POST"])
 def relay_connect():
     data = request.get_json(silent=True) or {}
     baud = int(data.get("baud") or 115200)
@@ -121,12 +121,13 @@ def relay_connect():
     return jsonify({**result, "transport": "COM13"})
 
 
-@relay_bp.route("/disconnect", methods=["POST"])
+@a1_bp.route("/disconnect", methods=["POST"])
 def relay_disconnect():
-    return jsonify({"success": True, "connected": _connected(), "port": _current_port(), "transport": "COM13"})
+    st.disconnect_serial()
+    return jsonify({"success": True, "connected": False, "port": _current_port(), "transport": "COM13"})
 
 
-@relay_bp.route("/move", methods=["POST"])
+@a1_bp.route("/move", methods=["POST"])
 def relay_move():
     data = request.get_json(silent=True) or {}
     vx = int(data.get("vx") or 0)
@@ -137,13 +138,13 @@ def relay_move():
     return jsonify({**result, "vx": vx, "vy": vy, "vz": vz, "transport": "COM13"})
 
 
-@relay_bp.route("/stop", methods=["POST"])
+@a1_bp.route("/stop", methods=["POST"])
 def relay_stop():
     result = _send_cli("A1_TEST stop")
     return jsonify({**result, "transport": "COM13"})
 
 
-@relay_bp.route("/raw_send", methods=["POST"])
+@a1_bp.route("/raw_send", methods=["POST"])
 def relay_raw_send():
     data = request.get_json(silent=True) or {}
     text = str(data.get("text") or "").strip()
@@ -157,7 +158,7 @@ def relay_raw_send():
     return jsonify({**result, "transport": "COM13"})
 
 
-@relay_bp.route("/ping", methods=["POST"])
+@a1_bp.route("/ping", methods=["POST"])
 def relay_ping():
     result = _send_cli(
         "A1_TEST debug_status",
@@ -180,11 +181,11 @@ def relay_ping():
     })
 
 
-@relay_bp.route("/tx_log")
+@a1_bp.route("/tx_log")
 def relay_tx_log():
     return jsonify(st.tx_log_entries())
 
 
-@relay_bp.route("/rx_log")
+@a1_bp.route("/rx_log")
 def relay_rx_log():
     return jsonify(st.rx_log_entries())

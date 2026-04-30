@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PC Tool</title>
+<style>
+:root{--bg:#eef4fb;--card:#fff;--line:#d6e2f0;--text:#18324d;--muted:#607a95;--blue:#2f6fec;--green:#18a957;--red:#df4b48;--amber:#d88900;--soft:#f7fbff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 "Segoe UI","Noto Sans SC",sans-serif}.top{padding:14px 18px;background:#fff;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center}.top b{font-size:18px}.muted{color:var(--muted)}.shell{display:grid;grid-template-columns:1.05fr .95fr;gap:14px;padding:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 6px 20px rgba(38,73,110,.06)}.head{padding:11px 14px;border-bottom:1px solid var(--line);font-weight:800;color:#466889;display:flex;justify-content:space-between;align-items:center}.body{padding:14px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.row label{min-width:72px;color:var(--muted);font-weight:700}input,select{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff;color:var(--text)}input[type=number]{width:110px}.btn{border:1px solid var(--line);border-radius:10px;padding:8px 13px;background:#fff;cursor:pointer;font-weight:800;color:var(--text);transition:.16s}.btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgba(47,111,236,.12)}.btn:disabled{opacity:.58;cursor:not-allowed}.blue{background:var(--blue);color:white;border-color:var(--blue)}.red{background:var(--red);color:white;border-color:var(--red)}.green{background:var(--green);color:white;border-color:var(--green)}.amber{background:var(--amber);color:white;border-color:var(--amber)}.status-pill{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:5px 10px;background:#eef3fb;color:#486987;font-weight:800}.status-pill::before{content:"";width:8px;height:8px;border-radius:999px;background:#8ca0b5}.status-pill.connecting{background:#fff4dc;color:#8a5a00}.status-pill.connecting::before{background:var(--amber);animation:pulse 1s infinite}.status-pill.connected{background:#e8f8ef;color:#0f7a3d}.status-pill.connected::before{background:var(--green)}.status-pill.error{background:#fdebea;color:#a12b28}.status-pill.error::before{background:var(--red)}@keyframes pulse{50%{opacity:.35}}.pre{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:11px;white-space:pre-wrap;min-height:96px;max-height:220px;overflow:auto;font-family:Consolas,"Cascadia Mono",monospace}.result-ok{border-color:#b8e4c9;background:#f1fbf5}.result-bad{border-color:#f0b8b6;background:#fff5f4}.log-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.log-panel{background:#f9fcff;border:1px solid var(--line);border-radius:13px;overflow:hidden}.log-title{padding:8px 10px;background:#f0f6fd;border-bottom:1px solid var(--line);font-weight:900;display:flex;justify-content:space-between}.log-list{height:360px;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:9px}.frame{border:1px solid var(--line);border-radius:12px;background:#fff;padding:9px}.frame.tx{border-left:5px solid var(--blue)}.frame.rx{border-left:5px solid var(--green)}.frame-head{display:flex;justify-content:space-between;gap:8px;font-weight:900;margin-bottom:6px}.tag{border-radius:999px;padding:2px 8px;font-size:12px;background:#edf4ff;color:#285da8}.hex{font-family:Consolas,"Cascadia Mono",monospace;color:#213b56;background:#f6f9fd;border-radius:8px;padding:6px;word-break:break-all}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 8px;margin-top:7px;color:#4d6b87;font-size:13px}.wide{grid-column:1/-1}.hint{color:var(--muted);font-size:13px}.controls{display:grid;grid-template-columns:repeat(3, minmax(100px, 1fr));gap:8px;max-width:440px}.controls .stop{grid-column:2}.telemetry-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.telemetry-item{background:#f7fbff;border:1px solid var(--line);border-radius:10px;padding:8px}.telemetry-item b{display:block;color:#4a6a88}@media(max-width:1050px){.shell,.log-grid{grid-template-columns:1fr}.controls{max-width:none}}@media(max-width:560px){.top{display:block}.controls{grid-template-columns:1fr 1fr}.controls .stop{grid-column:1/-1}}
+</style>
+</head>
+<body>
+<div class="top"><b>PC Tool</b><span class="muted">电脑直连 STM32 · 默认 6202 · 默认通信端口 COM17</span></div>
+<main class="shell">
+<section class="card">
+  <div class="head"><span>电脑直连 STM32</span><span id="connPill" class="status-pill">未连接</span></div>
+  <div class="body">
+    <div class="row"><label>端口</label><select id="portSelect"></select><button id="refreshBtn" class="btn" onclick="loadPorts()">刷新</button><span class="hint">优先选择 COM17</span></div>
+    <div class="row"><label>波特率</label><input id="baud" type="number" value="115200"><button id="connectBtn" class="btn green" onclick="connect()">连接</button><button id="disconnectBtn" class="btn red" onclick="disconnect()">断开</button></div>
+    <div class="row"><label>直线速度</label><input id="linearStep" type="number" value="200" min="1" max="2000"><label>转向速度</label><input id="turnStep" type="number" value="500" min="1" max="2000"></div>
+    <div class="controls">
+      <span></span><button class="btn" onclick="moveLinear(1)">前进</button><span></span>
+      <button class="btn" onclick="turn(1)">左转</button><button class="btn red stop" onclick="stop()">停止</button><button class="btn" onclick="turn(-1)">右转</button>
+      <span></span><button class="btn" onclick="moveLinear(-1)">后退</button><span></span>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="btn blue" onclick="ping()">联通测试</button></div>
+    <pre id="chassisResult" class="pre"></pre>
+  </div>
+</section>
+<section class="card">
+  <div class="head">底盘信息</div>
+  <div class="body"><div id="telemetry" class="telemetry-grid"></div></div>
+</section>
+<section class="card" style="grid-column:1/-1">
+  <div class="head"><span>通信日志</span><span class="hint">固定高度，手动滚动；TX=发出，RX=传入</span></div>
+  <div class="body">
+    <div class="log-grid">
+      <div class="log-panel"><div class="log-title"><span>TX 发出</span><span id="txCount" class="muted">0</span></div><div id="txLog" class="log-list"></div></div>
+      <div class="log-panel"><div class="log-title"><span>RX 传入</span><span id="rxCount" class="muted">0</span></div><div id="rxLog" class="log-list"></div></div>
+    </div>
+  </div>
+</section>
+</main>
+<script>
+const preferredPort='COM17';
+let connectionState='idle';
+function $(id){return document.getElementById(id)}
+function api(url,opt={}){if(opt.body&&!opt.headers)opt.headers={'Content-Type':'application/json'};return fetch(url,opt).then(async r=>{const text=await r.text();try{return JSON.parse(text)}catch{return {success:false,error:text||r.statusText}}})}
+function setConnectionState(state,msg){connectionState=state;const pill=$('connPill');pill.className='status-pill';if(state==='connecting'){pill.classList.add('connecting');pill.textContent=msg||'连接中'}else if(state==='connected'){pill.classList.add('connected');pill.textContent=msg||'已连接'}else if(state==='error'){pill.classList.add('error');pill.textContent=msg||'连接失败'}else{pill.textContent=msg||'未连接'}const busy=state==='connecting';$('connectBtn').disabled=busy;$('disconnectBtn').disabled=busy;$('refreshBtn').disabled=busy;$('connectBtn').textContent=busy?'连接中…':(state==='connected'?'重新连接':'连接')}
+function showResult(obj){const el=$('chassisResult');el.textContent=typeof obj==='string'?obj:JSON.stringify(obj,null,2);el.classList.toggle('result-ok',!!obj.success);el.classList.toggle('result-bad',obj.success===false)}
+function selectPreferred(preferred){const select=$('portSelect');const preferredValue=String(preferred||preferredPort).toUpperCase();for(let i=0;i<select.options.length;i++){if(String(select.options[i].value).toUpperCase()===preferredValue){select.selectedIndex=i;return}}}
+function loadPorts(){return api('/api/chassis/ports').then(d=>{const ports=Array.isArray(d)?d:(d.ports||[]);const preferred=d.preferred||preferredPort;const current=$('portSelect').value;const options=ports.map(p=>`<option value="${p.port}">${p.port} · ${p.desc||''}</option>`);if(!ports.some(p=>String(p.port).toUpperCase()===String(preferred).toUpperCase()))options.unshift(`<option value="${preferred}">${preferred} · 默认端口</option>`);$('portSelect').innerHTML=options.join('');if(current&&Array.from($('portSelect').options).some(o=>o.value===current)){$('portSelect').value=current}else{selectPreferred(preferred)}})}
+function connect(){setConnectionState('connecting','连接中…');api('/api/chassis/connect',{method:'POST',body:JSON.stringify({port:$('portSelect').value||preferredPort,baud:+$('baud').value})}).then(d=>{showResult(d);if(d.success){setConnectionState('connected',`已连接 ${d.port}`)}else{setConnectionState('error','连接失败')}}).catch(e=>{showResult({success:false,error:String(e)});setConnectionState('error','连接失败')})}
+function disconnect(){setConnectionState('connecting','断开中…');api('/api/chassis/disconnect',{method:'POST'}).then(d=>{showResult(d);setConnectionState('idle','未连接')}).catch(e=>{showResult({success:false,error:String(e)});setConnectionState('error','断开失败')})}
+function speed(id){const v=Math.abs(parseInt($(id).value,10)||0);return Math.max(1,Math.min(32767,v))}
+function moveLinear(sign){move(sign*speed('linearStep'),0,0)}
+function turn(sign){move(0,0,sign*speed('turnStep'))}
+function move(vx,vy,vz){api('/api/chassis/move',{method:'POST',body:JSON.stringify({vx,vy,vz})}).then(showResult)}
+function stop(){api('/api/chassis/stop',{method:'POST'}).then(showResult)}
+function ping(){api('/api/chassis/ping',{method:'POST'}).then(showResult)}
+function telemetryItem(name,value){return `<div class="telemetry-item"><b>${name}</b><span>${value??'—'}</span></div>`}
+function renderTelemetry(d){const t=d.telemetry||{};$('telemetry').innerHTML=[telemetryItem('连接',d.connected?'是':'否'),telemetryItem('端口',d.port||'—'),telemetryItem('vx',t.vx),telemetryItem('vy',t.vy),telemetryItem('vz',t.vz),telemetryItem('电压',t.voltage),telemetryItem('加速度',`${t.accel_x??'—'}, ${t.accel_y??'—'}, ${t.accel_z??'—'}`),telemetryItem('陀螺仪',`${t.gyro_x??'—'}, ${t.gyro_y??'—'}, ${t.gyro_z??'—'}`)].join('');if(connectionState!=='connecting'){setConnectionState(d.connected?'connected':'idle',d.connected?`已连接 ${d.port||''}`:'未连接')}}
+function cmdName(cmd){return {0:'普通控制',1:'回充',2:'导航',3:'泊车'}[cmd]||`命令 ${cmd}`}
+function frameFields(entry,dir){if(dir==='tx'){return `<div class="fields"><div>cmd：${cmdName(entry.cmd)}</div><div>vx：${entry.vx??'—'}</div><div>vy：${entry.vy??'—'}</div><div>vz：${entry.vz??'—'}</div><div class="wide">说明：${entry.meaning||entry.reason||'原始发送'}</div></div>`}const data=entry.data||{};return `<div class="fields"><div>stop：${data.flag_stop??'—'}</div><div>电压：${data.voltage??'—'} V</div><div>vx：${data.vx??'—'}</div><div>vy：${data.vy??'—'}</div><div>vz：${data.vz??'—'}</div><div>含义：遥测反馈</div></div>`}
+function renderLog(id,items,dir){$(id+'Count').textContent=items.length;$(id+'Log').innerHTML=items.map(entry=>`<div class="frame ${dir}"><div class="frame-head"><span>${dir==='tx'?'发出':'传入'} · ${entry.ts||''}</span><span class="tag">${dir==='tx'?(entry.meaning||entry.reason||'控制帧'):'遥测帧'}</span></div><div class="hex">${entry.hex||''}</div>${frameFields(entry,dir)}</div>`).join('')||'<div class="hint">暂无日志</div>'}
+function status(){api('/api/chassis/status').then(renderTelemetry);api('/api/chassis/tx_log').then(tx=>renderLog('tx',tx,'tx'));api('/api/chassis/rx_log').then(rx=>renderLog('rx',rx,'rx'))}
+loadPorts();status();setInterval(status,1000);
+</script>
+</body>
+</html>

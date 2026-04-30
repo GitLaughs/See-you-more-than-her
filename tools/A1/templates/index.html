@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A1 Tool</title>
+<style>
+body{margin:0;background:#f3f6fb;color:#18324d;font:14px/1.5 "Segoe UI","Noto Sans SC",sans-serif}.top{padding:14px 18px;background:#fff;border-bottom:1px solid #d7e3f4;display:flex;justify-content:space-between}.shell{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px}.card{background:#fff;border:1px solid #d7e3f4;border-radius:14px;overflow:hidden}.head{padding:10px 12px;border-bottom:1px solid #d7e3f4;font-weight:800;color:#4c6d8d}.body{padding:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.row label{min-width:72px;color:#5f7894;font-weight:700}input,select,textarea{border:1px solid #d7e3f4;border-radius:8px;padding:8px}textarea{width:100%;min-height:120px;font-family:Consolas,monospace}.btn{border:1px solid #d7e3f4;border-radius:8px;padding:8px 12px;background:#fff;cursor:pointer;font-weight:700}.blue{background:#2f6fec;color:white;border-color:#2f6fec}.red{background:#df4b48;color:white;border-color:#df4b48}.green{background:#18a957;color:white;border-color:#18a957}.pre{background:#f7fbff;border:1px solid #d7e3f4;border-radius:10px;padding:10px;white-space:pre-wrap;min-height:90px}.log{height:260px;overflow:auto;background:#0d1726;color:#dce8f7;border-radius:10px;padding:10px;font:12px/1.5 Consolas,monospace;white-space:pre-wrap}.muted{color:#5f7894}@media(max-width:900px){.shell{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="top"><b>A1 Tool</b><span class="muted">COM13 → A1_TEST → STM32 · 6203</span></div>
+<main class="shell">
+<section class="card"><div class="head">COM13 / A1_TEST 会话</div><div class="body">
+  <div class="row"><label>端口</label><select id="portSelect"><option value="COM13">COM13</option></select><button class="btn" onclick="loadPorts()">刷新</button></div>
+  <div class="row"><label>波特率</label><input id="baud" type="number" value="115200"><button class="btn green" onclick="connect()">连接 COM13</button><button class="btn red" onclick="disconnect()">释放目标</button></div>
+  <pre id="statusResult" class="pre"></pre>
+</div></section>
+<section class="card"><div class="head">经 A1 中继控制</div><div class="body">
+  <div class="row"><button class="btn blue" onclick="ping()">底盘联通测试</button><button class="btn" onclick="move(200,0,0)">前进</button><button class="btn" onclick="move(-200,0,0)">后退</button><button class="btn" onclick="move(0,0,500)">左转</button><button class="btn" onclick="move(0,0,-500)">右转</button><button class="btn red" onclick="stop()">停止</button></div>
+  <pre id="relayResult" class="pre"></pre>
+</div></section>
+<section class="card"><div class="head">A1_TEST 手动命令</div><div class="body">
+  <div class="row"><button class="btn" onclick="quick('help')">help</button><button class="btn" onclick="quick('status')">status</button><button class="btn" onclick="test('debug_status')">debug_status</button><button class="btn" onclick="test('debug_frame')">debug_frame</button><button class="btn" onclick="test('debug_last')">debug_last</button></div>
+  <textarea id="manualInput" placeholder="输入 A1_TEST 命令或原始串口文本"></textarea>
+  <div class="row"><button class="btn blue" onclick="sendManual()">发送</button></div>
+</div></section>
+<section class="card"><div class="head">底盘信息 / 串口日志</div><div class="body"><pre id="logs" class="log"></pre></div></section>
+</main>
+<script>
+function api(url,opt={}){if(opt.body&&!opt.headers)opt.headers={'Content-Type':'application/json'};return fetch(url,opt).then(r=>r.json())}
+function show(id,obj){document.getElementById(id).textContent=typeof obj==='string'?obj:JSON.stringify(obj,null,2)}
+function loadPorts(){api('/api/a1/ports').then(d=>{const ports=d.ports||[];portSelect.innerHTML=ports.map(p=>`<option value="${p.port}">${p.port} · ${p.desc}</option>`).join('')||'<option value="COM13">COM13</option>'})}
+function connect(){api('/api/a1/connect',{method:'POST',body:JSON.stringify({port:portSelect.value,baud:+baud.value})}).then(d=>show('statusResult',d))}
+function disconnect(){api('/api/a1/disconnect',{method:'POST'}).then(d=>show('statusResult',d))}
+function status(){api('/api/a1/status').then(d=>show('statusResult',d));api('/api/a1/tx_log').then(tx=>api('/api/a1/rx_log').then(rx=>show('logs',{tx,rx})))}
+function ping(){api('/api/a1/ping',{method:'POST'}).then(d=>show('relayResult',d))}
+function move(vx,vy,vz){api('/api/a1/move',{method:'POST',body:JSON.stringify({vx,vy,vz})}).then(d=>show('relayResult',d))}
+function stop(){api('/api/a1/stop',{method:'POST'}).then(d=>show('relayResult',d))}
+function quick(command){manualInput.value='A1_TEST '+command;sendManual()}
+function test(command){api('/api/serial_term/send_test',{method:'POST',body:JSON.stringify({command,timeout_sec:2.5})}).then(d=>show('relayResult',d))}
+function sendManual(){const text=manualInput.value.trim();if(!text)return;api('/api/serial_term/send',{method:'POST',body:JSON.stringify({text,append_newline:true})}).then(d=>show('relayResult',d))}
+loadPorts();setInterval(status,1200);
+</script>
+</body>
+</html>

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+"""Direct PC -> STM32 chassis routes for PC tool."""
+
 """
-chassis_comm.py — WHEELTEC C50X STM32 底盘通信模块
+pc_chassis.py — WHEELTEC C50X STM32 底盘通信模块
 
 协议参考: WHEELTEC_C50X_2025.12.26 STM32 源码
   - data_task.h / data_task.c   → 发送帧定义 (24字节)
@@ -49,11 +51,6 @@ try:
 except ImportError:
     _SERIAL_AVAILABLE = False
 
-try:
-    import serial_terminal as shared_serial
-except ImportError:
-    from tools.aurora import serial_terminal as shared_serial
-
 # ─── 协议常量 ─────────────────────────────────────────────────────────────────
 FRAME_HEADER = 0x7B
 FRAME_TAIL   = 0x7D
@@ -64,8 +61,8 @@ CMD_DOCK     = 0x03
 
 TX_LEN = 11
 RX_LEN = 24
+DEFAULT_PORT = "COM17"
 _DIRECT_TRANSPORT = "direct_serial"
-_SHARED_TRANSPORT = "shared_com13"
 
 # ─── 全局串口状态 ─────────────────────────────────────────────────────────────
 _ser: Optional["serial.Serial"] = None  # type: ignore
@@ -106,6 +103,25 @@ def build_cmd(vx: int, vy: int, vz: int, cmd: int = CMD_NORMAL) -> bytes:
     return bytes(frame)
 
 
+def _describe_motion(vx: int, vy: int, vz: int) -> str:
+    if vx == 0 and vy == 0 and vz == 0:
+        return "停止"
+    parts = []
+    if vx > 0:
+        parts.append("前进")
+    elif vx < 0:
+        parts.append("后退")
+    if vy > 0:
+        parts.append("左移")
+    elif vy < 0:
+        parts.append("右移")
+    if vz > 0:
+        parts.append("左转")
+    elif vz < 0:
+        parts.append("右转")
+    return " + ".join(parts) or "普通控制"
+
+
 def parse_rx(data: bytes) -> Optional[dict]:
     if len(data) != RX_LEN:
         return None
@@ -142,22 +158,12 @@ def parse_rx(data: bytes) -> Optional[dict]:
     }
 
 
-def _is_shared_mode() -> bool:
-    return _transport_mode == _SHARED_TRANSPORT
-
-
-def _shared_snapshot() -> dict:
-    return shared_serial._serial_snapshot()  # type: ignore[attr-defined]
-
-
 def _direct_connected() -> bool:
     with _ser_lock:
         return _ser is not None and _ser.is_open
 
 
 def _current_port() -> Optional[str]:
-    if _is_shared_mode():
-        return shared_serial.current_port()
     with _ser_lock:
         if _ser is not None and _ser.is_open:
             return str(_ser.port)
@@ -165,36 +171,68 @@ def _current_port() -> Optional[str]:
 
 
 def _current_connected() -> bool:
-    if _is_shared_mode():
-        snapshot = _shared_snapshot()
-        return bool(snapshot.get("connected")) and shared_serial.is_shared_port(_connected_port)
     return _direct_connected()
 
 
-def _set_shared_backend(port: str, baud: int) -> dict:
-    global _transport_mode, _connected_port, _connected_baud, _running, _ser
-    result = shared_serial.ensure_connected_to(port, baud=baud)
-    if not result.get("success"):
-        return result
-    _running = False
-    with _ser_lock:
-        if _ser and _ser.is_open:
-            _ser.close()
-        _ser = None
-    _transport_mode = _SHARED_TRANSPORT
-    _connected_port = str(result.get("port") or port)
-    _connected_baud = int(result.get("baud") or baud)
-    return {"success": True, "port": _connected_port, "baud": _connected_baud, "transport": _SHARED_TRANSPORT}
+def _stop_entry(reason: str) -> dict:
+    return {
+        "hex": build_cmd(0, 0, 0).hex(" ").upper(),
+        "vx": 0,
+        "vy": 0,
+        "vz": 0,
+        "cmd": CMD_NORMAL,
+        "meaning": "停止",
+        "reason": reason,
+        "ts": time.strftime("%H:%M:%S"),
+    }
+
+
+def _write_stop_locked(reason: str) -> dict:
+    if _ser is None or not _ser.is_open:
+        return {"success": False, "error": "未连接串口"}
+    frame = build_cmd(0, 0, 0)
+    try:
+        _ser.write(frame)
+        _ser.flush()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    _tx_log.appendleft(_stop_entry(reason))
+    return {"success": True, "frame": frame.hex(" ").upper()}
 
 
 def _set_direct_backend(port: str, baud: int) -> dict:
     global _ser, _rx_thread, _running, _telemetry, _rx_seq, _transport_mode, _connected_port, _connected_baud
     with _ser_lock:
+        _running = False
         if _ser and _ser.is_open:
+            _write_stop_locked("切换端口前安全停车")
             _ser.close()
+        _ser = None
+        _connected_port = None
         try:
-            _ser = serial.Serial(port, baud, timeout=0.1)
+            next_ser = serial.Serial()
+            next_ser.port = port
+            next_ser.baudrate = baud
+            next_ser.timeout = 0.1
+            next_ser.write_timeout = 0.4
+            next_ser.dsrdtr = False
+            next_ser.rtscts = False
+            try:
+                next_ser.dtr = False
+                next_ser.rts = False
+            except Exception:
+                pass
+            next_ser.open()
+            _ser = next_ser
+            safe_stop = _write_stop_locked("连接后安全停车")
+            if not safe_stop.get("success"):
+                _ser.close()
+                _ser = None
+                return {"success": False, "error": f"串口已打开，但安全停车帧发送失败: {safe_stop.get('error')}"}
         except Exception as e:
+            if _ser and _ser.is_open:
+                _ser.close()
+            _ser = None
             return {"success": False, "error": str(e)}
     _running = True
     _telemetry = {}
@@ -202,24 +240,19 @@ def _set_direct_backend(port: str, baud: int) -> dict:
     _transport_mode = _DIRECT_TRANSPORT
     _connected_port = port
     _connected_baud = baud
-    _rx_thread = threading.Thread(target=_rx_worker, daemon=True, name="chassis-rx")
+    _rx_thread = threading.Thread(target=_rx_worker, daemon=True, name="pc-chassis-rx")
     _rx_thread.start()
-    return {"success": True, "port": port, "baud": baud, "transport": _DIRECT_TRANSPORT}
+    return {"success": True, "port": port, "baud": baud, "transport": _DIRECT_TRANSPORT, "safe_stop_sent": True}
 
 
 def _write_payload(payload: bytes, tx_entry: dict) -> dict:
-    if _is_shared_mode():
-        result = shared_serial.send_raw_payload(payload)
-        if not result.get("success"):
-            return result
-    else:
-        with _ser_lock:
-            if _ser is None or not _ser.is_open:
-                return {"success": False, "error": "未连接串口"}
-            try:
-                _ser.write(payload)
-            except Exception as e:
-                return {"success": False, "error": str(e)}
+    with _ser_lock:
+        if _ser is None or not _ser.is_open:
+            return {"success": False, "error": "未连接串口"}
+        try:
+            _ser.write(payload)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
     _tx_log.appendleft(tx_entry)
     return {"success": True}
 
@@ -275,12 +308,12 @@ def available():
 @chassis_bp.route("/ports")
 def list_ports():
     if not _SERIAL_AVAILABLE:
-        return jsonify([])
+        return jsonify({"preferred": DEFAULT_PORT, "ports": []})
     ports = [
         {"port": p.device, "desc": p.description, "hwid": p.hwid}
         for p in serial.tools.list_ports.comports()
     ]
-    return jsonify(ports)
+    return jsonify({"preferred": DEFAULT_PORT, "ports": ports})
 
 
 @chassis_bp.route("/connect", methods=["POST"])
@@ -297,12 +330,9 @@ def connect():
 
     _telemetry = {}
     _rx_seq = 0
-    if shared_serial.is_shared_port(port):
-        result = _set_shared_backend(port, baud)
-    else:
-        result = _set_direct_backend(port, baud)
+    result = _set_direct_backend(port, baud)
     if result.get("success"):
-        print(f"[CHASSIS] 已连接 {result['port']} @ {result['baud']} ({result['transport']})")
+        print(f"[PC] 已连接 {result['port']} @ {result['baud']} ({result['transport']})")
     return jsonify(result)
 
 
@@ -311,19 +341,16 @@ def disconnect():
     global _ser, _running, _telemetry, _rx_seq, _transport_mode, _connected_port
     _telemetry = {}
     _rx_seq = 0
-    if _is_shared_mode():
-        _transport_mode = _DIRECT_TRANSPORT
-        _connected_port = None
-        print("[CHASSIS] 已断开逻辑共享通道")
-        return jsonify({"success": True, "transport": _SHARED_TRANSPORT, "shared_owner": "serial_terminal"})
     _running = False
+    stop_result = None
     with _ser_lock:
         if _ser and _ser.is_open:
+            stop_result = _write_stop_locked("断开前安全停车")
             _ser.close()
         _ser = None
     _connected_port = None
-    print("[CHASSIS] 已断开")
-    return jsonify({"success": True, "transport": _DIRECT_TRANSPORT})
+    print("[PC] 已断开")
+    return jsonify({"success": True, "transport": _DIRECT_TRANSPORT, "safe_stop": stop_result})
 
 
 @chassis_bp.route("/status")
@@ -348,6 +375,7 @@ def move():
     tx_entry = {
         "hex": frame.hex(" ").upper(),
         "vx": vx, "vy": vy, "vz": vz, "cmd": cmd,
+        "meaning": _describe_motion(vx, vy, vz),
         "ts": time.strftime("%H:%M:%S"),
     }
     result = _write_payload(frame, tx_entry)
@@ -359,11 +387,7 @@ def move():
 @chassis_bp.route("/stop", methods=["POST"])
 def stop():
     frame = build_cmd(0, 0, 0)
-    tx_entry = {
-        "hex": frame.hex(" ").upper(),
-        "vx": 0, "vy": 0, "vz": 0, "cmd": 0,
-        "ts": time.strftime("%H:%M:%S"),
-    }
+    tx_entry = _stop_entry("手动停止")
     result = _write_payload(frame, tx_entry)
     if not result.get("success"):
         return jsonify(result)
@@ -404,24 +428,9 @@ def raw_send():
 def ping():
     import time as _time
     global _rx_seq
-    if _is_shared_mode():
-        snapshot = _shared_snapshot()
-        connected = bool(snapshot.get("connected")) and shared_serial.is_shared_port(_connected_port)
-        return jsonify({
-            "success": True,
-            "connected": connected,
-            "frame_tx": None,
-            "transport": _SHARED_TRANSPORT,
-            "note": "共享 COM13/A1_TEST 通道不提供直连 STM32 遥测 ping，请使用 relay debug_status。",
-        })
-
     frame = build_cmd(0, 0, 0)
     rx_seq_before = _rx_seq
-    tx_entry = {
-        "hex": frame.hex(" ").upper(),
-        "vx": 0, "vy": 0, "vz": 0, "cmd": 0,
-        "ts": _time.strftime("%H:%M:%S"),
-    }
+    tx_entry = _stop_entry("联通测试")
     result = _write_payload(frame, tx_entry)
     if not result.get("success"):
         return jsonify(result)
