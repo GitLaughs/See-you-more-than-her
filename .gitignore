@@ -34,6 +34,7 @@ tools/aurora/.a1_detect_model
 tools/testgpio/__pycache__/
 tools/testgpio/logs/
 third_party/ultralytics
+demo-rps
 models
 CLIProxyAPI_6.9.40_windows_amd64
 .worktrees/

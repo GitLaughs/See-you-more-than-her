@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import mimetypes
 import time
@@ -44,6 +45,16 @@ class ExtractResult:
     saved_count: int
     output_images_dir: str
     output_labels_dir: str
+
+
+@dataclass(frozen=True)
+class PreviewResult:
+    video_path: str
+    source_width: int
+    source_height: int
+    preview_width: int
+    preview_height: int
+    image_data_url: str
 
 
 def repo_root() -> Path:
@@ -94,6 +105,39 @@ def validate_config(config: ExtractConfig, source_width: int, source_height: int
             f"ROI ({config.x1}, {config.y1}, {config.x2}, {config.y2}) "
             f"exceeds source size {source_width}x{source_height}"
         )
+
+
+def open_first_frame(video_path: Path):
+    if not video_path.exists():
+        raise FileNotFoundError(f"video not found: {video_path}")
+    capture = cv2.VideoCapture(str(video_path))
+    if not capture.isOpened():
+        raise RuntimeError(f"failed to open video: {video_path}")
+    try:
+        ok, frame = capture.read()
+        if not ok or frame is None:
+            raise RuntimeError(f"failed to read first frame: {video_path}")
+        source_height, source_width = frame.shape[:2]
+        return frame, source_width, source_height
+    finally:
+        capture.release()
+
+
+def load_preview(video_path: Path) -> PreviewResult:
+    frame, source_width, source_height = open_first_frame(video_path)
+    resized = cv2.resize(frame, (OUTPUT_WIDTH, OUTPUT_HEIGHT), interpolation=cv2.INTER_LINEAR)
+    ok, encoded = cv2.imencode(".jpg", resized, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+    if not ok:
+        raise RuntimeError("failed to encode preview frame")
+    image_b64 = base64.b64encode(encoded.tobytes()).decode("ascii")
+    return PreviewResult(
+        video_path=str(video_path),
+        source_width=source_width,
+        source_height=source_height,
+        preview_width=OUTPUT_WIDTH,
+        preview_height=OUTPUT_HEIGHT,
+        image_data_url=f"data:image/jpeg;base64,{image_b64}",
+    )
 
 
 def extract_frames(config: ExtractConfig) -> ExtractResult:
@@ -158,12 +202,15 @@ HTML = """<!doctype html>
 <meta charset="utf-8">
 <title>Video ROI YOLO Dataset Tool</title>
 <style>
-body { font-family: system-ui, sans-serif; max-width: 920px; margin: 32px auto; line-height: 1.5; }
+body { font-family: system-ui, sans-serif; max-width: 980px; margin: 32px auto; line-height: 1.5; }
 label { display: block; margin-top: 12px; font-weight: 600; }
 input { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px; }
 .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 button { margin-top: 20px; padding: 10px 16px; }
 pre { background: #111; color: #eee; padding: 12px; overflow: auto; }
+.preview-wrap { margin-top: 16px; }
+canvas { border: 2px solid #334155; max-width: 100%; cursor: crosshair; background: #0f172a; }
+.hint { color: #475569; font-size: 14px; }
 </style>
 </head>
 <body>
@@ -171,6 +218,12 @@ pre { background: #111; color: #eee; padding: 12px; overflow: auto; }
 <p>输出固定 640×480，图片写入 tools/yolo/raw/images，标签写入 tools/yolo/raw/labels。</p>
 <form id="form">
 <label>视频路径<input name="video_path" value="video.mp4"></label>
+<button type="button" id="loadPreview">加载第一帧</button>
+<button type="button" id="enableDraw">启用鼠标拖框</button>
+<p class="hint" id="videoInfo">未加载视频。加载后可拖动鼠标画框，坐标会自动回填为原始视频坐标。</p>
+<div class="preview-wrap">
+  <canvas id="preview" width="640" height="480"></canvas>
+</div>
 <div class="grid">
 <label>类别名<input name="class_name" value="person"></label>
 <label>类别 ID<input name="class_id" type="number" value="0"></label>
@@ -188,11 +241,105 @@ pre { background: #111; color: #eee; padding: 12px; overflow: auto; }
 <h2>结果</h2>
 <pre id="result">等待操作</pre>
 <script>
-document.getElementById('form').addEventListener('submit', async (event) => {
+const form = document.getElementById('form');
+const canvas = document.getElementById('preview');
+const ctx = canvas.getContext('2d');
+const result = document.getElementById('result');
+const videoInfo = document.getElementById('videoInfo');
+const image = new Image();
+let sourceWidth = 640;
+let sourceHeight = 480;
+let drawingEnabled = false;
+let dragging = false;
+let start = null;
+
+function field(name) { return form.elements[name]; }
+function previewToSourceX(x) { return Math.round(x * sourceWidth / canvas.width); }
+function previewToSourceY(y) { return Math.round(y * sourceHeight / canvas.height); }
+function sourceToPreviewX(x) { return x * canvas.width / sourceWidth; }
+function sourceToPreviewY(y) { return y * canvas.height / sourceHeight; }
+
+function drawCanvas() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (image.complete && image.src) ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const x1 = Number(field('x1').value || 0);
+  const y1 = Number(field('y1').value || 0);
+  const x2 = Number(field('x2').value || 0);
+  const y2 = Number(field('y2').value || 0);
+  if (x2 > x1 && y2 > y1) {
+    const px1 = sourceToPreviewX(x1);
+    const py1 = sourceToPreviewY(y1);
+    const px2 = sourceToPreviewX(x2);
+    const py2 = sourceToPreviewY(y2);
+    ctx.strokeStyle = '#22c55e';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(px1, py1, px2 - px1, py2 - py1);
+    ctx.fillStyle = 'rgba(34, 197, 94, 0.18)';
+    ctx.fillRect(px1, py1, px2 - px1, py2 - py1);
+  }
+}
+
+function canvasPoint(event) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(canvas.width, (event.clientX - rect.left) * canvas.width / rect.width)),
+    y: Math.max(0, Math.min(canvas.height, (event.clientY - rect.top) * canvas.height / rect.height))
+  };
+}
+
+async function loadPreview() {
+  result.textContent = '加载第一帧...';
+  const response = await fetch('/api/preview', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({video_path: field('video_path').value})
+  });
+  const payload = await response.json();
+  if (!payload.ok) {
+    result.textContent = JSON.stringify(payload, null, 2);
+    return;
+  }
+  const info = payload.result;
+  sourceWidth = info.source_width;
+  sourceHeight = info.source_height;
+  videoInfo.textContent = `源视频 ${sourceWidth}×${sourceHeight}，预览 ${info.preview_width}×${info.preview_height}。`;
+  image.onload = drawCanvas;
+  image.src = info.image_data_url;
+  result.textContent = JSON.stringify(payload, null, 2);
+}
+
+document.getElementById('loadPreview').addEventListener('click', loadPreview);
+document.getElementById('enableDraw').addEventListener('click', () => {
+  drawingEnabled = !drawingEnabled;
+  document.getElementById('enableDraw').textContent = drawingEnabled ? '拖框已启用' : '启用鼠标拖框';
+});
+
+canvas.addEventListener('mousedown', (event) => {
+  if (!drawingEnabled) return;
+  dragging = true;
+  start = canvasPoint(event);
+});
+canvas.addEventListener('mousemove', (event) => {
+  if (!dragging || !start) return;
+  const end = canvasPoint(event);
+  const x1 = Math.min(start.x, end.x);
+  const y1 = Math.min(start.y, end.y);
+  const x2 = Math.max(start.x, end.x);
+  const y2 = Math.max(start.y, end.y);
+  field('x1').value = previewToSourceX(x1);
+  field('y1').value = previewToSourceY(y1);
+  field('x2').value = previewToSourceX(x2);
+  field('y2').value = previewToSourceY(y2);
+  drawCanvas();
+});
+canvas.addEventListener('mouseup', () => { dragging = false; start = null; });
+canvas.addEventListener('mouseleave', () => { dragging = false; start = null; });
+for (const name of ['x1', 'y1', 'x2', 'y2']) field(name).addEventListener('input', drawCanvas);
+
+form.addEventListener('submit', async (event) => {
   event.preventDefault();
-  const result = document.getElementById('result');
   result.textContent = '处理中...';
-  const data = Object.fromEntries(new FormData(event.target).entries());
+  const data = Object.fromEntries(new FormData(form).entries());
   const response = await fetch('/api/extract', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -201,6 +348,8 @@ document.getElementById('form').addEventListener('submit', async (event) => {
   const payload = await response.json();
   result.textContent = JSON.stringify(payload, null, 2);
 });
+
+drawCanvas();
 </script>
 </body>
 </html>
@@ -230,27 +379,31 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if path != "/api/extract":
-            self.send_error(404)
-            return
         try:
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            config = ExtractConfig(
-                video_path=resolve_repo_path(payload["video_path"]),
-                output_images_dir=repo_root() / "tools/yolo/raw/images",
-                output_labels_dir=repo_root() / "tools/yolo/raw/labels",
-                class_name=str(payload["class_name"]),
-                class_id=int(payload["class_id"]),
-                x1=int(payload["x1"]),
-                y1=int(payload["y1"]),
-                x2=int(payload["x2"]),
-                y2=int(payload["y2"]),
-                frame_step=int(payload["frame_step"]),
-                output_prefix=payload.get("output_prefix", "video"),
-            )
-            result = extract_frames(config)
-            self.send_json(200, {"ok": True, "result": asdict(result)})
+            if path == "/api/preview":
+                preview = load_preview(resolve_repo_path(payload["video_path"]))
+                self.send_json(200, {"ok": True, "result": asdict(preview)})
+                return
+            if path == "/api/extract":
+                config = ExtractConfig(
+                    video_path=resolve_repo_path(payload["video_path"]),
+                    output_images_dir=repo_root() / "tools/yolo/raw/images",
+                    output_labels_dir=repo_root() / "tools/yolo/raw/labels",
+                    class_name=str(payload["class_name"]),
+                    class_id=int(payload["class_id"]),
+                    x1=int(payload["x1"]),
+                    y1=int(payload["y1"]),
+                    x2=int(payload["x2"]),
+                    y2=int(payload["y2"]),
+                    frame_step=int(payload["frame_step"]),
+                    output_prefix=payload.get("output_prefix", "video"),
+                )
+                result = extract_frames(config)
+                self.send_json(200, {"ok": True, "result": asdict(result)})
+                return
+            self.send_error(404)
         except Exception as exc:
             self.send_json(400, {"ok": False, "error": str(exc)})
 
