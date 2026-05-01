@@ -24,6 +24,10 @@ namespace cfg {
 constexpr int SENSOR_WIDTH  = 720;
 constexpr int SENSOR_HEIGHT = 1280;
 
+// ─── OSD 显示画布 ────────────────────────────────────────────────────────────
+constexpr int OSD_WIDTH  = 1920;
+constexpr int OSD_HEIGHT = 1080;
+
 // ─── 在线裁剪区域 ────────────────────────────────────────────────────────────
 constexpr int PIPE_CROP_X1 = 0;
 constexpr int PIPE_CROP_X2 = 720;
