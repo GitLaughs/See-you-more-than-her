@@ -9,16 +9,27 @@
 #include <iostream>
 #include <unistd.h>
 
+/**
+ * @brief 图像处理器初始化函数
+ * @param in_img_shape 输入图像尺寸 [宽度, 高度]
+ * @param in_scale Binning降采样倍数（保留参数以兼容接口，但不使用）
+ */
+// void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape,
+//   BinningRatioType in_scale) {
 void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
 {
-    img_shape = *in_img_shape;
+    img_shape = *in_img_shape;      // 保存原始图像尺寸
 
-    uint16_t img_width = static_cast<uint16_t>(img_shape[0]);
-    uint16_t img_height = static_cast<uint16_t>(img_shape[1]);
-    format_online = SSNE_YUV422_16;
+    // 在线图像配置参数
+    uint16_t img_width = static_cast<uint16_t>(img_shape[0]);   // 原始图像宽度 1920
+    uint16_t img_height = static_cast<uint16_t>(img_shape[1]);  // 原始图像高度 1080
+    format_online = SSNE_YUV422_16;              // 图像格式：YUV422 16位（YuNet三通道模型）
 
-    OnlineSetOutputImage(kPipeline0, format_online, img_width, img_height);
+    // pipe0设置：用于获取原图（分类任务需要在离线预处理管道中裁剪指定区域）
+    // 输出原图尺寸1920×1080，不做在线裁剪
+    OnlineSetOutputImage(kPipeline0, format_online, img_width, img_height);  // 输出原图尺寸
 
+    // 打开pipe0（裁剪图像通道）
     int res0 = OpenOnlinePipeline(kPipeline0);
     if (res0 != 0) {
         printf("[ERROR] Failed to open online pipeline!\n");
@@ -28,16 +39,28 @@ void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
     printf("[INFO] open online pipe0: %d \n", res0);
 }
 
+/**
+ * @brief 从pipeline获取图像数据（裁剪图）
+ * @param img_sensor 输出参数：存储从pipe0获取的裁剪图像（720×540）
+ */
 void IMAGEPROCESSOR::GetImage(ssne_tensor_t* img_sensor) {
-    int capture_code = GetImageData(img_sensor, kPipeline0, kSensor0, 0);
+    int capture_code = -1;  // pipe0采集返回码
+
+    // 从pipe0获取裁剪后的图像数据
+    capture_code = GetImageData(img_sensor, kPipeline0, kSensor0, 0);
+
+    // 检查pipe0采集是否成功
     if (capture_code != 0)
     {
         printf("[IMAGEPROCESSOR] Get Invalid Image from kPipeline0!\n");
     }
 }
 
+/**
+ * @brief 释放图像处理器资源，关闭pipeline
+ */
 void IMAGEPROCESSOR::Release()
 {
-    CloseOnlinePipeline(kPipeline0);
+    CloseOnlinePipeline(kPipeline0);  // 关闭pipe0（裁剪图像通道）
     printf("[INFO] OnlinePipe closed!\n");
 }

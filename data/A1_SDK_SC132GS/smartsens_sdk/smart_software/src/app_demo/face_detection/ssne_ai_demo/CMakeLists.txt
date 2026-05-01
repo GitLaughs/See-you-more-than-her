@@ -11,7 +11,7 @@ add_compile_options(-Wno-psabi)
 
 # add_executable(ssne_ai_demo ${PROJECT_SOURCE_DIR}/online_ped_osd_thread.cpp)
 # add_executable(ssne_ai_demo ${PROJECT_SOURCE_DIR}/online_ped_osd.cpp)
-add_executable(ssne_ai_demo ${PROJECT_SOURCE_DIR}/demo_face.cpp)
+add_executable(ssne_ai_demo ${PROJECT_SOURCE_DIR}/demo_rps_game.cpp)
 # add_executable(ssne_ai_demo ${PROJECT_SOURCE_DIR}/test_isp_debug.cpp)
 
 # 添加头文件目录
@@ -29,9 +29,8 @@ set(SSNE_AI_DEMO_SOURCES
     "${CMAKE_SOURCE_DIR}/${SRC_DIR}/chassis_controller.cpp"
     "${CMAKE_SOURCE_DIR}/${SRC_DIR}/osd-device.cpp"
     "${CMAKE_SOURCE_DIR}/${SRC_DIR}/pipeline_image.cpp"
-    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/scrfd_gray.cpp"
+    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/rps_classifier.cpp"
     "${CMAKE_SOURCE_DIR}/${SRC_DIR}/utils.cpp"
-    "${CMAKE_SOURCE_DIR}/${SRC_DIR}/yolov8_gray.cpp"
 )
 target_sources(ssne_ai_demo PRIVATE ${SSNE_AI_DEMO_SOURCES})
 

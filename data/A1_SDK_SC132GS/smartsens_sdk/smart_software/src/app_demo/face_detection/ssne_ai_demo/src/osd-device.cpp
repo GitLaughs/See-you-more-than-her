@@ -72,10 +72,12 @@ void OsdDevice::Initialize(int width, int height, const char* bitmap_lut_path){
         osd_set_layer_buffer(m_osd_handle, (ssLAYER_HANDLE)layer_index, m_layer_dma[layer_index]);
     }
 
-    for (int layer_index = 2; layer_index < OSD_LAYER_SIZE; ++layer_index) {
+    // init image layer (TYPE_IMAGE) for layers 2-4 (bitmap layers)
+    for (int layer_index = 2; layer_index < 5; layer_index++) {
+        // DMA size for texture layer: 1920*1080 bytes (full HD resolution)
         int texture_dma_size = 0x20000;
         osd_alloc_buffer(m_osd_handle, m_layer_dma[layer_index].dma, texture_dma_size);
-        usleep(250000);
+        sleep(0.25);  // 等待DMA分配完成
         osd_alloc_buffer(m_osd_handle, m_layer_dma[layer_index].dma_2, texture_dma_size);
         int dma_fd = osd_get_buffer_fd(m_osd_handle, m_layer_dma[layer_index].dma);
 
@@ -220,6 +222,7 @@ int OsdDevice::LoadLutFile(const char* filename){
     }
 
     file.close();
+
     std::cout << "[OsdDevice] Successfully loaded LUT file: " << filename
               << ", size: " << m_file_size << " bytes" << std::endl;
     return 0;
@@ -290,13 +293,6 @@ void OsdDevice::Draw(std::vector<std::array<float, 4>>& boxes, int border, int l
  * @note LUT应该在初始化时加载，osd_init_device必须在创建图层前调用
  *       如果在绘制时重新初始化，会破坏已创建的图层
  */
-void OsdDevice::ClearLayer(int layer_id) {
-    if (layer_id < 0 || layer_id >= OSD_LAYER_SIZE) {
-        return;
-    }
-    osd_clean_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
-}
-
 void OsdDevice::DrawTexture(const char* bitmap_path, const char* lut_path, int layer_id, int pos_x, int pos_y, fdevice::ALPHATYPE alpha) {
     // 注意：LUT已经在Initialize时加载，这里不再重新初始化设备
     // lut_path参数保留用于日志记录，但不会重新加载LUT
@@ -316,12 +312,9 @@ void OsdDevice::DrawTexture(const char* bitmap_path, const char* lut_path, int l
     LOG_DEBUG("[OsdDevice] Bitmap file path: %s\n", bitmap_path ? bitmap_path : "NULL");
     LOG_DEBUG("[OsdDevice] Bitmap position: %d,%d\n", bm_info.position.x, bm_info.position.y);
     LOG_DEBUG("[OsdDevice] Bitmap alpha: %d\n", (int)bm_info.alpha);
+
     // 添加位图到指定图层
     //std::cout << "[OsdDevice] Calling osd_add_texture_layer for layer_id=" << layer_id << std::endl;
-    std::cout << "[OsdDevice] DrawTexture bitmap=" << (bitmap_path ? bitmap_path : "NULL")
-              << " lut=" << (lut_path ? lut_path : "")
-              << " layer=" << layer_id
-              << " pos=(" << pos_x << "," << pos_y << ")" << std::endl;
     int ret = osd_add_texture_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id, &bm_info);
     if (ret != 0) {
         std::cerr << "[OsdDevice] ERROR: osd_add_texture_layer failed! ret=" << ret
@@ -337,7 +330,11 @@ void OsdDevice::DrawTexture(const char* bitmap_path, const char* lut_path, int l
         }
         return;
     }
-    std::cout << "[OsdDevice] osd_add_texture_layer succeeded layer=" << layer_id << std::endl;
+    LOG_DEBUG("[OsdDevice] osd_add_texture_layer succeeded\n");
+
+    // 刷新位图数据到设备
+    //std::cout << "[OsdDevice] Before flush: checking layer " << layer_id << " status" << std::endl;
+    //std::cout << "[OsdDevice] Calling osd_flush_texture_layer for layer_id=" << layer_id << std::endl;
     ret = osd_flush_texture_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
     if (ret != 0) {
         std::cerr << "[OsdDevice] ERROR: osd_flush_texture_layer failed! ret=" << ret
@@ -349,7 +346,7 @@ void OsdDevice::DrawTexture(const char* bitmap_path, const char* lut_path, int l
         std::cerr << "[OsdDevice]   4. Layer " << layer_id << " region object encoding failed" << std::endl;
         std::cerr << "[OsdDevice]   5. Layer " << layer_id << " not enabled" << std::endl;
     } else {
-        std::cout << "[OsdDevice] osd_flush_texture_layer succeeded layer=" << layer_id << std::endl;
+        LOG_DEBUG("[OsdDevice] Texture drawn successfully\n");
     }
 }
 

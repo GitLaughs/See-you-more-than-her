@@ -10,18 +10,6 @@
 #include "osd-device.hpp"
 #include <algorithm>
 
-namespace utils {
-  // 人脸检测模型所需的函数
-  /* 合并两段结果 */
-  void Merge(FaceDetectionResult* result, size_t low, size_t mid, size_t high);
-  /* 归并排序算法 */
-  void MergeSort(FaceDetectionResult* result, size_t low, size_t high);
-  /* 对检测结果进行排序 */
-  void SortDetectionResult(FaceDetectionResult* result);
-  /* 非极大值抑制 */
-  void NMS(FaceDetectionResult* result, float iou_threshold, int top_k);
-} // namespace utils
-
 class VISUALIZER {
   public:
     void Initialize(std::array<int, 2>& in_img_shape, const std::string& bitmap_lut_path = "");
@@ -51,8 +39,12 @@ class VISUALIZER {
      */
     void DrawBitmap(const std::string& bitmap_path, const std::string& lut_path = "",
                     int pos_x = 0, int pos_y = 0, int layer_id = 2);
-    void ClearLayer(int layer_id);
-
+    /**
+     * @brief 清空指定OSD图层内容
+     * @param layer_id 要清空的图层ID
+     * @description 清空指定图层上的所有绘制内容，但保留图层本身
+     */
+    void ClearLayer(int layer_id = 2);
   private:
     // OSD设备实例
     sst::device::osd::OsdDevice osd_device;

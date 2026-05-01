@@ -9,8 +9,7 @@
 #include <iostream>
 #include <fstream>
 #include <iomanip>
-#include "log.hpp"
-
+#include <cstdio>
 
 /**
  * @brief OSD可视化器初始化函数
@@ -21,7 +20,6 @@ void VISUALIZER::Initialize(std::array<int, 2>& in_img_shape, const std::string&
     // 初始化OSD设备，配置图像宽度和高度
     m_width = in_img_shape[0];
     m_height = in_img_shape[1];
-
     // 如果提供了位图LUT路径，在初始化时加载
     // 位图LUT和默认LUT都在app_assets目录下，使用相同的路径格式
     // 注意：需要将完整路径保存为成员变量，确保生命周期
@@ -30,11 +28,6 @@ void VISUALIZER::Initialize(std::array<int, 2>& in_img_shape, const std::string&
         m_bitmap_lut_path_full = "/app_demo/app_assets/" + bitmap_lut_path;
         lut_path = m_bitmap_lut_path_full.c_str();
     }
-    std::cout << "[VISUALIZER] Initialize OSD " << m_width << "x" << m_height;
-    if (lut_path != nullptr) {
-        std::cout << " lut=" << lut_path;
-    }
-    std::cout << std::endl;
     osd_device.Initialize(m_width, m_height, lut_path);
 }
 
@@ -81,24 +74,20 @@ void VISUALIZER::Draw(const std::vector<std::array<float, 4>>& boxes) {
         int xmax = static_cast<int>(boxes[i][2]);  // 右下角x坐标
         int ymax = static_cast<int>(boxes[i][3]);  // 右下角y坐标
 
-        q.box = {static_cast<float>(xmin), static_cast<float>(ymin),
-                 static_cast<float>(xmax), static_cast<float>(ymax)};  // 设置矩形框坐标
+        q.box = {xmin, ymin, xmax, ymax};  // 设置矩形框坐标
 
         // 设置矩形框样式参数
-        q.color = 1;                         // 颜色索引1（不同于测试框）
+        q.color = 2;                         // 颜色索引1（不同于测试框）
         q.border = 3;                        // 边框宽度3像素
         q.alpha = fdevice::TYPE_ALPHA75;     // 透明度75%
         q.type = fdevice::TYPE_HOLLOW;       // 空心矩形
         q.layer_id = DETECTION_LAYER_ID;     // 使用layer 0，避免影响固定正方形的layer 1
-
         quad_rangle_vec.emplace_back(q);     // 添加到矩形框向量
     }
-
     // 调用OSD设备绘制所有矩形框到指定图层（layer 0）
     // 使用指定图层版本，避免清除所有图层（包括layer 1的固定正方形）
     osd_device.Draw(quad_rangle_vec, DETECTION_LAYER_ID);
 }
-
 /**
  * @brief 绘制固定实心正方形
  * @param x_min 左上角X坐标（绝对坐标，左上角为原点）
@@ -114,23 +103,19 @@ void VISUALIZER::DrawFixedSquare(int x_min, int y_min, int x_max, int y_max, int
     int abs_y_min = y_min;
     int abs_x_max = x_max;
     int abs_y_max = y_max;
-
     if (abs_x_min > abs_x_max) std::swap(abs_x_min, abs_x_max);
     if (abs_y_min > abs_y_max) std::swap(abs_y_min, abs_y_max);
-
     // 确保坐标在画面范围内
     abs_x_min = std::max(0, std::min(abs_x_min, m_width - 1));
     abs_y_min = std::max(0, std::min(abs_y_min, m_height - 1));
     abs_x_max = std::max(0, std::min(abs_x_max, m_width - 1));
     abs_y_max = std::max(0, std::min(abs_y_max, m_height - 1));
-
     // 创建正方形框
     std::vector<std::array<float, 4>> square_box;
     square_box.push_back({static_cast<float>(abs_x_min),
                          static_cast<float>(abs_y_min),
                          static_cast<float>(abs_x_max),
                          static_cast<float>(abs_y_max)});
-
     // 使用指定的layer_id绘制正方形
     osd_device.Draw(square_box,
                     0,                              // 边框宽度0（实心矩形不需要边框）
@@ -138,11 +123,9 @@ void VISUALIZER::DrawFixedSquare(int x_min, int y_min, int x_max, int y_max, int
                     fdevice::TYPE_SOLID,            // 实心矩形
                     fdevice::TYPE_ALPHA100,        // 完全不透明
                     2);                             // 颜色索引2（可根据需要修改）
-
     std::cout << "[VISUALIZER] Fixed square drawn: (" << abs_x_min << ", " << abs_y_min
               << ") to (" << abs_x_max << ", " << abs_y_max << "), layer_id=" << layer_id << std::endl;
 }
-
 /**
  * @brief 绘制位图
  * @param bitmap_path 位图文件路径（相对于app_assets目录）
@@ -156,26 +139,30 @@ void VISUALIZER::DrawBitmap(const std::string& bitmap_path, const std::string& l
                             int pos_x, int pos_y, int layer_id) {
     // 构建完整路径
     std::string full_bitmap_path = "/app_demo/app_assets/" + bitmap_path;
-
     // 构建LUT完整路径（如果提供了）
     // 注意：LUT在初始化时已加载，这里只是用于日志记录
     const char* full_lut_path = nullptr;
-    std::string lut_full_path;
+    /*std::string lut_full_path;
     if (!lut_path.empty()) {
         lut_full_path = "/app_demo/app_assets/" + lut_path;
         full_lut_path = lut_full_path.c_str();
     }
-
-    std::cout << "[VISUALIZER] DrawBitmap bitmap=" << full_bitmap_path
-              << " lut=" << (full_lut_path ? full_lut_path : "")
-              << " pos=(" << pos_x << "," << pos_y << ")"
-              << " layer=" << layer_id << std::endl;
-
+    std::cout << "[VISUALIZER] Drawing bitmap: " << full_bitmap_path
+              << " at position (" << pos_x << ", " << pos_y
+              << "), layer_id=" << layer_id << std::endl;*/
+    // 调用OSD设备绘制位图（传入绝对坐标）
+    //osd_device.DrawTexture(full_bitmap_path.c_str(), full_lut_path, layer_id, pos_x, pos_y);
     osd_device.DrawTexture(full_bitmap_path.c_str(), full_lut_path, layer_id, pos_x, pos_y);
 }
 
+/**
+ * @brief 清空指定OSD图层内容
+ * @param layer_id 要清空的图层ID
+ * @description 清空指定图层上的所有绘制内容，但保留图层本身
+ */
 void VISUALIZER::ClearLayer(int layer_id) {
-    osd_device.ClearLayer(layer_id);
+    std::vector<std::array<float, 4>> empty;
+    osd_device.Draw(empty, 0, layer_id, fdevice::TYPE_SOLID, fdevice::TYPE_ALPHA100, 0);
 }
 
 /**
