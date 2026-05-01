@@ -188,3 +188,10 @@ Many Windows tool bugs are really confusion between these two paths.
 - `docs/13_贡献指南.md` is useful when touching repo-level structure or workflow.
 - Do not treat `output/` as source of truth.
 - `build_complete_evb.sh --app-only` assumes SDK build cache already exists from at least one prior full build.
+
+## Board OSD interaction guidance
+
+- RPS OSD pattern: use `.ssbmp` assets in `app_assets/`, draw via `VISUALIZER::DrawBitmap`, keep background on layer 2, transient state/animation on layers 3/4, clear transient layers on state changes.
+- Product OSD states planned: person -> hello bubble; forward gesture -> car-forward animation; stop gesture -> car-stop animation; obstacle -> avoidance alert + detour animation.
+- OSD asset sizing suggestion: status bubbles ~360x120, car action animations ~320x180, obstacle alerts ~480x160, detour animations ~480x270; design for 640x480 semantic input but place with board OSD absolute coordinates.
+- Keep training/inference semantics separate from OSD pixels: YOLO input stays 640x480, OSD bitmap positions/sizes follow display layer coordinates.

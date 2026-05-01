@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="160" viewBox="0 0 480 160">
+  <rect x="8" y="8" width="464" height="144" rx="28" fill="#451a03" opacity="0.92"/>
+  <path d="M70 35 L118 122 H22 Z" fill="#f59e0b"/>
+  <text x="70" y="100" text-anchor="middle" font-family="Arial" font-size="58" font-weight="900" fill="#111827">!</text>
+  <text x="280" y="70" text-anchor="middle" font-family="Microsoft YaHei, Arial" font-size="34" font-weight="800" fill="#fff7ed">检测到障碍物</text>
+  <text x="280" y="112" text-anchor="middle" font-family="Microsoft YaHei, Arial" font-size="30" font-weight="700" fill="#fed7aa">正在避障</text>
+</svg>

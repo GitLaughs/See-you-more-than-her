@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
+  <rect width="320" height="180" rx="24" fill="#1f0710" opacity="0.88"/>
+  <text x="160" y="42" text-anchor="middle" font-family="Arial" font-size="34" font-weight="900" fill="#ef4444" opacity="0.25">STOP</text>
+  <rect x="92" y="94" width="120" height="42" rx="14" fill="#94a3b8"/>
+  <rect x="120" y="68" width="62" height="38" rx="12" fill="#64748b"/>
+  <circle cx="120" cy="138" r="16" fill="#111827"/><circle cx="186" cy="138" r="16" fill="#111827"/>
+  <circle cx="120" cy="138" r="7" fill="#e5e7eb"/><circle cx="186" cy="138" r="7" fill="#e5e7eb"/>
+  <circle cx="244" cy="104" r="38" fill="none" stroke="#ef4444" stroke-width="12" opacity="0.25"/>
+  <path d="M220 80 L268 128" stroke="#ef4444" stroke-width="12" stroke-linecap="round" opacity="0.25"/>
+</svg>

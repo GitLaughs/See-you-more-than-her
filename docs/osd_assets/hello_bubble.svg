@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="120" viewBox="0 0 360 120">
+  <rect x="8" y="8" width="344" height="92" rx="28" fill="#101828" opacity="0.88"/>
+  <path d="M78 96 L55 116 L60 92" fill="#101828" opacity="0.88"/>
+  <text x="180" y="70" text-anchor="middle" font-family="Microsoft YaHei, Arial" font-size="48" font-weight="700" fill="#ffffff">你好！</text>
+  <circle cx="52" cy="52" r="22" fill="#22c55e"/>
+  <path d="M42 54 q10 14 28 -12" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+</svg>
