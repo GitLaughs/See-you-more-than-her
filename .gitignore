@@ -40,6 +40,7 @@ CLIProxyAPI_6.9.40_windows_amd64
 .playwright-mcp
 .claude
 tools\aurora\.qt_bridge_owner.json
+.trae
 # Aurora 拍照工具保留在版本控制中: tools/aurora/
 
 # Local editor / IDE
