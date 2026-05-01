@@ -22,6 +22,7 @@ __pycache__/
 *.so
 *.egg
 *.egg-info/
+docs\osd_assets
 dist/
 build/
 x3_src_250401/

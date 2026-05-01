@@ -6,8 +6,10 @@
  * @Copyright (c) 2025 SmartSens
  */
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstring>
+#include <deque>
 #include <iostream>
 #include <mutex>
 #include <thread>
@@ -21,12 +23,6 @@ using namespace std;
 bool g_exit_flag = false;
 std::mutex g_mtx;
 
-struct osdInfo {
-    std::string filename;
-    uint16_t x;
-    uint16_t y;
-};
-
 enum class ActionState {
     Idle,
     Forward,
@@ -34,6 +30,38 @@ enum class ActionState {
     AvoidLeft,
     AvoidRight,
     Blocked,
+};
+
+enum class SemanticLabel {
+    NoTarget,
+    Person,
+    Forward,
+    Stop,
+    Obstacle,
+};
+
+struct FrameScores {
+    float person = 0.f;
+    float forward = 0.f;
+    float stop = 0.f;
+    float obstacle = 0.f;
+};
+
+struct VisionUiState {
+    SemanticLabel label = SemanticLabel::NoTarget;
+    float confidence = 0.f;
+    bool NoTarget = true;
+    bool target_locked = false;
+    ActionState action_hint = ActionState::Idle;
+    bool safe_to_move = false;
+};
+
+struct SemanticStabilizer {
+    std::deque<FrameScores> history;
+    SemanticLabel candidate = SemanticLabel::NoTarget;
+    SemanticLabel locked = SemanticLabel::NoTarget;
+    int candidate_frames = 0;
+    int hold_frames = 0;
 };
 
 struct DetectionSummary {
@@ -59,6 +87,13 @@ struct RuntimeState {
 
 namespace {
 
+constexpr int kSemanticAverageFrames = 5;
+constexpr int kSemanticLockFrames = 3;
+constexpr int kSemanticHoldFrames = 6;
+constexpr float kSemanticNoTargetThreshold = 0.35f;
+constexpr int kLayerAnimation = 3;
+constexpr int kLayerPrompt = 4;
+
 const char* action_name(ActionState action) {
     switch (action) {
         case ActionState::Idle: return "idle";
@@ -69,6 +104,183 @@ const char* action_name(ActionState action) {
         case ActionState::Blocked: return "blocked";
     }
     return "unknown";
+}
+
+const char* semantic_label_name(SemanticLabel label) {
+    switch (label) {
+        case SemanticLabel::NoTarget: return "NoTarget";
+        case SemanticLabel::Person: return "person";
+        case SemanticLabel::Forward: return "forward";
+        case SemanticLabel::Stop: return "stop";
+        case SemanticLabel::Obstacle: return "obstacle";
+    }
+    return "unknown";
+}
+
+FrameScores extract_frame_scores(const FaceDetectionResult& det_result) {
+    FrameScores scores;
+    for (size_t i = 0; i < det_result.class_ids.size() && i < det_result.scores.size(); ++i) {
+        const float score = det_result.scores[i];
+        switch (det_result.class_ids[i]) {
+            case cfg::TARGET_CLASS_PERSON:
+                scores.person = std::max(scores.person, score);
+                break;
+            case cfg::TARGET_CLASS_FORWARD:
+                scores.forward = std::max(scores.forward, score);
+                break;
+            case cfg::TARGET_CLASS_STOP:
+                scores.stop = std::max(scores.stop, score);
+                break;
+            case cfg::TARGET_CLASS_OBSTACLE_BOX:
+                scores.obstacle = std::max(scores.obstacle, score);
+                break;
+        }
+    }
+    return scores;
+}
+
+FrameScores average_scores(const std::deque<FrameScores>& history) {
+    FrameScores avg;
+    if (history.empty()) {
+        return avg;
+    }
+
+    for (const auto& scores : history) {
+        avg.person += scores.person;
+        avg.forward += scores.forward;
+        avg.stop += scores.stop;
+        avg.obstacle += scores.obstacle;
+    }
+
+    const float inv = 1.0f / static_cast<float>(history.size());
+    avg.person *= inv;
+    avg.forward *= inv;
+    avg.stop *= inv;
+    avg.obstacle *= inv;
+    return avg;
+}
+
+SemanticLabel choose_semantic_label(const FrameScores& scores, float* confidence) {
+    *confidence = scores.obstacle;
+    if (scores.obstacle >= kSemanticNoTargetThreshold) {
+        return SemanticLabel::Obstacle;
+    }
+
+    *confidence = scores.stop;
+    if (scores.stop >= kSemanticNoTargetThreshold) {
+        return SemanticLabel::Stop;
+    }
+
+    *confidence = scores.forward;
+    if (scores.forward >= kSemanticNoTargetThreshold) {
+        return SemanticLabel::Forward;
+    }
+
+    *confidence = scores.person;
+    if (scores.person >= kSemanticNoTargetThreshold) {
+        return SemanticLabel::Person;
+    }
+
+    *confidence = 0.f;
+    return SemanticLabel::NoTarget;
+}
+
+ActionState semantic_action_hint(SemanticLabel label, ActionState obstacle_action) {
+    switch (label) {
+        case SemanticLabel::Forward:
+            return ActionState::Forward;
+        case SemanticLabel::Stop:
+            return ActionState::StopGesture;
+        case SemanticLabel::Obstacle:
+            if (obstacle_action == ActionState::AvoidLeft ||
+                obstacle_action == ActionState::AvoidRight ||
+                obstacle_action == ActionState::Blocked) {
+                return obstacle_action;
+            }
+            return ActionState::Blocked;
+        case SemanticLabel::Person:
+        case SemanticLabel::NoTarget:
+            return ActionState::Idle;
+    }
+    return ActionState::Idle;
+}
+
+VisionUiState update_semantic_state(SemanticStabilizer* stabilizer,
+                                    const FaceDetectionResult& det_result,
+                                    ActionState obstacle_action) {
+    stabilizer->history.push_back(extract_frame_scores(det_result));
+    while (static_cast<int>(stabilizer->history.size()) > kSemanticAverageFrames) {
+        stabilizer->history.pop_front();
+    }
+
+    const FrameScores avg = average_scores(stabilizer->history);
+    float confidence = 0.f;
+    const SemanticLabel candidate = choose_semantic_label(avg, &confidence);
+
+    if (candidate == stabilizer->candidate) {
+        stabilizer->candidate_frames += 1;
+    } else {
+        stabilizer->candidate = candidate;
+        stabilizer->candidate_frames = 1;
+    }
+
+    if (candidate != SemanticLabel::NoTarget && stabilizer->candidate_frames >= kSemanticLockFrames) {
+        stabilizer->locked = candidate;
+        stabilizer->hold_frames = kSemanticHoldFrames;
+    } else if (stabilizer->hold_frames > 0) {
+        stabilizer->hold_frames -= 1;
+    } else if (candidate == SemanticLabel::NoTarget) {
+        stabilizer->locked = SemanticLabel::NoTarget;
+    }
+
+    VisionUiState state;
+    state.label = stabilizer->locked;
+    state.confidence = confidence;
+    state.NoTarget = state.label == SemanticLabel::NoTarget;
+    state.target_locked = !state.NoTarget;
+    state.action_hint = semantic_action_hint(state.label, obstacle_action);
+    state.safe_to_move = state.action_hint == ActionState::Forward ||
+                         state.action_hint == ActionState::AvoidLeft ||
+                         state.action_hint == ActionState::AvoidRight;
+    return state;
+}
+
+void render_semantic_osd(VISUALIZER* visualizer,
+                         const VisionUiState& state,
+                         uint64_t frame_index,
+                         SemanticLabel* last_label) {
+    if (state.label != *last_label) {
+        visualizer->ClearLayer(kLayerAnimation);
+        visualizer->ClearLayer(kLayerPrompt);
+        *last_label = state.label;
+    }
+
+    switch (state.label) {
+        case SemanticLabel::NoTarget:
+            visualizer->ClearLayer(kLayerAnimation);
+            visualizer->ClearLayer(kLayerPrompt);
+            break;
+        case SemanticLabel::Person:
+            visualizer->DrawBitmap("hello_bubble.ssbmp", "shared_colorLUT.sscl", 260, 40, kLayerPrompt);
+            visualizer->DrawBitmap("hello_icon.ssbmp", "shared_colorLUT.sscl", 220, 52, kLayerPrompt);
+            break;
+        case SemanticLabel::Forward: {
+            const int idx = static_cast<int>((frame_index / 5) % 4);
+            visualizer->DrawBitmap("car_forward_" + std::to_string(idx) + ".ssbmp", "shared_colorLUT.sscl", 160, 280, kLayerAnimation);
+            break;
+        }
+        case SemanticLabel::Stop: {
+            const int idx = static_cast<int>((frame_index / 5) % 3);
+            visualizer->DrawBitmap("car_stop_" + std::to_string(idx) + ".ssbmp", "shared_colorLUT.sscl", 160, 280, kLayerAnimation);
+            break;
+        }
+        case SemanticLabel::Obstacle: {
+            const int idx = static_cast<int>((frame_index / 5) % 6);
+            visualizer->DrawBitmap("obstacle_alert.ssbmp", "shared_colorLUT.sscl", 80, 40, kLayerPrompt);
+            visualizer->DrawBitmap("car_detour_" + std::to_string(idx) + ".ssbmp", "shared_colorLUT.sscl", 80, 190, kLayerAnimation);
+            break;
+        }
+    }
 }
 
 void keyboard_listener() {
@@ -237,12 +449,6 @@ int main(int argc, char** argv) {
     array<int, 2> det_shape = {cfg::DET_WIDTH, cfg::DET_HEIGHT};
     string path_det = cfg::MODEL_PATH;
 
-    static osdInfo osds[3] = {
-        {"si.ssbmp", 10, 10},
-        {"te.ssbmp", 90, 10},
-        {"wei.ssbmp", 170, 10}
-    };
-
     if (ssne_initial()) {
         fprintf(stderr, "SSNE initialization failed!\n");
     }
@@ -268,13 +474,12 @@ int main(int argc, char** argv) {
     cout << "sleep for 0.2 second!" << endl;
     usleep(200000);
 
-    visualizer.DrawBitmap(osds[0].filename, "shared_colorLUT.sscl", osds[0].x, osds[0].y, 2);
-
-    uint16_t num_frames = 0;
-    uint8_t osd_index = 0;
     ssne_tensor_t img_sensor;
     RuntimeState runtime;
     runtime.chassis_ready = chassis_ready;
+    SemanticStabilizer semantic_stabilizer;
+    VisionUiState ui_state;
+    SemanticLabel last_osd_label = SemanticLabel::NoTarget;
 
     std::thread listener_thread(keyboard_listener);
     auto last_status_log = std::chrono::steady_clock::now();
@@ -290,13 +495,15 @@ int main(int argc, char** argv) {
             visualizer.Draw(empty_boxes);
         }
 
-        const ActionState next_action = decide_action(
+        const ActionState raw_action = decide_action(
             *det_result,
             &runtime,
             static_cast<float>(crop_shape[0]),
             static_cast<float>(crop_shape[1]));
-        runtime.action = next_action;
+        ui_state = update_semantic_state(&semantic_stabilizer, *det_result, raw_action);
+        runtime.action = ui_state.action_hint;
         runtime.frame_index += 1;
+        render_semantic_osd(&visualizer, ui_state, runtime.frame_index, &last_osd_label);
 
         int16_t vx = 0;
         int16_t vy = 0;
@@ -309,15 +516,15 @@ int main(int argc, char** argv) {
         ChassisState chassis_state;
         chassis.ReadTelemetry(chassis_state);
 
-        num_frames += 1;
-        osd_index = (num_frames / 10) % 3;
-        visualizer.DrawBitmap(osds[osd_index].filename, "shared_colorLUT.sscl", osds[osd_index].x, osds[osd_index].y, 2);
-
         const auto now = std::chrono::steady_clock::now();
         if (now - last_status_log >= std::chrono::seconds(2)) {
-            printf("[A1] frame=%llu action=%s det=%d obstacle=%.3f center=%.2f bottom=%.2f vx=%d vz=%d tele_vx=%d volt=%.2f\n",
+            printf("[A1] frame=%llu label=%s conf=%.3f locked=%d action=%s safe=%d det=%d obstacle=%.3f center=%.2f bottom=%.2f vx=%d vz=%d tele_vx=%d volt=%.2f\n",
                    static_cast<unsigned long long>(runtime.frame_index),
+                   semantic_label_name(ui_state.label),
+                   ui_state.confidence,
+                   ui_state.target_locked ? 1 : 0,
                    action_name(runtime.action),
+                   ui_state.safe_to_move ? 1 : 0,
                    runtime.det_count,
                    runtime.obstacle.area_ratio,
                    runtime.obstacle.center_x_ratio,

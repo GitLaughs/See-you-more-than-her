@@ -1515,7 +1515,7 @@ def _load_pt_model():
 
 
 def _letterbox(img_gray: np.ndarray, target: int = 640):
-    """灰度图 letterbox 到 target×target，返回 (padded_gray, scale, pad_x, pad_y)。"""
+    """Legacy square preview helper; A1 mainline uses crop+resize to 640×480."""
     h, w = img_gray.shape
     scale = target / max(h, w)
     new_w = int(round(w * scale))
@@ -1684,6 +1684,7 @@ def detect_on_frame(frame_gray: np.ndarray):
             return []
         frame_bgr = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2BGR)
         try:
+            # PC preview path only; imgsz=640 does not define the A1 640×480 deployment tensor.
             results = model.predict(
                 source=frame_bgr,
                 conf=_DETECT_CONF,
@@ -1810,7 +1811,7 @@ def _save_capture(frame: np.ndarray, fmt: str) -> dict:
     tw, th = CAPTURE_FORMATS[fmt]
 
     if fmt == "640x480":
-        # A1 720×1280 灰度帧 → 中心裁剪 640×480
+        # A1 720×1280 灰度帧 → 中心裁剪/缩放到 640×480 训练图
         out = crop_center(frame, tw, th)
     else:
         out = frame.copy()

@@ -62,10 +62,13 @@ names:
 ### 4. 开始训练
 
 ```powershell
+# `-ImgSize 640` 只是 Ultralytics CLI 的输入尺寸写法；这里的数据集图像必须已经按 A1 主线整理为 640×480
 .\tools\yolov8\train_gpu.ps1 -Model yolov8n.pt -Epochs 100 -Batch 16 -ImgSize 640 -Name a1_yolov8
 ```
 
-详细训练说明见 [docs/YOLOv8训练指南.md](../../docs/YOLOv8训练指南.md)。
+不要把这里的 `-ImgSize 640` 理解成 `640×640 letterbox` 部署主线；A1 板端真实推理输入仍是 `640×480`。
+
+详细训练说明见 [docs/09_AI模型训练.md](../../docs/09_AI模型训练.md)。
 
 ## 注意事项
 

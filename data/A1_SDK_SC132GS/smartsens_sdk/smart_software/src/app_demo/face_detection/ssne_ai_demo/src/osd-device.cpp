@@ -72,13 +72,10 @@ void OsdDevice::Initialize(int width, int height, const char* bitmap_lut_path){
         osd_set_layer_buffer(m_osd_handle, (ssLAYER_HANDLE)layer_index, m_layer_dma[layer_index]);
     }
 
-    // init image layer (TYPE_IMAGE) for layer 2 (bitmap)
-    {
-        int layer_index = 2;
-        // DMA size for texture layer: 1920*1080 bytes (full HD resolution)
+    for (int layer_index = 2; layer_index < OSD_LAYER_SIZE; ++layer_index) {
         int texture_dma_size = 0x20000;
         osd_alloc_buffer(m_osd_handle, m_layer_dma[layer_index].dma, texture_dma_size);
-        sleep(0.25);  // 等待DMA分配完成
+        usleep(250000);
         osd_alloc_buffer(m_osd_handle, m_layer_dma[layer_index].dma_2, texture_dma_size);
         int dma_fd = osd_get_buffer_fd(m_osd_handle, m_layer_dma[layer_index].dma);
 
@@ -115,8 +112,7 @@ void OsdDevice::Initialize(int width, int height, const char* bitmap_lut_path){
         }
     }
 
-    // 图层0-1用于quad-rangle，图层2用于位图
-    // 图层3-4未使用，已删除以节省内存
+    // 图层0-1用于quad-rangle，图层2-4用于位图
 
     // // init run-length layer
     // {
@@ -294,6 +290,13 @@ void OsdDevice::Draw(std::vector<std::array<float, 4>>& boxes, int border, int l
  * @note LUT应该在初始化时加载，osd_init_device必须在创建图层前调用
  *       如果在绘制时重新初始化，会破坏已创建的图层
  */
+void OsdDevice::ClearLayer(int layer_id) {
+    if (layer_id < 0 || layer_id >= OSD_LAYER_SIZE) {
+        return;
+    }
+    osd_clean_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
+}
+
 void OsdDevice::DrawTexture(const char* bitmap_path, const char* lut_path, int layer_id, int pos_x, int pos_y, fdevice::ALPHATYPE alpha) {
     // 注意：LUT已经在Initialize时加载，这里不再重新初始化设备
     // lut_path参数保留用于日志记录，但不会重新加载LUT

@@ -1,5 +1,5 @@
 # YOLOv8 dataset config
-# 图像格式: 640x480 灰度图 (SC132GS 摄像头采集, 中心裁剪)
+# 图像来源: SC132GS 采集图, 训练前由 Aurora/预处理链路统一整理到 A1 目标尺寸
 path: data/yolov8_dataset
 train: images/train
 val: images/val
