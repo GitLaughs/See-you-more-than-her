@@ -7,6 +7,6 @@ test: images/test
 
 names:
   0: person
-  1: gesture1
-  2: gesture2
-  3: obstacle_box
+  1: stop
+  2: forward
+  3: obstacle
