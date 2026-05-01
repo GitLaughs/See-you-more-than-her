@@ -51,6 +51,7 @@ class VISUALIZER {
      */
     void DrawBitmap(const std::string& bitmap_path, const std::string& lut_path = "",
                     int pos_x = 0, int pos_y = 0, int layer_id = 2);
+    void ClearLayer(int layer_id);
 
   private:
     // OSD设备实例

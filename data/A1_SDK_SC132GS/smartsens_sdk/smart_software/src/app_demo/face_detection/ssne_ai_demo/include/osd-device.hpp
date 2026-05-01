@@ -14,7 +14,7 @@
 #include "common.hpp"
 
 #define BUFFER_TYPE_DMABUF  0x1
-#define OSD_LAYER_SIZE 3  // 只使用3个图层：0(检测框), 1(固定正方形), 2(位图)
+#define OSD_LAYER_SIZE 5  // 0(检测框), 1(固定正方形), 2(背景), 3(动画), 4(提示)
 
 namespace sst{
 namespace device{
@@ -51,6 +51,8 @@ public:
      * @description 在位图图层上绘制位图，位置在整个图像上
      */
     void DrawTexture(const char* bitmap_path, const char* lut_path, int layer_id, int pos_x = 0, int pos_y = 0, fdevice::ALPHATYPE alpha = fdevice::TYPE_ALPHA100);
+    void ClearLayer(int layer_id);
+
 
 private:
     int LoadLutFile(const char* filename);

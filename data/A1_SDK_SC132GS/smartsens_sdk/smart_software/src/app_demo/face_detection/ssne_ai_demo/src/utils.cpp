@@ -76,7 +76,8 @@ void VISUALIZER::Draw(const std::vector<std::array<float, 4>>& boxes) {
         int xmax = static_cast<int>(boxes[i][2]);  // 右下角x坐标
         int ymax = static_cast<int>(boxes[i][3]);  // 右下角y坐标
 
-        q.box = {xmin, ymin, xmax, ymax};  // 设置矩形框坐标
+        q.box = {static_cast<float>(xmin), static_cast<float>(ymin),
+                 static_cast<float>(xmax), static_cast<float>(ymax)};  // 设置矩形框坐标
 
         // 设置矩形框样式参数
         q.color = 1;                         // 颜色索引1（不同于测试框）
@@ -165,6 +166,10 @@ void VISUALIZER::DrawBitmap(const std::string& bitmap_path, const std::string& l
 
     // 调用OSD设备绘制位图（传入绝对坐标）
     osd_device.DrawTexture(full_bitmap_path.c_str(), full_lut_path, layer_id, pos_x, pos_y);
+}
+
+void VISUALIZER::ClearLayer(int layer_id) {
+    osd_device.ClearLayer(layer_id);
 }
 
 /**
