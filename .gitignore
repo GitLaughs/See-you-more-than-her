@@ -33,6 +33,7 @@ tools/aurora/.a1_camera_source
 tools/aurora/.a1_detect_model
 tools/testgpio/__pycache__/
 tools/testgpio/logs/
+video.mp4
 third_party/ultralytics
 demo-rps
 models
