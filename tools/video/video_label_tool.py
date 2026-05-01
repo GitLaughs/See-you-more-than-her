@@ -3,15 +3,27 @@ from __future__ import annotations
 
 import argparse
 import base64
+import cgi
 import json
 import mimetypes
+import tempfile
 import time
 from dataclasses import asdict, dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import cv2
+import shutil
+import os
+import html
+import re
+from typing import BinaryIO
+import cgi
+
+UPLOAD_DIR = Path(tempfile.gettempdir()) / "video_label_tool"
+PREVIEW_FRAME_INDEX = 99
 
 OUTPUT_WIDTH = 640
 OUTPUT_HEIGHT = 480
@@ -107,24 +119,34 @@ def validate_config(config: ExtractConfig, source_width: int, source_height: int
         )
 
 
-def open_first_frame(video_path: Path):
+def open_video(video_path: Path):
     if not video_path.exists():
         raise FileNotFoundError(f"video not found: {video_path}")
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
         raise RuntimeError(f"failed to open video: {video_path}")
+    return capture
+
+
+def read_frame_at_index(video_path: Path, frame_index: int):
+    capture = open_video(video_path)
     try:
+        capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
         ok, frame = capture.read()
         if not ok or frame is None:
-            raise RuntimeError(f"failed to read first frame: {video_path}")
+            raise RuntimeError(f"failed to read frame {frame_index + 1}: {video_path}")
         source_height, source_width = frame.shape[:2]
         return frame, source_width, source_height
     finally:
         capture.release()
 
 
+def open_first_frame(video_path: Path):
+    return read_frame_at_index(video_path, 0)
+
+
 def load_preview(video_path: Path) -> PreviewResult:
-    frame, source_width, source_height = open_first_frame(video_path)
+    frame, source_width, source_height = read_frame_at_index(video_path, PREVIEW_FRAME_INDEX)
     resized = cv2.resize(frame, (OUTPUT_WIDTH, OUTPUT_HEIGHT), interpolation=cv2.INTER_LINEAR)
     ok, encoded = cv2.imencode(".jpg", resized, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
     if not ok:
@@ -218,7 +240,8 @@ canvas { border: 2px solid #334155; max-width: 100%; cursor: crosshair; backgrou
 <p>输出固定 640×480，图片写入 tools/yolo/raw/images，标签写入 tools/yolo/raw/labels。</p>
 <form id="form">
 <label>视频路径<input name="video_path" value="video.mp4"></label>
-<button type="button" id="loadPreview">加载第一帧</button>
+<label>选择视频文件<input type="file" id="videoFile" accept="video/*"></label>
+<button type="button" id="loadPreview">加载第100帧</button>
 <button type="button" id="enableDraw">启用鼠标拖框</button>
 <p class="hint" id="videoInfo">未加载视频。加载后可拖动鼠标画框，坐标会自动回填为原始视频坐标。</p>
 <div class="preview-wrap">
@@ -247,11 +270,13 @@ const ctx = canvas.getContext('2d');
 const result = document.getElementById('result');
 const videoInfo = document.getElementById('videoInfo');
 const image = new Image();
+const videoFile = document.getElementById('videoFile');
 let sourceWidth = 640;
 let sourceHeight = 480;
 let drawingEnabled = false;
 let dragging = false;
 let start = null;
+let selectedVideoName = '';
 
 function field(name) { return form.elements[name]; }
 function previewToSourceX(x) { return Math.round(x * sourceWidth / canvas.width); }
@@ -287,25 +312,47 @@ function canvasPoint(event) {
   };
 }
 
-async function loadPreview() {
-  result.textContent = '加载第一帧...';
-  const response = await fetch('/api/preview', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({video_path: field('video_path').value})
-  });
+async function uploadSelectedVideo() {
+  const file = videoFile.files[0];
+  if (!file) {
+    return field('video_path').value;
+  }
+  selectedVideoName = file.name;
+  const formData = new FormData();
+  formData.append('video', file, file.name);
+  const response = await fetch('/api/upload_video', { method: 'POST', body: formData });
   const payload = await response.json();
   if (!payload.ok) {
-    result.textContent = JSON.stringify(payload, null, 2);
-    return;
+    throw new Error(payload.error || 'upload failed');
   }
-  const info = payload.result;
-  sourceWidth = info.source_width;
-  sourceHeight = info.source_height;
-  videoInfo.textContent = `源视频 ${sourceWidth}×${sourceHeight}，预览 ${info.preview_width}×${info.preview_height}。`;
-  image.onload = drawCanvas;
-  image.src = info.image_data_url;
-  result.textContent = JSON.stringify(payload, null, 2);
+  field('video_path').value = payload.result.video_path;
+  return payload.result.video_path;
+}
+
+async function loadPreview() {
+  result.textContent = '加载第100帧...';
+  try {
+    const videoPath = await uploadSelectedVideo();
+    const response = await fetch('/api/preview', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({video_path: videoPath})
+    });
+    const payload = await response.json();
+    if (!payload.ok) {
+      result.textContent = JSON.stringify(payload, null, 2);
+      return;
+    }
+    const info = payload.result;
+    sourceWidth = info.source_width;
+    sourceHeight = info.source_height;
+    videoInfo.textContent = `视频 ${selectedVideoName || videoPath}，源视频 ${sourceWidth}×${sourceHeight}，预览 ${info.preview_width}×${info.preview_height}，第 100 帧。`;
+    image.onload = drawCanvas;
+    image.src = info.image_data_url;
+    result.textContent = JSON.stringify(payload, null, 2);
+  } catch (error) {
+    result.textContent = JSON.stringify({ok: false, error: String(error)}, null, 2);
+  }
 }
 
 document.getElementById('loadPreview').addEventListener('click', loadPreview);
@@ -365,6 +412,28 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def save_uploaded_video(self) -> Path:
+        content_type = self.headers.get("Content-Type", "")
+        if not content_type.startswith("multipart/form-data"):
+            raise ValueError("video upload requires multipart/form-data")
+        form = cgi.FieldStorage(
+            fp=self.rfile,
+            headers=self.headers,
+            environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": content_type},
+            keep_blank_values=True,
+        )
+        item = form["video"]
+        if isinstance(item, list):
+            item = item[0]
+        if not getattr(item, "filename", None):
+            raise ValueError("video file is required")
+        suffix = Path(item.filename).suffix or ".mp4"
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        upload_path = UPLOAD_DIR / f"{uuid4().hex}{suffix}"
+        with upload_path.open("wb") as handle:
+            shutil.copyfileobj(item.file, handle)
+        return upload_path
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path != "/":
@@ -380,6 +449,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path
         try:
+            if path == "/api/upload_video":
+                upload_path = self.save_uploaded_video()
+                self.send_json(200, {"ok": True, "result": {"video_path": str(upload_path)}})
+                return
+
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             if path == "/api/preview":
