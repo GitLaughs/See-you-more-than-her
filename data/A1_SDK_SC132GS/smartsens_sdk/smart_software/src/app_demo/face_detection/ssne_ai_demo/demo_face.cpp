@@ -304,22 +304,24 @@ bool check_exit_flag() {
     return g_exit_flag;
 }
 
-std::vector<std::array<float, 4>> to_osd_boxes(const FaceDetectionResult& det_result,
-                                               float crop_offset_y,
-                                               float osd_scale_x,
-                                               float osd_scale_y)
+std::vector<std::array<float, 4>> to_osd_boxes(const FaceDetectionResult& det_result)
 {
-    std::vector<std::array<float, 4>> boxes_original_coord;
-    boxes_original_coord.reserve(det_result.boxes.size());
+    constexpr float scale_x = static_cast<float>(cfg::CAMERA_VIEW_WIDTH) /
+                              static_cast<float>(cfg::PIPE_CROP_WIDTH);
+    constexpr float scale_y = static_cast<float>(cfg::CAMERA_VIEW_HEIGHT) /
+                              static_cast<float>(cfg::PIPE_CROP_HEIGHT);
+
+    std::vector<std::array<float, 4>> boxes_in_view;
+    boxes_in_view.reserve(det_result.boxes.size());
     for (const auto& box : det_result.boxes) {
-        boxes_original_coord.push_back({
-            box[0] * osd_scale_x,
-            (box[1] + crop_offset_y) * osd_scale_y,
-            box[2] * osd_scale_x,
-            (box[3] + crop_offset_y) * osd_scale_y,
+        boxes_in_view.push_back({
+            cfg::CAMERA_VIEW_X + box[0] * scale_x,
+            cfg::CAMERA_VIEW_Y + box[1] * scale_y,
+            cfg::CAMERA_VIEW_X + box[2] * scale_x,
+            cfg::CAMERA_VIEW_Y + box[3] * scale_y,
         });
     }
-    return boxes_original_coord;
+    return boxes_in_view;
 }
 
 DetectionSummary summarize_best_detection(const FaceDetectionResult& det_result,
@@ -458,11 +460,6 @@ int main(int argc, char** argv) {
     array<int, 2> img_shape = {img_width, img_height};
     array<int, 2> osd_shape = {cfg::OSD_WIDTH, cfg::OSD_HEIGHT};
     array<int, 2> crop_shape = {cfg::PIPE_CROP_WIDTH, cfg::PIPE_CROP_HEIGHT};
-    const float crop_offset_y = static_cast<float>(cfg::PIPE_CROP_Y1);
-    const float osd_scale_x = static_cast<float>(cfg::OSD_WIDTH) /
-                              static_cast<float>(cfg::SENSOR_WIDTH);
-    const float osd_scale_y = static_cast<float>(cfg::OSD_HEIGHT) /
-                              static_cast<float>(cfg::SENSOR_HEIGHT);
 
     IMAGEPROCESSOR processor;
     processor.Initialize(&img_shape);
@@ -480,6 +477,10 @@ int main(int argc, char** argv) {
 
     cout << "sleep for 0.2 second!" << endl;
     usleep(200000);
+    cout << "[A1] OSD canvas=" << cfg::OSD_WIDTH << "x" << cfg::OSD_HEIGHT
+         << " camera_view=(" << cfg::CAMERA_VIEW_X << "," << cfg::CAMERA_VIEW_Y
+         << "," << cfg::CAMERA_VIEW_WIDTH << "," << cfg::CAMERA_VIEW_HEIGHT << ")"
+         << endl;
     cout << "[A1] draw startup background" << endl;
     visualizer.DrawBitmap("background.ssbmp", "shared_colorLUT.sscl", 0, 0, 2);
     cout << "[A1] startup background draw call returned" << endl;
@@ -499,7 +500,7 @@ int main(int argc, char** argv) {
         detector.Predict(&img_sensor, det_result, cfg::DET_CONF_THRESH);
 
         if (!det_result->boxes.empty()) {
-            visualizer.Draw(to_osd_boxes(*det_result, crop_offset_y, osd_scale_x, osd_scale_y));
+            visualizer.Draw(to_osd_boxes(*det_result));
         } else {
             std::vector<std::array<float, 4>> empty_boxes;
             visualizer.Draw(empty_boxes);
