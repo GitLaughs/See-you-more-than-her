@@ -2,9 +2,10 @@
  * project_paths.hpp — ssne_ai_demo 全局配置
  *
  * 分辨率设计说明:
- *   - 显示输出:   1920 × 1080 (YUV422, 与 demo-rps 一致)
- *   - 推理输入:   640 × 480 (RunAiPreprocessPipe 将显示帧缩放到模型输入)
- *   评委演示版本统一沿用 640×480 中心裁剪链路，训练/验证/部署需保持一致。
+ *   - OSD 画布: 1920 × 1080，背景和右侧动画使用全画布绝对坐标
+ *   - 摄像头源: 720 × 1280，取中心 360 × 640 作为左侧视频窗口
+ *   - 摄像头窗口: OSD 坐标 (150, 220)，尺寸 360 × 640
+ *   - 推理输入: 640 × 480，RunAiPreprocessPipe 将摄像头窗口缩放到模型输入
  *
  * 模型说明:
  *   - 当前板端默认使用 YOLOv8 灰度 4 类模型
@@ -19,21 +20,29 @@
 
 namespace cfg {
 
-// ─── 摄像头采集分辨率 ────────────────────────────────────────────────────────
-constexpr int SENSOR_WIDTH  = 1920;
-constexpr int SENSOR_HEIGHT = 1080;
+// ─── 摄像头源分辨率 ────────────────────────────────────────────────────────
+constexpr int SENSOR_WIDTH  = 720;
+constexpr int SENSOR_HEIGHT = 1280;
 
 // ─── OSD 显示画布 ────────────────────────────────────────────────────────────
 constexpr int OSD_WIDTH  = 1920;
 constexpr int OSD_HEIGHT = 1080;
 
-// ─── 在线裁剪区域 ────────────────────────────────────────────────────────────
-constexpr int PIPE_CROP_X1 = 0;
-constexpr int PIPE_CROP_X2 = 720;
-constexpr int PIPE_CROP_Y1 = 370;
-constexpr int PIPE_CROP_Y2 = 910;
-constexpr int PIPE_CROP_WIDTH  = PIPE_CROP_X2 - PIPE_CROP_X1;
-constexpr int PIPE_CROP_HEIGHT = PIPE_CROP_Y2 - PIPE_CROP_Y1;
+// ─── 摄像头视频窗口：中心裁剪后贴到背景左侧 ───────────────────────────────────
+constexpr int CAMERA_VIEW_X = 150;
+constexpr int CAMERA_VIEW_WIDTH = 360;
+constexpr int CAMERA_VIEW_HEIGHT = 640;
+constexpr int CAMERA_VIEW_Y = (OSD_HEIGHT - CAMERA_VIEW_HEIGHT) / 2;
+constexpr int CAMERA_VIEW_RIGHT = CAMERA_VIEW_X + CAMERA_VIEW_WIDTH;
+constexpr int CAMERA_VIEW_BOTTOM = CAMERA_VIEW_Y + CAMERA_VIEW_HEIGHT;
+
+// ─── 在线裁剪区域：720×1280 源图中心 360×640 ────────────────────────────────
+constexpr int PIPE_CROP_WIDTH  = CAMERA_VIEW_WIDTH;
+constexpr int PIPE_CROP_HEIGHT = CAMERA_VIEW_HEIGHT;
+constexpr int PIPE_CROP_X1 = (SENSOR_WIDTH - PIPE_CROP_WIDTH) / 2;
+constexpr int PIPE_CROP_X2 = PIPE_CROP_X1 + PIPE_CROP_WIDTH;
+constexpr int PIPE_CROP_Y1 = (SENSOR_HEIGHT - PIPE_CROP_HEIGHT) / 2;
+constexpr int PIPE_CROP_Y2 = PIPE_CROP_Y1 + PIPE_CROP_HEIGHT;
 
 // ─── 推理后端选择 ────────────────────────────────────────────────────────────
 constexpr bool USE_SCRFD_BACKEND = false;
