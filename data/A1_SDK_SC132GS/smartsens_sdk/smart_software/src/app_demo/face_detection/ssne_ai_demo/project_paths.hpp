@@ -21,8 +21,8 @@
 namespace cfg {
 
 // ─── 摄像头源分辨率 ────────────────────────────────────────────────────────
-constexpr int SENSOR_WIDTH  = 720;
-constexpr int SENSOR_HEIGHT = 1280;
+constexpr int SENSOR_WIDTH  = 1920;
+constexpr int SENSOR_HEIGHT = 1080;
 
 // ─── OSD 显示画布 ────────────────────────────────────────────────────────────
 constexpr int OSD_WIDTH  = 1920;
@@ -36,8 +36,8 @@ constexpr int CAMERA_VIEW_Y = (OSD_HEIGHT - CAMERA_VIEW_HEIGHT) / 2;
 constexpr int CAMERA_VIEW_RIGHT = CAMERA_VIEW_X + CAMERA_VIEW_WIDTH;
 constexpr int CAMERA_VIEW_BOTTOM = CAMERA_VIEW_Y + CAMERA_VIEW_HEIGHT;
 
-// ─── 在线裁剪区域：720×1280 源图中心 360×640 ────────────────────────────────
-constexpr int PIPE_CROP_WIDTH  = CAMERA_VIEW_WIDTH;
+// ─── 在线裁剪区域：720×1280 源图中心 384×640 ────────────────────────────────
+constexpr int PIPE_CROP_WIDTH  = 384;
 constexpr int PIPE_CROP_HEIGHT = CAMERA_VIEW_HEIGHT;
 constexpr int PIPE_CROP_X1 = (SENSOR_WIDTH - PIPE_CROP_WIDTH) / 2;
 constexpr int PIPE_CROP_X2 = PIPE_CROP_X1 + PIPE_CROP_WIDTH;
@@ -45,7 +45,7 @@ constexpr int PIPE_CROP_Y1 = (SENSOR_HEIGHT - PIPE_CROP_HEIGHT) / 2;
 constexpr int PIPE_CROP_Y2 = PIPE_CROP_Y1 + PIPE_CROP_HEIGHT;
 
 // ─── 推理后端选择 ────────────────────────────────────────────────────────────
-constexpr bool USE_SCRFD_BACKEND = false;
+constexpr bool USE_SCRFD_BACKEND = true;
 
 // ─── 当前模型推理输入分辨率 ──────────────────────────────────────────────────
 constexpr int DET_WIDTH  = 640;
@@ -53,7 +53,12 @@ constexpr int DET_HEIGHT = 480;
 
 // ─── 模型文件路径 ────────────────────────────────────────────────────────────
 const std::string MODEL_PATH =
-    "/app_demo/app_assets/models/7e6a9b7a-913e-4f5d-97dd-d064d8880b43_best_head6.m1model";
+    "/app_demo/app_assets/models/face_640x480.m1model";
+
+// ─── 人脸问候 OSD 参数 ───────────────────────────────────────────────────────
+constexpr int FACE_PRESENT_CONFIRM_FRAMES = 2;
+constexpr int FACE_CLEAR_CONFIRM_FRAMES = 4;
+constexpr int HELLO_OSD_LAYER = 4;
 
 // ─── YOLOv8 模型参数 ─────────────────────────────────────────────────────────
 constexpr int  YOLO_NUM_CLASSES = 4;

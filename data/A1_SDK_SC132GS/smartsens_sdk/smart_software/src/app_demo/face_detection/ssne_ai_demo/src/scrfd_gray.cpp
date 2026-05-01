@@ -523,15 +523,7 @@ void SCRFDGRAY::Predict(ssne_tensor_t* img, FaceDetectionResult* result, float c
  * @description 释放所有tensor、预处理管道和计时器资源
  */
 void SCRFDGRAY::Release()
-{   
-    // 保存最后一帧的图像（如果有的话）
-    if (g_has_frame) {
-        printf("[INFO] Saving last frame images...\n");
-        save_tensor(g_last_img, "dbg_in.raw");
-        save_tensor(g_last_pipe_input, "dbg_in_pipe.raw");
-        printf("[INFO] Last frame saved successfully!\n");
-    }
-
+{
     // 释放输入和输出tensor
     release_tensor(inputs[0]);
     release_tensor(outputs[0]);

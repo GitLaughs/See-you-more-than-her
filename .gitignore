@@ -13,6 +13,9 @@ src/ros2_ws/log/
 .venv39/
 venv_39/
 venv/
+data/
+docs\superpowers
+docs\osd_assets
 api/claude-code-proxy/
 __pycache__/
 *.pyc
