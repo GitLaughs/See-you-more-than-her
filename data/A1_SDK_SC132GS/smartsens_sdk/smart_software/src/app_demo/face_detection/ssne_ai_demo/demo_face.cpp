@@ -261,23 +261,23 @@ void render_semantic_osd(VISUALIZER* visualizer,
             visualizer->ClearLayer(kLayerPrompt);
             break;
         case SemanticLabel::Person:
-            visualizer->DrawBitmap("hello_bubble.ssbmp", "shared_colorLUT.sscl", 260, 40, kLayerPrompt);
-            visualizer->DrawBitmap("hello_icon.ssbmp", "shared_colorLUT.sscl", 220, 52, kLayerPrompt);
+            visualizer->DrawBitmap("hello_bubble.ssbmp", "shared_colorLUT.sscl", 1400, 120, kLayerPrompt);
+            visualizer->DrawBitmap("hello_icon.ssbmp", "shared_colorLUT.sscl", 1360, 132, kLayerPrompt);
             break;
         case SemanticLabel::Forward: {
             const int idx = static_cast<int>((frame_index / 5) % 4);
-            visualizer->DrawBitmap("car_forward_" + std::to_string(idx) + ".ssbmp", "shared_colorLUT.sscl", 160, 280, kLayerAnimation);
+            visualizer->DrawBitmap("car_forward_" + std::to_string(idx) + ".ssbmp", "shared_colorLUT.sscl", 800, 760, kLayerAnimation);
             break;
         }
         case SemanticLabel::Stop: {
             const int idx = static_cast<int>((frame_index / 5) % 3);
-            visualizer->DrawBitmap("car_stop_" + std::to_string(idx) + ".ssbmp", "shared_colorLUT.sscl", 160, 280, kLayerAnimation);
+            visualizer->DrawBitmap("car_stop_" + std::to_string(idx) + ".ssbmp", "shared_colorLUT.sscl", 800, 760, kLayerAnimation);
             break;
         }
         case SemanticLabel::Obstacle: {
             const int idx = static_cast<int>((frame_index / 5) % 6);
-            visualizer->DrawBitmap("obstacle_alert.ssbmp", "shared_colorLUT.sscl", 80, 40, kLayerPrompt);
-            visualizer->DrawBitmap("car_detour_" + std::to_string(idx) + ".ssbmp", "shared_colorLUT.sscl", 80, 190, kLayerAnimation);
+            visualizer->DrawBitmap("obstacle_alert.ssbmp", "shared_colorLUT.sscl", 720, 80, kLayerPrompt);
+            visualizer->DrawBitmap("car_detour_" + std::to_string(idx) + ".ssbmp", "shared_colorLUT.sscl", 720, 700, kLayerAnimation);
             break;
         }
     }
@@ -305,16 +305,18 @@ bool check_exit_flag() {
 }
 
 std::vector<std::array<float, 4>> to_osd_boxes(const FaceDetectionResult& det_result,
-                                               float crop_offset_y)
+                                               float crop_offset_y,
+                                               float osd_scale_x,
+                                               float osd_scale_y)
 {
     std::vector<std::array<float, 4>> boxes_original_coord;
     boxes_original_coord.reserve(det_result.boxes.size());
     for (const auto& box : det_result.boxes) {
         boxes_original_coord.push_back({
-            box[0],
-            box[1] + crop_offset_y,
-            box[2],
-            box[3] + crop_offset_y,
+            box[0] * osd_scale_x,
+            (box[1] + crop_offset_y) * osd_scale_y,
+            box[2] * osd_scale_x,
+            (box[3] + crop_offset_y) * osd_scale_y,
         });
     }
     return boxes_original_coord;
@@ -454,8 +456,13 @@ int main(int argc, char** argv) {
     }
 
     array<int, 2> img_shape = {img_width, img_height};
+    array<int, 2> osd_shape = {cfg::OSD_WIDTH, cfg::OSD_HEIGHT};
     array<int, 2> crop_shape = {cfg::PIPE_CROP_WIDTH, cfg::PIPE_CROP_HEIGHT};
     const float crop_offset_y = static_cast<float>(cfg::PIPE_CROP_Y1);
+    const float osd_scale_x = static_cast<float>(cfg::OSD_WIDTH) /
+                              static_cast<float>(cfg::SENSOR_WIDTH);
+    const float osd_scale_y = static_cast<float>(cfg::OSD_HEIGHT) /
+                              static_cast<float>(cfg::SENSOR_HEIGHT);
 
     IMAGEPROCESSOR processor;
     processor.Initialize(&img_shape);
@@ -466,13 +473,16 @@ int main(int argc, char** argv) {
     FaceDetectionResult* det_result = new FaceDetectionResult;
 
     VISUALIZER visualizer;
-    visualizer.Initialize(img_shape);
+    visualizer.Initialize(osd_shape, "shared_colorLUT.sscl");
 
     ChassisController chassis;
     const bool chassis_ready = chassis.Init();
 
     cout << "sleep for 0.2 second!" << endl;
     usleep(200000);
+    cout << "[A1] draw startup background" << endl;
+    visualizer.DrawBitmap("background.ssbmp", "shared_colorLUT.sscl", 0, 0, 2);
+    cout << "[A1] startup background draw call returned" << endl;
 
     ssne_tensor_t img_sensor;
     RuntimeState runtime;
@@ -489,7 +499,7 @@ int main(int argc, char** argv) {
         detector.Predict(&img_sensor, det_result, cfg::DET_CONF_THRESH);
 
         if (!det_result->boxes.empty()) {
-            visualizer.Draw(to_osd_boxes(*det_result, crop_offset_y));
+            visualizer.Draw(to_osd_boxes(*det_result, crop_offset_y, osd_scale_x, osd_scale_y));
         } else {
             std::vector<std::array<float, 4>> empty_boxes;
             visualizer.Draw(empty_boxes);

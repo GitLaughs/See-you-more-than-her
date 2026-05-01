@@ -30,6 +30,11 @@ void VISUALIZER::Initialize(std::array<int, 2>& in_img_shape, const std::string&
         m_bitmap_lut_path_full = "/app_demo/app_assets/" + bitmap_lut_path;
         lut_path = m_bitmap_lut_path_full.c_str();
     }
+    std::cout << "[VISUALIZER] Initialize OSD " << m_width << "x" << m_height;
+    if (lut_path != nullptr) {
+        std::cout << " lut=" << lut_path;
+    }
+    std::cout << std::endl;
     osd_device.Initialize(m_width, m_height, lut_path);
 }
 
@@ -161,10 +166,11 @@ void VISUALIZER::DrawBitmap(const std::string& bitmap_path, const std::string& l
         full_lut_path = lut_full_path.c_str();
     }
 
-    LOG_DEBUG("[VISUALIZER] Drawing bitmap: %s", full_bitmap_path);
-    LOG_DEBUG(" at position (%d, %d), layer_id=%d\n", pos_x, pos_y, layer_id);
+    std::cout << "[VISUALIZER] DrawBitmap bitmap=" << full_bitmap_path
+              << " lut=" << (full_lut_path ? full_lut_path : "")
+              << " pos=(" << pos_x << "," << pos_y << ")"
+              << " layer=" << layer_id << std::endl;
 
-    // 调用OSD设备绘制位图（传入绝对坐标）
     osd_device.DrawTexture(full_bitmap_path.c_str(), full_lut_path, layer_id, pos_x, pos_y);
 }
 

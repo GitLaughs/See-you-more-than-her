@@ -20,8 +20,10 @@ ssne_ai_demo/
 │   └── osd-device.cpp       # OSD设备接口实现
 ├── app_assets/               # 应用资源
 │   ├── models/              # AI模型文件
-│   │   └── best_a1_640x480.m1model  # YOLOv8 4 类检测模型
-│   └── colorLUT.sscl        # 颜色查找表
+│   │   └── 7e6a9b7a-913e-4f5d-97dd-d064d8880b43_best_head6.m1model
+│   ├── background.ssbmp     # 1920×1080 启动背景
+│   ├── car_*.ssbmp          # 语义状态动画贴图
+│   └── shared_colorLUT.sscl # 共享颜色查找表
 ├── cmake_config/            # CMake配置
 │   └── Paths.cmake          # 路径配置文件
 ├── scripts/                 # 脚本文件
@@ -80,13 +82,13 @@ ssne_ai_demo/
   - 库文件路径配置
 
 ### 5. 资源文件
-- **app_assets/models/best_a1_640x480.m1model**: YOLOv8 4 类检测模型
+- **app_assets/models/7e6a9b7a-913e-4f5d-97dd-d064d8880b43_best_head6.m1model**: YOLOv8 head6 4 类检测模型
   - 输入尺寸: 640×480
   - 支持灰度图像
   - 输出目标边界框、类别和置信度
 
-- **app_assets/colorLUT.sscl**: 颜色查找表
-  - 用于OSD显示的颜色配置
+- **app_assets/shared_colorLUT.sscl**: 共享颜色查找表
+  - 背景、动画和提示贴图必须使用同一 LUT
 
 ### 6. 脚本文件
 - **scripts/run.sh**: 运行脚本
@@ -107,16 +109,16 @@ flowchart TD
     INIT4 --> INIT5[检测结果初始化]
     INIT5 --> INIT6[OSD可视化器初始化]
     INIT6 --> INIT7[系统稳定等待]
-    INIT7 --> B[获得图像<br/>从Sensor获取裁剪图像 720×540]
+    INIT7 --> B[获得图像<br/>pipe0 输出 1920×1080 YUV422]
     B --> C[预处理图像<br/>Resize到模型输入尺寸 640×480<br/>归一化处理]
     C --> D[模型推理<br/>NPU硬件加速推理<br/>获取6个输出tensor<br/>3个分数输出 + 3个检测框输出]
     D --> E[后处理]
     E --> E1[解码坐标]
     E1 --> E2[过滤低分结果]
     E2 --> E3[NMS非极大值抑制]
-    E3 --> E4[尺度恢复<br/>640×480 → 720×540]
+    E3 --> E4[尺度恢复<br/>640×480 → 720×540 裁剪空间]
     E4 --> F{检测到人脸?}
-    F -->|是| G[坐标转换<br/>将crop图坐标转换为原图坐标<br/>720×540 → 720×1280]
+    F -->|是| G[坐标转换<br/>将crop图坐标转换为OSD坐标<br/>720×540 → 1920×1080]
     G --> H[绘图<br/>在OSD上绘制检测框]
     F -->|否| I[清除OSD显示]
     H --> J{继续处理?}
@@ -163,7 +165,7 @@ flowchart TD
 #### 1. 初始化配置 (`demo_face.cpp:24-69`)
 
 - **参数配置** (`demo_face.cpp:24-34`)
-  - 配置图像尺寸（720×1280）
+  - 配置 OSD/在线输出尺寸（1920×1080）
   - 配置模型输入尺寸（640×480）
   - 配置模型文件路径
 
@@ -176,7 +178,7 @@ flowchart TD
 
 - **检测模型初始化** (`demo_face.cpp`)
   - 初始化 YOLOv8 灰度检测模型
-  - 加载 `best_a1_640x480.m1model`
+  - 加载 `7e6a9b7a-913e-4f5d-97dd-d064d8880b43_best_head6.m1model`
   - 使用 640×480 输入对应的 80×60 / 40×30 / 20×15 head shape
 
 - **检测结果初始化** (`demo_face.cpp:61`)
@@ -191,11 +193,11 @@ flowchart TD
 #### 2. 主处理循环
 
 - **获得图像** (`demo_face.cpp:81`)
-  - 从Sensor获取裁剪后的图像（720×540）
+  - 从Sensor获取 1920×1080 YUV422 在线图像
   - 通过 `IMAGEPROCESSOR::GetImage()` 从pipe0获取图像数据
 
 - **预处理图像** (`src/yolov8_gray.cpp`)
-  - 使用 `RunAiPreprocessPipe()` 将 720×540 裁剪图 resize 到模型输入尺寸（640×480）
+  - 使用 `RunAiPreprocessPipe()` 将在线图像按部署裁剪链路送入模型输入尺寸（640×480）
   - 进行模型推理前的灰度图预处理
 
 - **模型推理** (`src/yolov8_gray.cpp`)
@@ -252,9 +254,9 @@ flowchart TD
 #### 初始化阶段
 ```cpp
 // 在 IMAGEPROCESSOR::Initialize 中
-OnlineSetCrop(kPipeline0, 0, 720, 370, 910);    // 设置裁剪参数
-OnlineSetOutputImage(kPipeline0, format_online, 720, 540);         // 设置输出图像尺寸
-OpenOnlinePipeline(kPipeline0);                                     // 打开pipe0通道
+format_online = SSNE_YUV422_16;
+OnlineSetOutputImage(kPipeline0, format_online, 1920, 1080);
+OpenOnlinePipeline(kPipeline0);
 ```
 **接口说明：**
 - **OnlineSetCrop**: 设置图像裁剪参数，定义裁剪区域边界
