@@ -1,0 +1,12 @@
+# Local YOLOv8 dataset config generated from tools/video ROI labeling flow.
+# Images are 640x480.
+path: tools/yolo
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: person
+  1: gesture1
+  2: gesture2
+  3: obstacle_box

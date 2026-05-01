@@ -1,252 +1,161 @@
-# MobileNet Sigmoid 分类训练与 A1 部署模板
+# YOLOv8 本地训练与 A1 转换流程
 
-## 用途
+## 目标
 
-本目录复用 [demo-rps](../../demo-rps/) 的训练、转换、推理思路：MobileNetV1 backbone + sigmoid 多标签输出 + 负样本全 0，用于固定 ROI 分类、无目标识别、上板 m1model 验证。
+从根目录 [video.mp4](../../video.mp4) 或自选视频制作 640x480 YOLO 训练集，使用 [third_party/ultralytics/](../../third_party/ultralytics/) 训练 YOLOv8，再导出 ONNX、剪裁 head6、转换为 A1 `.m1model`。
 
-官方工具负责视频截帧和 YOLO 数据集处理；本目录只放 RPS 风格轻量分类模型训练与部署模板。
+## 目录
 
-## 依赖
+- 视频标注工具：[tools/video/](../video/)
+- 原始图片：[raw/images/](raw/images/)
+- 原始标签：[raw/labels/](raw/labels/)
+- 划分后图片：`images/train|val|test/`
+- 划分后标签：`labels/train|val|test/`
+- 数据配置：[dataset.yaml](dataset.yaml)
+- YOLOv8 代码：[third_party/ultralytics/](../../third_party/ultralytics/)
 
-```bash
-pip install torch torchvision timm pillow onnx opencv-python numpy
-```
+## 1. 拍视频
 
-无 GUI 环境可把 `opencv-python` 换成 `opencv-python-headless`。
-
-## 数据集结构
-
-```text
-processed_dataset/
-├── P/
-│   └── *.png
-├── R/
-│   └── *.png
-├── S/
-│   └── *.png
-└── N/
-    └── *.png
-```
-
-`P/R/S` 是正样本类别。`N` 是负样本目录，训练 target 为全 0。类别名可换，例如：
+把视频放到仓库根目录：
 
 ```text
-processed_dataset/
-├── stop/
-├── left/
-├── right/
-└── N/
+video.mp4
 ```
 
-对应训练时传 `--classes stop left right --negative_class N`。
+也可以在前端输入绝对路径或相对仓库根目录的路径。
 
-## 训练命令
+## 2. 从视频生成图片和标签
+
+```powershell
+cd <repo-root>
+.\tools\video\launch.ps1
+```
+
+打开 `http://127.0.0.1:6210`，输入：
+
+- 视频路径：默认 `video.mp4`
+- 类别名：例如 `person`
+- 类别 ID：例如 `0`
+- ROI 坐标：原始视频坐标 `x1 y1 x2 y2`
+- 抽帧间隔：例如 `5`
+
+输出固定为 640x480：
+
+```text
+tools/yolo/raw/images/*.jpg
+tools/yolo/raw/labels/*.txt
+```
+
+标签格式：
+
+```text
+class_id x_center y_center width height
+```
+
+## 3. 检查类别配置
+
+编辑 [dataset.yaml](dataset.yaml)，确保 `names` 顺序与前端输入 class id 一致。
+
+默认：
+
+```yaml
+names:
+  0: person
+  1: gesture1
+  2: gesture2
+  3: obstacle_box
+```
+
+如果前端使用 `class_id=0 class_name=ball`，这里也应改为：
+
+```yaml
+names:
+  0: ball
+```
+
+## 4. 划分训练集
 
 ```bash
-python tools/yolo/train_mobilenet_sigmoid_classifier.py \
-  --dataset_dir processed_dataset \
-  --output_dir outputs/rps_mobilenetv1 \
-  --classes P R S \
-  --negative_class N \
-  --epochs 30 \
-  --batch_size 64 \
-  --lr 1e-3 \
-  --weight_decay 1e-4 \
-  --pretrained
+python tools/yolo/split_dataset.py --dataset-root tools/yolo --train 0.8 --val 0.1 --seed 42
 ```
 
-Windows：
+脚本会重建：
 
-```bat
-tools\yolo\train_mobilenet_sigmoid_classifier.bat --dataset_dir processed_dataset --output_dir outputs/rps_mobilenetv1 --classes P R S --negative_class N --epochs 30 --batch_size 64 --lr 1e-3 --weight_decay 1e-4 --pretrained
+```text
+tools/yolo/images/train|val|test/
+tools/yolo/labels/train|val|test/
+```
+
+要求每张图片都有同名标签。
+
+## 5. 安装/使用 Ultralytics
+
+```powershell
+py -3.9 -m venv .venv39
+.\.venv39\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -e third_party/ultralytics
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+如果只用 CPU，把 PyTorch 安装命令换成本机适合版本。
+
+## 6. 训练 YOLOv8
+
+```powershell
+.\.venv39\Scripts\yolo.exe detect train model=yolov8n.pt data=tools/yolo/dataset.yaml epochs=100 batch=16 imgsz=640 device=0 project=tools/yolo/runs name=a1_yolo_640x480
 ```
 
 输出：
 
 ```text
-outputs/rps_mobilenetv1/
-├── best.pt
-├── last.pt
-└── metadata.json
+tools/yolo/runs/a1_yolo_640x480/weights/best.pt
 ```
 
-## 模型架构
+## 7. 验证与推理
 
-Backbone: `mobilenetv1_100` from `timm`，`num_classes=0`，`global_pool=""`。
+```powershell
+.\.venv39\Scripts\yolo.exe detect val model=tools/yolo/runs/a1_yolo_640x480/weights/best.pt data=tools/yolo/dataset.yaml device=0
+```
 
-Input: `1 x 3 x 320 x 320`。
+```powershell
+.\.venv39\Scripts\yolo.exe detect predict model=tools/yolo/runs/a1_yolo_640x480/weights/best.pt source=tools/yolo/images/test device=0
+```
 
-Head:
+## 8. 导出 ONNX
 
-1. `Conv2d(channels -> hidden_dim, 1x1)`
-2. `BatchNorm2d + ReLU`
-3. `Dropout2d`
-4. `Conv2d(hidden_dim -> class_count, full feature map)`
-5. `Flatten`
+```powershell
+.\.venv39\Scripts\yolo.exe export model=tools/yolo/runs/a1_yolo_640x480/weights/best.pt format=onnx opset=13 simplify=True imgsz=640
+```
 
-Output: sigmoid confidence vector in class order，例如 `[P, R, S]`。
-
-## 负样本语义
-
-正样本 target 是 one-hot：
+输出通常在：
 
 ```text
-P -> [1, 0, 0]
-R -> [0, 1, 0]
-S -> [0, 0, 1]
+tools/yolo/runs/a1_yolo_640x480/weights/best.onnx
 ```
 
-负样本 target 是全 0：
+## 9. 剪裁 ONNX head6
 
-```text
-N -> [0, 0, 0]
-```
+按 [docs/15_AI模型转换与部署.md](../../docs/15_AI模型转换与部署.md) 的 head6 输出节点剪裁方法处理 `best.onnx`。
 
-推理时取最大置信度；如果最大分数高于 threshold，输出对应类别，否则输出 `NoTarget`。
+剪裁后模型把 YOLO decode、DFL、NMS 放到 CPU 后处理，便于 A1 NPU 运行。
 
-## 训练细节
+## 10. 转换 m1model 和上板
 
-损失函数：`BCEWithLogitsLoss`，对每路输出独立计算二元交叉熵。
+按 [docs/15_AI模型转换与部署.md](../../docs/15_AI模型转换与部署.md)：
 
-优化器：`AdamW`，默认 `lr=1e-3`，`weight_decay=1e-4`。
+1. 用 SmartSens 模型转换工具/思思 AI 助手把 head6 ONNX 转成 `.m1model`。
+2. 放到板端 app assets models 目录。
+3. 确认板端前处理和训练一致：输入链路统一 640x480。
+4. 重新构建镜像并上板验证。
 
-学习率调度：`CosineAnnealingLR`，`T_max=epochs`。
+## MobileNet Sigmoid 模板
 
-训练增强与 demo-rps 一致：
+本目录还保留 RPS 风格 MobileNet sigmoid 分类脚本：
 
-1. `Resize((352, 352))`
-2. `RandomResizedCrop(320, scale=(0.75, 1.0), ratio=(0.9, 1.1))`
-3. `RandomHorizontalFlip(p=0.5)`
-4. `RandomRotation(degrees=18)`
-5. `ColorJitter(brightness=0.2, contrast=0.2, saturation=0.15, hue=0.05)`
-6. `RandomPerspective(distortion_scale=0.15, p=0.2)`
-7. `ToTensor()`
-8. `Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])`
-9. `RandomErasing(p=0.2, scale=(0.02, 0.12), ratio=(0.3, 3.0))`
+- [train_mobilenet_sigmoid_classifier.py](train_mobilenet_sigmoid_classifier.py)
+- [export_mobilenet_sigmoid_onnx.py](export_mobilenet_sigmoid_onnx.py)
+- [infer_mobilenet_sigmoid_classifier.py](infer_mobilenet_sigmoid_classifier.py)
+- [save_calibration_tensors.py](save_calibration_tensors.py)
 
-验证预处理：
-
-1. `Resize((320, 320))`
-2. `ToTensor()`
-3. `Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])`
-
-## 验证指标
-
-| 指标 | 说明 |
-| --- | --- |
-| `exact_match` | 所有类别预测与标签完全一致的比例 |
-| `positive_top1` | 正样本中 Top-1 分类准确率 |
-| `negative_recall` | 负样本中无任何类别超过阈值的比例 |
-
-最佳模型选择：验证阶段以 `(positive_top1 + negative_recall) / 2` 作为综合得分，最高时保存为 `best.pt`。
-
-## 单图推理
-
-```bash
-python tools/yolo/infer_mobilenet_sigmoid_classifier.py \
-  --image_path path/to/image.png \
-  --checkpoint outputs/rps_mobilenetv1/best.pt
-```
-
-输出示例：
-
-```json
-{
-  "label": "P",
-  "score": 0.9234,
-  "threshold": 0.5,
-  "confidence": {
-    "P": 0.9234,
-    "R": 0.0123,
-    "S": 0.0456
-  }
-}
-```
-
-## ONNX 导出
-
-```bash
-python tools/yolo/export_mobilenet_sigmoid_onnx.py \
-  --checkpoint outputs/rps_mobilenetv1/best.pt \
-  --output_path outputs/rps_mobilenetv1/best.onnx \
-  --opset 18
-```
-
-Windows：
-
-```bat
-tools\yolo\export_mobilenet_sigmoid_onnx.bat --checkpoint outputs/rps_mobilenetv1/best.pt --output_path outputs/rps_mobilenetv1/best.onnx --opset 18
-```
-
-ONNX 输入固定为 `1 x 3 x 320 x 320`，输出名为 `confidence`，输出已包含 sigmoid。
-
-## 校准张量
-
-```bash
-python tools/yolo/save_calibration_tensors.py \
-  --dataset_dir processed_dataset \
-  --output_dir outputs/rps_mobilenetv1/calibrate_datasets_bin \
-  --cal_num 50 \
-  --eval_num 20 \
-  --output_format bin
-```
-
-预处理固定：RGB、resize `320x320`、ImageNet mean/std normalize、NCHW、float32。
-
-输出：
-
-```text
-calibrate_datasets_bin/
-├── calibrate_datasets/
-├── evaluate_datasets/
-├── calibrate_datasets/calibration_manifest.txt
-└── evaluate_datasets/evaluation_manifest.txt
-```
-
-## m1model 转换
-
-按“【进站必读】模型部署流程说明（包括模型切分与 CPU 后处理实现-以 yolov8n 为例）”执行。此模板 ONNX 输出已包含 sigmoid，板端 CPU 后处理只需读取 `confidence` 数组并做 threshold/argmax。
-
-## 板端 Predict 逻辑
-
-RPS demo 参考：[rps_classifier.cpp](../../demo-rps/ssne_ai_demo/src/rps_classifier.cpp)。核心流程：
-
-```text
-RunAiPreprocessPipe
--> ssne_get_model_input_dtype
--> set_data_type
--> ssne_inference
--> ssne_getoutput
--> read float confidence array
--> argmax
--> threshold
--> class / NoTarget
-```
-
-C++ 关键逻辑：
-
-```cpp
-ssne_getoutput(model_id, 1, outputs);
-float* data = (float*)get_data(outputs[0]);
-
-float scores[3] = {data[0], data[1], data[2]};
-int max_idx = 0;
-float max_score = scores[0];
-for (int i = 1; i < 3; i++) {
-    if (scores[i] > max_score) {
-        max_score = scores[i];
-        max_idx = i;
-    }
-}
-
-const char* labels[] = {"P", "R", "S"};
-if (max_score > 0.6f) {
-    out_label = labels[max_idx];
-    out_score = max_score;
-} else {
-    out_label = "NoTarget";
-    out_score = max_score;
-}
-```
-
-如果类别数量变化，`scores` 和 `labels` 长度必须同步改。
+它们用于固定 ROI 分类，不用于 YOLO bbox 检测训练。
