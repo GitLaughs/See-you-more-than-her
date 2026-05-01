@@ -480,7 +480,9 @@ int main(int argc, char** argv) {
 
     cout << "sleep for 0.2 second!" << endl;
     usleep(200000);
+    cout << "[A1] draw startup background" << endl;
     visualizer.DrawBitmap("background.ssbmp", "shared_colorLUT.sscl", 0, 0, 2);
+    cout << "[A1] startup background draw call returned" << endl;
 
     ssne_tensor_t img_sensor;
     RuntimeState runtime;

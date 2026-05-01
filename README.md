@@ -78,7 +78,7 @@ pip install -r requirements.txt
 
 ## 构建与部署路径
 
-`scripts/build_complete_evb.sh` 会依次重建 Demo、可选构建 ROS2、再重新打包 SDK 镜像，因此最终可烧录产物是 `output/evb/<timestamp>/zImage.smartsens-m1-evb`，不是单独的 `ssne_ai_demo`。
+`scripts/build_complete_evb.sh` 会依次重建 Demo、可选构建 ROS2、再重新打包 SDK 镜像，因此最终可烧录产物是 `output/evb/<timestamp>/zImage.smartsens-m1-evb`（同时更新软链接 `output/evb/latest`），不是单独的 `ssne_ai_demo`。
 
 常用脚本：
 - 完整镜像：`scripts/build_complete_evb.sh`

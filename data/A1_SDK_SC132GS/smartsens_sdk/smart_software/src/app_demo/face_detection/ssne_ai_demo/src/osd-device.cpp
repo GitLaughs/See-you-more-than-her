@@ -318,6 +318,10 @@ void OsdDevice::DrawTexture(const char* bitmap_path, const char* lut_path, int l
     LOG_DEBUG("[OsdDevice] Bitmap alpha: %d\n", (int)bm_info.alpha);
     // 添加位图到指定图层
     //std::cout << "[OsdDevice] Calling osd_add_texture_layer for layer_id=" << layer_id << std::endl;
+    std::cout << "[OsdDevice] DrawTexture bitmap=" << (bitmap_path ? bitmap_path : "NULL")
+              << " lut=" << (lut_path ? lut_path : "")
+              << " layer=" << layer_id
+              << " pos=(" << pos_x << "," << pos_y << ")" << std::endl;
     int ret = osd_add_texture_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id, &bm_info);
     if (ret != 0) {
         std::cerr << "[OsdDevice] ERROR: osd_add_texture_layer failed! ret=" << ret
@@ -333,10 +337,7 @@ void OsdDevice::DrawTexture(const char* bitmap_path, const char* lut_path, int l
         }
         return;
     }
-    LOG_DEBUG("[OsdDevice] osd_add_texture_layer succeeded\n");
-    // 刷新位图数据到设备
-    //std::cout << "[OsdDevice] Before flush: checking layer " << layer_id << " status" << std::endl;
-    //std::cout << "[OsdDevice] Calling osd_flush_texture_layer for layer_id=" << layer_id << std::endl;
+    std::cout << "[OsdDevice] osd_add_texture_layer succeeded layer=" << layer_id << std::endl;
     ret = osd_flush_texture_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
     if (ret != 0) {
         std::cerr << "[OsdDevice] ERROR: osd_flush_texture_layer failed! ret=" << ret
@@ -348,7 +349,7 @@ void OsdDevice::DrawTexture(const char* bitmap_path, const char* lut_path, int l
         std::cerr << "[OsdDevice]   4. Layer " << layer_id << " region object encoding failed" << std::endl;
         std::cerr << "[OsdDevice]   5. Layer " << layer_id << " not enabled" << std::endl;
     } else {
-        LOG_DEBUG("[OsdDevice] Texture drawn successfully\n");
+        std::cout << "[OsdDevice] osd_flush_texture_layer succeeded layer=" << layer_id << std::endl;
     }
 }
 

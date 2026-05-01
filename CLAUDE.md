@@ -189,6 +189,12 @@ Many Windows tool bugs are really confusion between these two paths.
 - Do not treat `output/` as source of truth.
 - `build_complete_evb.sh --app-only` assumes SDK build cache already exists from at least one prior full build.
 
+## Tooling and workflow pitfalls
+
+- When using the `Read` tool, omit `pages` for source/text files. Never pass an empty `pages` value; `pages` is only for PDFs and invalid empty values repeatedly break reads.
+- Treat Docker container edits as temporary unless copied back into this repository. Prefer editing repo files first, then build through `docker exec A1_Builder ...`; if you must inspect or patch inside `/app`, immediately mirror the same change to the matching source path under repo root before committing.
+- For board OSD issues, add stdout evidence around `VISUALIZER::Initialize`, `DrawBitmap`, `osd_add_texture_layer`, and `osd_flush_texture_layer` before claiming behavior. Screenshots alone cannot distinguish app-not-running, stale flashed image, OSD API failure, or Aurora preview path.
+
 ## Board OSD interaction guidance
 
 - RPS OSD pattern: use `.ssbmp` assets in `app_assets/`, draw via `VISUALIZER::DrawBitmap`, keep background on layer 2, transient state/animation on layers 3/4, clear transient layers on state changes.
