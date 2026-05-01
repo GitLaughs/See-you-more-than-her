@@ -21,16 +21,11 @@ void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
     img_shape = *in_img_shape;      // 保存原始图像尺寸
     
     // 在线图像配置参数
-    uint16_t img_width = static_cast<uint16_t>(img_shape[0]);   // 原始图像宽度
-    uint16_t img_height = static_cast<uint16_t>(img_shape[1]);  // 原始图像高度
-    format_online = SSNE_Y_8;                    // 图像格式：8位灰度图
-    
-    // pipe0 输出在线裁剪后的 720×540 图像，缩放到 640×480 交给 AI 预处理链路。
-    OnlineSetCrop(kPipeline0, cfg::PIPE_CROP_X1, cfg::PIPE_CROP_X2,
-                  cfg::PIPE_CROP_Y1, cfg::PIPE_CROP_Y2);
-    OnlineSetOutputImage(kPipeline0, format_online,
-                         static_cast<uint16_t>(cfg::PIPE_CROP_WIDTH),
-                         static_cast<uint16_t>(cfg::PIPE_CROP_HEIGHT));
+    uint16_t img_width = static_cast<uint16_t>(img_shape[0]);
+    uint16_t img_height = static_cast<uint16_t>(img_shape[1]);
+    format_online = SSNE_YUV422_16;
+
+    OnlineSetOutputImage(kPipeline0, format_online, img_width, img_height);
     
     // 打开pipe0（裁剪图像通道）
     int res0 = OpenOnlinePipeline(kPipeline0);
@@ -43,13 +38,13 @@ void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
 }
 
 /**
- * @brief 从pipeline获取在线裁剪后的 720×540 图像
- * @param img_sensor 输出参数：存储从pipe0获取的裁剪图像
+ * @brief 从pipeline获取 1920×1080 图像
+ * @param img_sensor 输出参数：存储从pipe0获取的显示图像
  */
 void IMAGEPROCESSOR::GetImage(ssne_tensor_t* img_sensor) {
     int capture_code = -1;  // pipe0采集返回码
-    
-    // 从pipe0获取 720×540 在线裁剪图像数据
+
+    // 从pipe0获取 1920×1080 在线图像数据
     capture_code = GetImageData(img_sensor, kPipeline0, kSensor0, 0);
     
     // 检查pipe0采集是否成功

@@ -2,9 +2,8 @@
  * project_paths.hpp — ssne_ai_demo 全局配置
  *
  * 分辨率设计说明:
- *   - 传感器采集: 当前板端返回 720 × 1280 (Y8 灰度, Aurora 显示层会旋转)
- *   - 在线裁剪:   720 × 540 (y=370..910)
- *   - 推理输入:   640 × 480 (RunAiPreprocessPipe 将裁剪图缩放到模型输入)
+ *   - 显示探针:   1920 × 1080 (YUV422, 与 demo-rps 一致)
+ *   - 推理输入:   暂停（先验证 OSD 背景合成流）
  *   评委演示版本统一沿用 640×480 中心裁剪链路，训练/验证/部署需保持一致。
  *
  * 模型说明:
@@ -21,8 +20,8 @@
 namespace cfg {
 
 // ─── 摄像头采集分辨率 ────────────────────────────────────────────────────────
-constexpr int SENSOR_WIDTH  = 720;
-constexpr int SENSOR_HEIGHT = 1280;
+constexpr int SENSOR_WIDTH  = 1920;
+constexpr int SENSOR_HEIGHT = 1080;
 
 // ─── OSD 显示画布 ────────────────────────────────────────────────────────────
 constexpr int OSD_WIDTH  = 1920;
