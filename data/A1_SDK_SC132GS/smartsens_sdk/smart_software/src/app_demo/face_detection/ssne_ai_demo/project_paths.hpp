@@ -2,8 +2,8 @@
  * project_paths.hpp — ssne_ai_demo 全局配置
  *
  * 分辨率设计说明:
- *   - 显示探针:   1920 × 1080 (YUV422, 与 demo-rps 一致)
- *   - 推理输入:   暂停（先验证 OSD 背景合成流）
+ *   - 显示输出:   1920 × 1080 (YUV422, 与 demo-rps 一致)
+ *   - 推理输入:   640 × 480 (RunAiPreprocessPipe 将显示帧缩放到模型输入)
  *   评委演示版本统一沿用 640×480 中心裁剪链路，训练/验证/部署需保持一致。
  *
  * 模型说明:
@@ -44,7 +44,7 @@ constexpr int DET_HEIGHT = 480;
 
 // ─── 模型文件路径 ────────────────────────────────────────────────────────────
 const std::string MODEL_PATH =
-    "/app_demo/app_assets/models/best_a1_640x480.m1model";
+    "/app_demo/app_assets/models/7e6a9b7a-913e-4f5d-97dd-d064d8880b43_best_head6.m1model";
 
 // ─── YOLOv8 模型参数 ─────────────────────────────────────────────────────────
 constexpr int  YOLO_NUM_CLASSES = 4;

@@ -494,13 +494,21 @@ int main(int argc, char** argv) {
 
     while (!check_exit_flag()) {
         processor.GetImage(&img_sensor);
-        FaceDetectionResult empty_result;
-        det_result->Clear();
+        detector.Predict(&img_sensor, det_result, cfg::DET_CONF_THRESH);
 
-        std::vector<std::array<float, 4>> empty_boxes;
-        visualizer.Draw(empty_boxes);
+        if (!det_result->boxes.empty()) {
+            visualizer.Draw(to_osd_boxes(*det_result, crop_offset_y, osd_scale_x, osd_scale_y));
+        } else {
+            std::vector<std::array<float, 4>> empty_boxes;
+            visualizer.Draw(empty_boxes);
+        }
 
-        ui_state = update_semantic_state(&semantic_stabilizer, empty_result, ActionState::Idle);
+        const ActionState raw_action = decide_action(
+            *det_result,
+            &runtime,
+            static_cast<float>(crop_shape[0]),
+            static_cast<float>(crop_shape[1]));
+        ui_state = update_semantic_state(&semantic_stabilizer, *det_result, raw_action);
         runtime.action = ui_state.action_hint;
         runtime.frame_index += 1;
         render_semantic_osd(&visualizer, ui_state, runtime.frame_index, &last_osd_label);
