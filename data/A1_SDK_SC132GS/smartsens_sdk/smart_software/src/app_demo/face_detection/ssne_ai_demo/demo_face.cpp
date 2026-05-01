@@ -466,13 +466,14 @@ int main(int argc, char** argv) {
     FaceDetectionResult* det_result = new FaceDetectionResult;
 
     VISUALIZER visualizer;
-    visualizer.Initialize(img_shape);
+    visualizer.Initialize(img_shape, "shared_colorLUT.sscl");
 
     ChassisController chassis;
     const bool chassis_ready = chassis.Init();
 
     cout << "sleep for 0.2 second!" << endl;
     usleep(200000);
+    visualizer.DrawBitmap("background.ssbmp", "shared_colorLUT.sscl", 0, 0, 2);
 
     ssne_tensor_t img_sensor;
     RuntimeState runtime;

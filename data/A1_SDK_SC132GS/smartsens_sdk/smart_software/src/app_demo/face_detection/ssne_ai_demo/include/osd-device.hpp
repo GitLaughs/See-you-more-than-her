@@ -60,7 +60,7 @@ private:
 
 private:
     handle_t m_osd_handle;
-    std::string m_osd_lut_path = "/app_demo/app_assets/colorLUT.sscl";
+    std::string m_osd_lut_path = "/app_demo/app_assets/shared_colorLUT.sscl";
     // std::string m_texture_path = "/ai/imgs/test_24.ssbmp";
     uint8_t *m_pcolor_lut = nullptr;
     int m_file_size = 0;
