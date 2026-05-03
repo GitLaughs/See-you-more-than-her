@@ -26,6 +26,46 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]-$0}")" && pwd)
 ROOT_DIR=$(cd "${SCRIPT_DIR}/.." && pwd)
+SDK_ROOT="${ROOT_DIR}/data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk"
+
+normalize_sdk_line_endings() {
+  [[ -d "${SDK_ROOT}" ]] || return 0
+
+  local changed=()
+  local path rel
+  local roots=()
+
+  for path in \
+    "${SDK_ROOT}/scripts" \
+    "${SDK_ROOT}/smart_software" \
+    "${SDK_ROOT}/support/scripts" \
+    "${SDK_ROOT}/support/download" \
+    "${SDK_ROOT}/support/dependencies" \
+    "${SDK_ROOT}/support/kconfig" \
+    "${SDK_ROOT}/support/misc"; do
+    [[ -d "${path}" ]] && roots+=("${path}")
+  done
+  (( ${#roots[@]} > 0 )) || return 0
+
+  while IFS= read -r -d '' path; do
+    grep -Iq . "${path}" || continue
+    grep -q $'\r' "${path}" || continue
+    sed -i 's/\r$//' "${path}"
+    rel=${path#"${SDK_ROOT}/"}
+    changed+=("${rel}")
+  done < <(find "${roots[@]}" -type f -print0)
+
+  if (( ${#changed[@]} > 0 )); then
+    echo "[bootstrap] 规范化 ${#changed[@]} 个 SDK 文本构建控制文件为 LF"
+    local limit=${#changed[@]}
+    (( limit > 10 )) && limit=10
+    local i
+    for (( i=0; i<limit; i++ )); do
+      echo "[bootstrap]   ${changed[i]}"
+    done
+    (( ${#changed[@]} > limit )) && echo "[bootstrap]   ..."
+  fi
+}
 
 # ─── 颜色输出 ────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
@@ -93,6 +133,8 @@ if [[ ${DOCKER_ONLY} -eq 0 ]]; then
 
     log "✓ SDK 克隆成功"
   fi
+
+  normalize_sdk_line_endings
 
   # 验证 SDK 结构
   echo ""
@@ -177,15 +219,15 @@ fi
 echo ""
 
 # ════════════════════════════════════════════════════════════════
-# STEP 4：构建最终 Docker 镜像（加入 ROS2 Jazzy）
+# STEP 4：构建最终 Docker 镜像
 # ════════════════════════════════════════════════════════════════
-echo "── Step 4: 构建 A1_Builder 镜像（添加 ROS2 Jazzy）─────────"
+echo "── Step 4: 构建 A1_Builder 镜像 ────────────────────────"
 
 if [[ ${SKIP_BUILD} -eq 1 ]]; then
   log "跳过 docker build（--skip-build）"
 else
   log "从 docker/Dockerfile 构建最终镜像（约 10-20 分钟，需要网络）..."
-  log "此步骤会在 SmartSens SDK 基础上安装 ROS2 Jazzy + colcon 工具"
+  log "此步骤会在 SmartSens SDK 基础上准备 A1 构建环境"
   echo ""
   docker build \
     -f "${ROOT_DIR}/docker/Dockerfile" \
@@ -193,7 +235,7 @@ else
     "${ROOT_DIR}" \
     || fail "docker build 失败。
   常见原因：
-  1. 网络问题（ROS2 包无法下载） — 检查代理或镜像源配置
+  1. 网络问题（依赖包无法下载） — 检查代理或镜像源配置
   2. 磁盘空间不足（需要约 10GB）
   3. 基础镜像与 Dockerfile 不兼容"
 
@@ -238,11 +280,9 @@ verify() {
   fi
 }
 
-verify "SDK 目录挂载"   "test -d /app/data/A1_SDK_SC132GS/smartsens_sdk"
-verify "构建脚本挂载"   "test -f /app/scripts/build_complete_evb.sh"
-verify "ROS2 Jazzy"    "test -f /opt/ros/jazzy/setup.bash"
-verify "colcon 工具"   "which colcon"
-verify "buildroot_pkg" "test -f /app/src/buildroot_pkg/external.desc"
+verify "SDK 外层目录挂载" "test -d /app/data/A1_SDK_SC132GS/smartsens_sdk"
+verify "SDK 内层构建根"   "test -f /app/data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/scripts/build_release_sdk.sh"
+verify "构建脚本挂载"     "test -f /app/scripts/build_complete_evb.sh"
 echo ""
 
 # ════════════════════════════════════════════════════════════════
@@ -253,11 +293,11 @@ log "✓ 初始化完成！"
 echo ""
 echo "下一步操作："
 echo ""
-echo "  # 完整 EVB 构建（含 ROS2 底盘包，约 12 分钟）："
+echo "  # 完整 EVB 构建："
 echo "  docker exec A1_Builder bash -lc \"bash /app/scripts/build_complete_evb.sh\""
 echo ""
-echo "  # 快速构建（跳过 ROS2，约 8 分钟）："
-echo "  docker exec A1_Builder bash -lc \"bash /app/scripts/build_complete_evb.sh --skip-ros\""
+echo "  # 只重建 app 并重新打包镜像："
+echo "  docker exec A1_Builder bash -lc \"bash /app/scripts/build_complete_evb.sh --app-only\""
 echo ""
 echo "  # 查看构建产物："
 echo "  ls output/evb/latest/"

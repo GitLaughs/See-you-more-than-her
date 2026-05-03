@@ -2216,11 +2216,10 @@ def switch_camera():
     global camera, device_id_global, camera_source_global, _fail_streak, _consecutive_failures, camera_connected
 
     data = request.get_json(silent=True) or {}
-    if "device" not in data:
-        return jsonify({"success": False, "error": "缺少 device 参数"})
+    raw_device = data.get("device", device_id_global)
 
     try:
-        new_device = int(data.get("device"))
+        new_device = int(raw_device)
     except (TypeError, ValueError):
         return jsonify({"success": False, "error": "device 必须是整数"})
 

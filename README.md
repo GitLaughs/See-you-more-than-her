@@ -1,11 +1,10 @@
 # A1 Vision Robot Stack
 
-基于 SmartSens A1 开发板的嵌入式机器人软件栈，覆盖板端视觉推理、SDK 镜像打包、ROS2 底盘集成和 Windows Aurora 联调工具。
+基于 SmartSens A1 开发板的嵌入式机器人软件栈，覆盖板端视觉推理、SDK 镜像打包、STM32 底盘集成和 Windows Aurora 联调工具。
 
 ## 仓库由什么组成
-- 板端 AI Demo：`data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
+- 板端 AI Demo：`data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
 - SDK / 固件打包层：`data/A1_SDK_SC132GS/smartsens_sdk/`
-- ROS2 工作区：`src/ros2_ws/`
 - Windows 工具：`tools/aurora/`、`tools/PC/`、`tools/A1/`
 - STM32 集成参考：`src/stm32_akm_driver/`
 
@@ -36,7 +35,6 @@ docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh"
 常见变体：
 
 ```bash
-docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --skip-ros"
 docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --app-only"
 ```
 
@@ -63,26 +61,21 @@ pip install -r requirements.txt
 优先修改：
 - `scripts/`
 - `tools/aurora/`
-- `src/ros2_ws/`
 - `docs/`
-- `data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
+- `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
 
 谨慎修改：
-- `data/A1_SDK_SC132GS/smartsens_sdk/` 其余部分
-- `src/ros2_ws/src/aruco_ros-humble-devel/`
-- `src/ros2_ws/src/usb_cam-ros2/`
-- `src/ros2_ws/src/web_video_server-ros2/`
+- `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/` 其余部分
 - `third_party/ultralytics/`
 - `WHEELTEC_C50X_2025.12.26/`
 - `output/`
 
 ## 构建与部署路径
 
-`scripts/build_complete_evb.sh` 会依次重建 Demo、可选构建 ROS2、再重新打包 SDK 镜像，因此最终可烧录产物是 `output/evb/<timestamp>/zImage.smartsens-m1-evb`（同时更新软链接 `output/evb/latest`），不是单独的 `ssne_ai_demo`。
+`scripts/build_complete_evb.sh` 会在内层 SDK 构建根 `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/` 下重建 `ssne_ai_demo`、重新打包 SDK 镜像，并把最终可烧录产物落到 `output/evb/<timestamp>/zImage.smartsens-m1-evb`（同时更新 `output/evb/latest/zImage.smartsens-m1-evb`），不是单独的 `ssne_ai_demo`。
 
 常用脚本：
 - 完整镜像：`scripts/build_complete_evb.sh`
-- ROS2 工作区：`scripts/build_ros2_ws.sh`
 - 定向增量：`scripts/build_incremental.sh`
 - 初始化环境：`scripts/bootstrap.sh`
 
@@ -92,11 +85,6 @@ pip install -r requirements.txt
 - 板端主应用位于 `ssne_ai_demo/`
 - 通过 `/app_demo/scripts/run.sh` 做基础运行验证
 - A1_TEST、Link-Test、UART 底盘控制都在这条路径上
-
-### ROS2
-- `src/ros2_ws/` 是独立工作区和后续集成路径，不等于默认板端运行栈
-- `scripts/build_ros2_ws.sh` 只扫描 `src/ros2_ws/src/` 下的包
-- 部分可选包刻意保留 `COLCON_IGNORE`
 
 ### Windows 工具
 - `tools/aurora/`：视频预览、拍照、COM13 终端、A1_TEST 手动测试
@@ -126,9 +114,7 @@ pip install -r requirements.txt
 - [后续开发建议](docs/14_%E5%90%8E%E7%BB%AD%E5%BC%80%E5%8F%91%E5%BB%BA%E8%AE%AE.md)
 
 ### 专题参考
-- [ROS 底盘集成](docs/08_ROS%E5%BA%95%E7%9B%98%E9%9B%86%E6%88%90.md)
 - [AI 模型训练](docs/09_AI%E6%A8%A1%E5%9E%8B%E8%AE%AD%E7%BB%83.md)
-- [雷达集成](docs/10_%E9%9B%B7%E8%BE%BE%E9%9B%86%E6%88%90.md)
 - [AI 模型转换与部署](docs/15_AI%E6%A8%A1%E5%9E%8B%E8%BD%AC%E6%8D%A2%E4%B8%8E%E9%83%A8%E7%BD%B2.md)
 - [A1 深度感知与点云避障方案](docs/16_A1%E6%B7%B1%E5%BA%A6%E6%84%9F%E7%9F%A5%E4%B8%8E%E7%82%B9%E4%BA%91%E9%81%BF%E9%9A%9C%E6%96%B9%E6%A1%88.md)
 
@@ -140,5 +126,4 @@ pip install -r requirements.txt
 ## 最小验证建议
 - 改文档：检查链接、脚本名、端口、路径是否一致
 - 改 Windows 工具：至少运行 `python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_terminal.py tools/aurora/qt_camera_bridge.py tools/PC/pc_tool.py tools/PC/pc_chassis.py tools/A1/a1_tool.py tools/A1/a1_relay.py tools/A1/a1_serial.py`
-- 改 ROS2：优先做包级构建
 - 改板端或镜像：优先做 `build_incremental.sh` 或 `build_complete_evb.sh`

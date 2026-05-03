@@ -1,32 +1,29 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) in this repo.
 
 ## Repository shape
 
-This repo is not single app. It is A1 vision robot stack with four main first-party layers:
+Repo = A1 vision robot stack, not single app. Four first-party layers:
 
-- **Board-side AI demo** — `data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
+- **Board-side AI demo** — `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
   - Runs on SmartSens A1 board.
-  - Owns inference pipeline, OSD, `A1_TEST` CLI/debug path, and some UART/chassis integration.
+  - Owns inference pipeline, OSD, `A1_TEST` CLI/debug path, UART/chassis integration.
 - **SDK / firmware packaging** — `data/A1_SDK_SC132GS/smartsens_sdk/` plus root `scripts/`
-  - Vendor SDK tree plus repo-level build wrappers.
+  - Vendor SDK tree plus repo build wrappers.
   - Produces final EVB image, not only app binary.
-- **ROS2 workspace** — `src/ros2_ws/`
-  - Separate Jazzy workspace for chassis control and later ROS integration.
-  - Not same thing as default board-side runtime path.
 - **Windows host tools** — `tools/aurora/`, `tools/PC/`, `tools/A1/`
   - Aurora: camera preview, capture, COM13 terminal, manual `A1_TEST` checks.
-  - PC: direct PC → STM32 serial debugging.
+  - PC: direct PC → STM32 serial debug.
   - A1: COM13 → `A1_TEST` → STM32 relay control.
 
-Prefer edits in `scripts/`, `tools/`, `src/ros2_ws/`, `docs/`, and `.../ssne_ai_demo/`. Treat rest of `smartsens_sdk/`, `third_party/ultralytics/`, and vendor ROS packages as imported/vendor-heavy code.
+Prefer edits in `scripts/`, `tools/`, `docs/`, and `.../ssne_ai_demo/`. Treat rest of `smartsens_sdk/`, `third_party/ultralytics/`, and vendor-heavy packages as imported/vendor-heavy code.
 
 ## Common commands
 
 Run from repo root unless noted.
 
-Read `README.md`, `tools/aurora/README.md`, `src/ros2_ws/README.md`, `docs/03_编译与烧录.md`, `docs/06_程序概览.md`, and `docs/07_架构设计.md` before changing build or integration behavior.
+Read `README.md`, `tools/aurora/README.md`, `docs/03_编译与烧录.md`, `docs/06_程序概览.md`, and `docs/07_架构设计.md` before build/integration behavior changes.
 
 ### Bootstrap / container
 
@@ -48,7 +45,6 @@ Run inside `A1_Builder` container:
 
 ```bash
 docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh"
-docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --skip-ros"
 docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --app-only"
 docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --clean"
 ```
@@ -57,20 +53,7 @@ docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --clean
 
 ```bash
 bash scripts/build_docker.sh
-bash scripts/build_docker.sh --skip-ros
 bash scripts/build_docker.sh --clean
-```
-
-### ROS2 workspace build
-
-Requires `/opt/ros/jazzy/setup.bash`.
-
-```bash
-bash scripts/build_ros2_ws.sh --clean
-bash scripts/build_ros2_ws.sh
-bash scripts/build_ros2_ws.sh --verbose
-bash scripts/build_ros2_ws.sh --with-sdk
-bash scripts/build_ros2_ws.sh wheeltec_robot_msg turn_on_wheeltec_robot
 ```
 
 ### Incremental builds
@@ -79,8 +62,6 @@ bash scripts/build_ros2_ws.sh wheeltec_robot_msg turn_on_wheeltec_robot
 bash scripts/build_incremental.sh sdk ssne_ai_demo
 bash scripts/build_incremental.sh sdk m1_sdk_lib
 bash scripts/build_incremental.sh sdk linux
-bash scripts/build_incremental.sh ros wheeltec_multi
-bash scripts/build_incremental.sh ros --clean turn_on_wheeltec_robot
 ```
 
 ### Board-side runtime check
@@ -128,72 +109,68 @@ Default ports: Aurora `6201`, PC `6202`, A1 `6203`.
 python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_terminal.py tools/aurora/qt_camera_bridge.py tools/PC/pc_tool.py tools/PC/pc_chassis.py tools/A1/a1_tool.py tools/A1/a1_relay.py tools/A1/a1_serial.py
 ```
 
-Note: docs and scripts are not fully consistent on Docker container naming. `docker exec A1_Builder ...` is used by README/docs for full-image builds, while `scripts/build_docker.sh` internally uses container name `dev`.
+Note: docs/scripts container names differ. `docker exec A1_Builder ...` used by README/docs for full-image builds; `scripts/build_docker.sh` uses service `dev`.
 
 ## Build and runtime architecture
 ### 1. Firmware build flow
 
-Authoritative image build is `scripts/build_complete_evb.sh`.
+Authoritative image build: `scripts/build_complete_evb.sh`.
 
 Flow:
 1. optionally rebuild SDK base layers
 2. rebuild `ssne_ai_demo`
-3. optionally build ROS2 workspace
-4. rerun SDK packaging so newest app goes into initramfs / `zImage`
-5. collect outputs in `output/evb/<timestamp>/`
+3. rerun SDK packaging so newest app enters final `zImage`
+4. collect outputs in `output/evb/<timestamp>/`
 
-Important consequence: `ssne_ai_demo` alone is not final deployable artifact. Final flashable output is `zImage.smartsens-m1-evb`.
+Consequence: `ssne_ai_demo` alone is not deployable artifact. Final flashable output: `zImage.smartsens-m1-evb`.
 
-### 2. Board app vs ROS2 split
+### 2. Board app and SDK packaging
 
-`ssne_ai_demo` is current board-side runtime path. `src/ros2_ws/` is separate integration path for ROS nodes and chassis work. Do not assume ROS2 packages are part of default board boot/runtime flow.
-
-`scripts/build_ros2_ws.sh` only scans `src/ros2_ws/src/`. Several heavier packages are intentionally disabled by `COLCON_IGNORE` and should stay that way unless task is specifically about enabling them:
-
-- `wheeltec_robot_kcf`
-- `wheeltec_robot_urdf`
-- `wheeltec_rviz2`
-- `aruco_ros-humble-devel`
-- `usb_cam-ros2`
-- `web_video_server-ros2`
+`ssne_ai_demo` is current board runtime path. Active build root: `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/`. `scripts/build_complete_evb.sh` rebuilds app, reruns SDK packaging, emits flashable `zImage.smartsens-m1-evb`.
 
 ### 3. Windows tool structure
 
-`tools/aurora/aurora_companion.py` is video / COM13 entrypoint. It ties together:
+`tools/aurora/aurora_companion.py` = video / COM13 entrypoint. Ties together:
 
 - `qt_camera_bridge.py` — QtMultimedia camera path
 - `serial_terminal.py` — shared `A1_TEST` serial terminal
 - `templates/companion_ui.html` — Aurora Web UI
 
-`tools/PC/pc_tool.py` is direct STM32 entrypoint. It registers `pc_chassis.py` only. Default communication port is `COM17`.
+`tools/PC/pc_tool.py` = direct STM32 entrypoint. Registers `pc_chassis.py` only. Default communication port: `COM17`.
 
-`tools/A1/a1_tool.py` is COM13 relay entrypoint. It registers A1 relay and serial-terminal routes for COM13 → `A1_TEST` → STM32.
+`tools/A1/a1_tool.py` = COM13 relay entrypoint. Registers A1 relay and serial-terminal routes for COM13 → `A1_TEST` → STM32.
 
-Current accepted camera init flow from docs: start `Aurora.exe` first, then let Companion take over.
+Accepted camera init flow from docs: start `Aurora.exe` first, then Companion takes over.
 
 ### 4. Hardware/control paths
 
-Keep these two debug/control paths separate:
+Keep debug/control paths separate:
 
 - **Direct STM32 path**: PC serial port → STM32 UART
 - **Relay-through-A1 path**: PC COM13 → A1 `A1_TEST` CLI → A1 UART0 → STM32 UART3
 
-Many Windows tool bugs are really confusion between these two paths.
+Many Windows tool bugs = confusion between these paths.
 
 ## Existing repo guidance worth keeping in mind
 
-- Read `README.md`, `tools/aurora/README.md`, and `src/ros2_ws/README.md` before changing build or integration behavior.
-- `docs/03_编译与烧录.md` is best reference for end-to-end build/flash flow.
-- `docs/06_程序概览.md` and `docs/07_架构设计.md` are best big-picture architecture summaries.
-- `docs/13_贡献指南.md` is useful when touching repo-level structure or workflow.
+- Read `README.md` and `tools/aurora/README.md` before build/integration changes.
+- `docs/03_编译与烧录.md` = best end-to-end build/flash reference.
+- `docs/06_程序概览.md` and `docs/07_架构设计.md` = best architecture summaries.
+- `docs/13_贡献指南.md` useful for repo structure/workflow changes.
 - Do not treat `output/` as source of truth.
-- `build_complete_evb.sh --app-only` assumes SDK build cache already exists from at least one prior full build.
+- `build_complete_evb.sh --app-only` assumes SDK build cache exists from one prior full build.
 
 ## Tooling and workflow pitfalls
 
-- When using the `Read` tool, omit `pages` for source/text files. Never pass an empty `pages` value; `pages` is only for PDFs and invalid empty values repeatedly break reads.
-- Treat Docker container edits as temporary unless copied back into this repository. Prefer editing repo files first, then build through `docker exec A1_Builder ...`; if you must inspect or patch inside `/app`, immediately mirror the same change to the matching source path under repo root before committing.
+- With `Read` tool, omit `pages` for source/text files. Never pass empty `pages`; `pages` only for PDFs and empty values break reads.
+- Treat Docker container edits as temporary unless copied back here. Prefer repo edits first, then build through `docker exec A1_Builder ...`; if inspecting/patching inside `/app`, mirror same change to matching repo path before commit.
 - For board OSD issues, add stdout evidence around `VISUALIZER::Initialize`, `DrawBitmap`, `osd_add_texture_layer`, and `osd_flush_texture_layer` before claiming behavior. Screenshots alone cannot distinguish app-not-running, stale flashed image, OSD API failure, or Aurora preview path.
+- `data/A1_SDK_SC132GS/smartsens_sdk/` = upstream repo root; actual SDK build root nested at `.../smartsens_sdk/smartsens_sdk/`.
+- For `git.smartsenstech.ai` clones/fetches, disable proxy env/config for command if Git routes via `127.0.0.1` and disconnects.
+- After replacing official SDK contents on Windows, normalize CRLF SDK Buildroot control files and executable scripts to LF before first container build; not only `scripts/*.sh`.
+- Docker should bind-mount host `data/A1_SDK_SC132GS` to `/app/data/A1_SDK_SC132GS`; build scripts target nested SDK root under mount.
+- Outer `data/A1_SDK_SC132GS/smartsens_sdk/smart_software/` can become stale after repo replacement; active demo/build path is nested SDK root, not outer mirror.
+- `scripts/build_complete_evb.sh --app-only` should fail fast when nested SDK baseline artifact missing; run full build once to seed cache.
 
 ## Board OSD interaction guidance
 
