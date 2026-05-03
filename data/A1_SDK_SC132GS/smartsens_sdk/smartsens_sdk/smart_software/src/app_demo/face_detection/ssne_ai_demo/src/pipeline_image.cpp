@@ -1,18 +1,16 @@
 #include "../include/common.hpp"
 
-namespace {
-constexpr uint16_t kCaptureWidth = 720;
-constexpr uint16_t kCaptureHeight = 1280;
-}
-
 bool IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
 {
     img_shape = *in_img_shape;
     format_online = SSNE_YUV422_16;
 
-    int set_result = OnlineSetOutputImage(kPipeline0, format_online, kCaptureWidth, kCaptureHeight);
+    uint16_t img_width = static_cast<uint16_t>(img_shape[0]);
+    uint16_t img_height = static_cast<uint16_t>(img_shape[1]);
+    int set_result = OnlineSetOutputImage(kPipeline0, format_online, img_width, img_height);
     if (set_result != 0) {
-        printf("[ERROR] Failed to set online output image: %d\n", set_result);
+        printf("[ERROR] Failed to set online output image: %d, size=%ux%u\n",
+               set_result, img_width, img_height);
         return false;
     }
 
@@ -22,10 +20,9 @@ bool IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
         return false;
     }
 
-    img_shape = {kCaptureWidth, kCaptureHeight};
     opened = true;
     printf("[INFO] open online pipe0: %d, format=%u, size=%ux%u\n",
-           open_result, format_online, kCaptureWidth, kCaptureHeight);
+           open_result, format_online, img_width, img_height);
     return true;
 }
 
