@@ -229,15 +229,23 @@ function Test-PortAvailable {
     }
 }
 
-function Resolve-FixedPort {
+function Resolve-AvailablePort {
     param(
         [string]$BindHost,
         [int]$PreferredPort
     )
+
     if (Test-PortAvailable -BindHost $BindHost -BindPort $PreferredPort) {
         return $PreferredPort
     }
-    throw "[Aurora] Fixed port $PreferredPort is not available. Free it or choose another explicit -Port value."
+
+    for ($candidate = $PreferredPort + 1; $candidate -le 65535; $candidate++) {
+        if (Test-PortAvailable -BindHost $BindHost -BindPort $candidate) {
+            return $candidate
+        }
+    }
+
+    throw "[Aurora] No available port found from $PreferredPort to 65535."
 }
 
 function Stop-StaleCompanionOnPort {
@@ -318,7 +326,7 @@ Start-AuroraBootstrap -Disabled:$SkipAurora
 Stop-StaleCompanionOnPort -BindPort $Port
 Stop-StaleQtBridge
 Wait-PortReleased -BindHost $ListenHost -BindPort $Port -TimeoutSeconds 5 | Out-Null
-$ResolvedPort = Resolve-FixedPort -BindHost $ListenHost -PreferredPort $Port
+$ResolvedPort = Resolve-AvailablePort -BindHost $ListenHost -PreferredPort $Port
 $browserUrl = "http://127.0.0.1:$ResolvedPort"
 
 Start-BrowserWhenReady -ReadyPort $ResolvedPort -Url $browserUrl

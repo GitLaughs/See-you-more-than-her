@@ -6,7 +6,7 @@
 <title>Aurora Companion</title>
 <style>
 :root{--bg:#f3f6fb;--panel:#fff;--line:#d7e3f4;--text:#18324d;--muted:#5f7894;--brand:#2f6fec;--ok:#18a957;--warn:#e39a18;--err:#df4b48}
-*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f8fbff,#eef3f9);color:var(--text);font:14px/1.5 "Segoe UI","Noto Sans SC",sans-serif}.topbar{position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 18px;background:rgba(255,255,255,.92);border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}.logo{font-weight:800;letter-spacing:.04em}.pills{display:flex;gap:8px;flex-wrap:wrap}.pill{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;background:#fff;color:var(--muted);font-size:12px}.dot{width:8px;height:8px;border-radius:50%;background:var(--err)}.dot.on{background:var(--ok)}.shell{display:grid;grid-template-columns:minmax(640px,1.45fr) minmax(380px,.85fr);gap:14px;padding:14px}.stack{display:flex;flex-direction:column;gap:14px}.card{background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(246,250,255,.98));border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 40px rgba(85,110,144,.12);overflow:hidden}.head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(95,120,148,.16);font-size:12px;font-weight:800;color:#4c6d8d;text-transform:uppercase;letter-spacing:.06em}.body{padding:12px}.preview{position:relative;background:#020617;border-radius:10px;overflow:hidden;max-height:72vh;aspect-ratio:16/9;border:1px solid #17324d}.preview img{position:absolute;left:7.8%;top:13.5%;width:28.2%;height:35.2%;object-fit:cover;display:block;filter:grayscale(1);z-index:2}.osd-frame{position:absolute;inset:0;z-index:1;pointer-events:none;background:radial-gradient(circle at 63% 25%,rgba(35,220,255,.18),transparent 10%),linear-gradient(135deg,#020617,#071324 60%,#020617)}.osd-hole{position:absolute;left:7.8%;top:13.5%;width:28.2%;height:35.2%;border:3px solid #25e6ff;box-shadow:0 0 18px rgba(37,230,255,.7);z-index:3;pointer-events:none}.osd-corner{position:absolute;z-index:3;border-color:#20e7ff;border-style:solid;opacity:.8}.osd-corner.a{left:0;top:0;width:33%;height:20%;border-width:3px 0 0 3px}.osd-corner.b{right:0;bottom:0;width:38%;height:22%;border-width:0 3px 3px 0}.fps{position:absolute;right:8px;top:8px;background:rgba(255,255,255,.9);border:1px solid var(--line);border-radius:8px;padding:3px 8px;font:12px/1.4 monospace;color:var(--muted);z-index:5}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.row label{min-width:72px;color:var(--muted);font-weight:700}.row input,.row select,textarea{border:1px solid var(--line);border-radius:8px;padding:8px;background:#fff;color:var(--text)}.row input,.row select{flex:1;min-width:140px}textarea{width:100%;min-height:110px;font-family:Consolas,monospace;resize:vertical}.btn{border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:#fff;color:var(--text);cursor:pointer;font-weight:700}.btn:hover{background:#eef4ff}.btn.blue{background:var(--brand);border-color:var(--brand);color:#fff}.btn.green{background:var(--ok);border-color:var(--ok);color:#fff}.btn.red{background:var(--err);border-color:var(--err);color:#fff}.btn.warn{background:var(--warn);border-color:var(--warn);color:#fff}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.hero{background:linear-gradient(135deg,rgba(47,111,236,.10),rgba(255,255,255,.96));border:1px solid var(--line);border-radius:14px;padding:16px}.hero h1{margin:4px 0 8px;font-size:24px}.eyebrow{font-size:12px;color:var(--brand);font-weight:800;letter-spacing:.08em;text-transform:uppercase}.muted{color:var(--muted)}.log{height:240px;overflow:auto;background:#0d1726;color:#dce8f7;border-radius:10px;padding:10px;font:12px/1.5 Consolas,monospace;white-space:pre-wrap}.pre{min-height:90px;white-space:pre-wrap;background:#f7fbff;border:1px solid var(--line);border-radius:10px;padding:10px;color:#24415e}.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}.gallery img{width:100%;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}.toast{position:fixed;right:18px;bottom:18px;max-width:380px;padding:10px 14px;border-radius:10px;background:#16304a;color:#fff;opacity:0;transform:translateY(8px);transition:.18s}.toast.show{opacity:1;transform:translateY(0)}@media(max-width:1120px){.shell{grid-template-columns:1fr}.preview{max-height:60vh}}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f8fbff,#eef3f9);color:var(--text);font:14px/1.5 "Segoe UI","Noto Sans SC",sans-serif}.topbar{position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 18px;background:rgba(255,255,255,.92);border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}.logo{font-weight:800;letter-spacing:.04em}.pills{display:flex;gap:8px;flex-wrap:wrap}.pill{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;background:#fff;color:var(--muted);font-size:12px}.dot{width:8px;height:8px;border-radius:50%;background:var(--err)}.dot.on{background:var(--ok)}.shell{display:grid;grid-template-columns:minmax(640px,1.45fr) minmax(380px,.85fr);gap:14px;padding:14px}.stack{display:flex;flex-direction:column;gap:14px}.card{background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(246,250,255,.98));border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 40px rgba(85,110,144,.12);overflow:hidden}.head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(95,120,148,.16);font-size:12px;font-weight:800;color:#4c6d8d;text-transform:uppercase;letter-spacing:.06em}.body{padding:12px}.preview{position:relative;--camera-window-width:18.75%;--camera-window-height:59.26%;--camera-window-left:25%;background:#020617;border-radius:10px;overflow:hidden;max-height:72vh;aspect-ratio:16/9;border:1px solid #17324d}.preview img{position:absolute;left:var(--camera-window-left);top:50%;transform:translate(-50%,-50%);width:var(--camera-window-width);height:var(--camera-window-height);object-fit:cover;display:block;filter:grayscale(1);z-index:2}.osd-frame{position:absolute;inset:0;z-index:1;pointer-events:none;background:radial-gradient(circle at 40% 25%,rgba(35,220,255,.18),transparent 10%),linear-gradient(135deg,#020617,#071324 60%,#020617)}.osd-hole{position:absolute;left:var(--camera-window-left);top:50%;transform:translate(-50%,-50%);width:var(--camera-window-width);height:var(--camera-window-height);border:3px solid #25e6ff;box-shadow:0 0 18px rgba(37,230,255,.7);z-index:3;pointer-events:none}.osd-corner{position:absolute;z-index:3;border-color:#20e7ff;border-style:solid;opacity:.8}.osd-corner.a{left:0;top:0;width:33%;height:20%;border-width:3px 0 0 3px}.osd-corner.b{right:0;bottom:0;width:38%;height:22%;border-width:0 3px 3px 0}.fps{position:absolute;right:8px;top:8px;background:rgba(255,255,255,.9);border:1px solid var(--line);border-radius:8px;padding:3px 8px;font:12px/1.4 monospace;color:var(--muted);z-index:5}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.row label{min-width:72px;color:var(--muted);font-weight:700}.row input,.row select,textarea{border:1px solid var(--line);border-radius:8px;padding:8px;background:#fff;color:var(--text)}.row input,.row select{flex:1;min-width:140px}textarea{width:100%;min-height:110px;font-family:Consolas,monospace;resize:vertical}.btn{border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:#fff;color:var(--text);cursor:pointer;font-weight:700}.btn:hover{background:#eef4ff}.btn.blue{background:var(--brand);border-color:var(--brand);color:#fff}.btn.green{background:var(--ok);border-color:var(--ok);color:#fff}.btn.red{background:var(--err);border-color:var(--err);color:#fff}.btn.warn{background:var(--warn);border-color:var(--warn);color:#fff}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.hero{background:linear-gradient(135deg,rgba(47,111,236,.10),rgba(255,255,255,.96));border:1px solid var(--line);border-radius:14px;padding:16px}.hero h1{margin:4px 0 8px;font-size:24px}.eyebrow{font-size:12px;color:var(--brand);font-weight:800;letter-spacing:.08em;text-transform:uppercase}.muted{color:var(--muted)}.log{height:240px;overflow:auto;background:#0d1726;color:#dce8f7;border-radius:10px;padding:10px;font:12px/1.5 Consolas,monospace;white-space:pre-wrap}.pre{min-height:90px;white-space:pre-wrap;background:#f7fbff;border:1px solid var(--line);border-radius:10px;padding:10px;color:#24415e}.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}.gallery img{width:100%;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}.toast{position:fixed;right:18px;bottom:18px;max-width:380px;padding:10px 14px;border-radius:10px;background:#16304a;color:#fff;opacity:0;transform:translateY(8px);transition:.18s}.toast.show{opacity:1;transform:translateY(0)}.status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:10px}.status-tile{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}.status-label{font-size:12px;color:var(--muted);margin-bottom:4px}.status-value{font-size:18px;font-weight:800}.status-sub{font-size:12px;color:var(--muted);margin-top:3px}.panel-stack{display:flex;flex-direction:column;gap:10px}.info-panel{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px}.panel-title{font-size:12px;font-weight:800;color:#4c6d8d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}.kv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}.kv{border:1px solid var(--line);border-radius:10px;padding:8px;background:#f8fbff}.kv b{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}.kv span{display:block;font-size:14px;font-weight:700;color:var(--text);word-break:break-word}.badge-ok{color:var(--ok)}.badge-warn{color:var(--warn)}.badge-err{color:var(--err)}.mono{font-family:Consolas,monospace}.raw-line{margin-top:8px;padding:8px;border:1px dashed var(--line);border-radius:10px;background:#f8fbff;color:#24415e;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:break-word}@media(max-width:1120px){.shell{grid-template-columns:1fr}.preview{max-height:60vh;--camera-window-left:50%}}
 </style>
 </head>
 <body>
@@ -30,7 +30,7 @@
           <div class="osd-hole"></div>
           <div class="osd-corner a"></div>
           <div class="osd-corner b"></div>
-          <div class="fps" id="streamInfo">1920x1080 OSD · 摄像头窗口</div>
+          <div class="fps" id="streamInfo">1920x1080 OSD · 左半区 360x640</div>
         </div>
         <p class="muted">此区域按官方 demo-rps 横屏构图显示；真实 OSD 仍以板端输出为准。</p>
       </div>
@@ -58,11 +58,23 @@
     </div>
 
     <div class="card">
+      <div class="head"><span>A1 识别状态</span><span id="a1GestureBadge" class="pill">等待识别</span></div>
+      <div class="body">
+        <div class="status-grid" id="a1GestureSummary">
+          <div class="status-tile"><div class="status-label">手势</div><div class="status-value">—</div></div>
+          <div class="status-tile"><div class="status-label">动作</div><div class="status-value">—</div></div>
+          <div class="status-tile"><div class="status-label">状态</div><div class="status-value">未收到</div></div>
+        </div>
+        <p class="muted" id="a1GestureHint">收到 A1_DEBUG gesture/action 后自动更新；短暂丢失时保持上一状态。</p>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="head"><span>电脑-A1-STM32 联通测试</span><span id="a1LinkBadge" class="pill">未测试</span></div>
       <div class="body">
         <p class="muted">向 COM13 发送 <b>A1_TEST ping</b>，等待 A1_DEBUG 回传。</p>
         <button class="btn blue" id="a1LinkBtn" onclick="runA1LinkTest()">发起联通测试</button>
-        <pre class="pre" id="a1LinkResult"></pre>
+        <div class="panel-stack" id="a1LinkResult"></div>
       </div>
     </div>
 
@@ -73,11 +85,12 @@
           <button class="btn blue" onclick="sendA1Debug('ping')">连通测试</button>
           <button class="btn" onclick="sendA1Debug('osd_status')">OSD状态</button>
           <button class="btn" onclick="sendA1Debug('uart_status')">串口状态</button>
-          <button class="btn green" onclick="sendA1Debug('chassis_forward')">石头/R 前进</button>
-          <button class="btn warn" onclick="sendA1Debug('chassis_backward')">剪刀/S 后退</button>
-          <button class="btn red" onclick="sendA1Debug('chassis_stop')">布/P 停止</button>
         </div>
-        <pre class="pre" id="a1DebugResult">点击按钮后显示 A1_DEBUG 回包。</pre>
+        <div class="grid3">
+          <button class="btn green" onclick="sendA1Debug('chassis_forward')">前进</button>
+          <button class="btn red" onclick="sendA1Debug('chassis_stop')">停止</button>
+        </div>
+        <div class="panel-stack" id="a1DebugResult">点击按钮后显示 A1_DEBUG 回包。</div>
       </div>
     </div>
 
@@ -110,7 +123,7 @@ let toastTimer=null;
 function apiJson(url,options={}){if(options.body&&!options.headers)options.headers={'Content-Type':'application/json'};return fetch(url,options).then(r=>r.json())}
 function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.className='toast show';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3000)}
 function setDot(id,on){const el=document.getElementById(id);if(el)el.className='dot '+(on?'on':'')}
-function setStream(kind){const img=document.getElementById('stream');img.src=(kind==='detect'?'/detect_feed':'/video_feed')+'?t='+Date.now();document.getElementById('streamInfo').textContent=kind==='detect'?'YOLOv8 检测流':'1920x1080 OSD · 摄像头窗口'}
+function setStream(kind){const img=document.getElementById('stream');img.src=(kind==='detect'?'/detect_feed':'/video_feed')+'?t='+Date.now();document.getElementById('streamInfo').textContent=kind==='detect'?'YOLOv8 检测流 · 左半区 360x640':'1920x1080 OSD · 左半区 360x640'}
 function loadStatus(){fetch('/status').then(r=>r.json()).then(d=>{setDot('camDot',!!d.connected);document.getElementById('camStatus').textContent=d.connected?'摄像头在线':'摄像头离线';document.getElementById('fpsChip').textContent=d.fps!=null?d.fps.toFixed(1)+' fps':'— fps';if(d.source)document.getElementById('cameraSourceHint').textContent='当前源：'+d.source;if(d.model_name)document.getElementById('modelSelect').value=d.model_name;if(d.output_dir)document.getElementById('captureHint').textContent='保存目录：'+d.output_dir}).catch(()=>{})}
 function loadCameraDevices(showToast=false){return apiJson('/camera_devices').then(d=>{const sel=document.getElementById('cameraSelect');const devices=d.devices||[];sel.innerHTML=devices.map(x=>{const id=x.id??x.index??0;return `<option value="${id}">${id} · ${x.name||x.label||'Camera'}</option>`}).join('')||'<option value="0">0 · 默认摄像头</option>';if(showToast)toast('摄像头列表已刷新')}).catch(e=>toast('摄像头列表读取失败: '+e))}
 function switchCamera(){const raw=document.getElementById('cameraSelect').value||'0';const device=parseInt(raw,10);if(Number.isNaN(device))return toast('切换失败: 摄像头编号不是整数');return apiJson('/switch_camera',{method:'POST',body:JSON.stringify({device})}).then(d=>{if(!d.success)throw new Error(d.error||'切换失败');toast('摄像头已切换');loadStatus()}).catch(e=>toast('切换失败: '+e))}
@@ -123,10 +136,84 @@ function switchDetectModel(){const model=document.getElementById('modelSelect').
 function takeCapture(format){return apiJson('/capture',{method:'POST',body:JSON.stringify({format})}).then(d=>{if(!d.success)throw new Error(d.error||'拍照失败');toast('已保存 '+d.filename);loadRecentCaptures()}).catch(e=>toast('拍照失败: '+e))}
 function loadRecentCaptures(){return apiJson('/recent_captures').then(items=>{const list=Array.isArray(items)?items:[];document.getElementById('captureGallery').innerHTML=list.map(x=>`<div><img src="data:image/jpeg;base64,${x.thumb||''}" alt="${x.filename||'capture'}"><div class="muted">${x.filename||''}</div></div>`).join('')||'<p class="muted">还没有拍摄记录</p>'}).catch(()=>{})}
 function renderSerialTermLines(lines=[]){const area=document.getElementById('serialTermRxArea');if(!lines.length){area.textContent='暂无串口输出';return}area.textContent=lines.slice(0,60).map(x=>`${x.ts||'--:--:--'} ${x.text||x.hex||''}${x.partial?' · partial':''}`).join('\n')}
-function updateSerialStatus(d){const on=!!d.connected;setDot('serialDot',on);document.getElementById('serialStatusTop').textContent=on?`${d.port||'COM13'} 已连接`:'COM13 未连接';const badge=document.getElementById('serialTermBadge');badge.textContent=on?`${d.port||'COM13'} 已连接`:'未连接';renderSerialTermLines(d.latest_lines||[])}
+function escapeHtml(value){return String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+function prettyValue(value,fallback='—'){if(value===null||value===undefined||value==='')return fallback;if(typeof value==='boolean')return value?'是':'否';return String(value)}
+function boolText(value,trueText='正常',falseText='异常'){return value?trueText:falseText}
+function statusTone(ok,warn=false){if(ok)return'badge-ok';if(warn)return'badge-warn';return'badge-err'}
+function gestureName(value){const raw=String(value||'').trim();if(!raw)return'—';if(raw==='0'||raw==='person')return'person';if(raw==='1'||raw==='stop')return'stop';if(raw==='2'||raw==='forward')return'forward';if(raw==='3'||raw==='obstacle')return'obstacle';return raw}
+function actionName(value){const raw=String(value||'').trim();if(!raw)return'—';if(raw==='forward')return'前进';if(raw==='stop')return'停止';return raw}
+function renderKvPanel(title,items){const content=items.map(item=>`<div class="kv"><b>${escapeHtml(item.label)}</b><span class="${item.mono?'mono':''} ${item.tone||''}">${escapeHtml(prettyValue(item.value,item.fallback))}</span></div>`).join('');return `<div class="info-panel"><div class="panel-title">${escapeHtml(title)}</div><div class="kv-grid">${content}</div></div>`}
+function renderRawLine(title,text){if(!text)return'';return `<div class="info-panel"><div class="panel-title">${escapeHtml(title)}</div><div class="raw-line">${escapeHtml(text)}</div></div>`}
+function renderRecentRx(title,lines=[]){if(!Array.isArray(lines)||!lines.length)return'';return `<div class="info-panel"><div class="panel-title">${escapeHtml(title)}</div><div class="raw-line">${escapeHtml(lines.join('\n'))}</div></div>`}
+function renderGestureStatus(status={}){
+  const badge=document.getElementById('a1GestureBadge');
+  const summary=document.getElementById('a1GestureSummary');
+  const hint=document.getElementById('a1GestureHint');
+  const visible=!!status.visible;
+  const held=!!status.held;
+  const success=!!status.success;
+  const gesture=gestureName(status.gesture);
+  const action=actionName(status.action);
+  const stateText=!visible?'未收到':(held?'保持态':'实时识别');
+  const stateTone=!visible?'badge-err':(held?'badge-warn':'badge-ok');
+  const ageText=visible&&typeof status.age_sec==='number'?`${status.age_sec.toFixed(1)}s`:'—';
+  badge.textContent=stateText;
+  summary.innerHTML=[
+    `<div class="status-tile"><div class="status-label">手势</div><div class="status-value">${escapeHtml(gesture)}</div><div class="status-sub">${escapeHtml(prettyValue(status.message,''))}</div></div>`,
+    `<div class="status-tile"><div class="status-label">动作</div><div class="status-value">${escapeHtml(action)}</div><div class="status-sub">${escapeHtml(success?'A1_DEBUG 已确认':'等待有效回传')}</div></div>`,
+    `<div class="status-tile"><div class="status-label">状态</div><div class="status-value ${stateTone}">${escapeHtml(stateText)}</div><div class="status-sub">可见时长 ${escapeHtml(ageText)}</div></div>`,
+  ].join('');
+  hint.textContent=!visible?'收到 A1_DEBUG gesture/action 后自动更新；短暂丢失时保持上一状态。':(held?'识别短暂丢失，当前继续保持上一状态。':'正在显示最新识别结果。');
+}
+function formatA1DebugResult(d,mode='debug'){
+  const structured=d.structured||{};
+  const panels=[];
+  const success=!!d.success;
+  const transportSuccess=!!d.transport_success;
+  const responseReceived=!!d.response_received;
+  const command=structured.command||d.command||d.key||'—';
+  const message=structured.message||d.message||d.error||'';
+  const legacyDescription=(d.description?d.description+'\n':'');
+  const diagnosis=success?'A1_DEBUG 已收到':(transportSuccess?(responseReceived?'A1_DEBUG 内容异常':'命令已发出，但未等到匹配回传'):'COM13 发送失败或未连接');
+  const stage=success?'PC -> COM13 -> A1_TEST -> A1_DEBUG':(transportSuccess?'PC -> COM13 -> A1_TEST':'PC -> COM13');
+  const topTitle=mode==='link'?'联通测试概览':'A1 调试概览';
+  panels.push(renderKvPanel(topTitle,[
+    {label:'状态',value:success?(mode==='link'?'已响应':'已回包'):(mode==='link'?'未连通':'失败'),tone:statusTone(success,!success&&transportSuccess)},
+    {label:'命令',value:d.sent_line||`A1_TEST ${command}`},
+    {label:'TX',value:d.hex||'—',mono:true},
+    {label:'回传',value:command},
+  ]));
+  panels.push(renderKvPanel('回包字段',[
+    {label:'success',value:structured.success??(success||false),tone:statusTone(!!(structured.success??success),!success&&transportSuccess)},
+    {label:'gesture',value:gestureName(structured.gesture)},
+    {label:'action',value:actionName(structured.action)},
+    {label:'vx',value:structured.vx},
+    {label:'chassis_ok',value:boolText(!!structured.chassis_ok,'可用','未就绪'),tone:statusTone(!!structured.chassis_ok,!success&&responseReceived)},
+    {label:'说明',value:message},
+  ]));
+  panels.push(renderKvPanel(mode==='link'?'链路诊断':'执行诊断',[
+    {label:'阶段',value:stage},
+    {label:'发送',value:transportSuccess?'成功':'失败',tone:statusTone(transportSuccess)},
+    {label:'回传',value:responseReceived?'已收到':'未收到',tone:statusTone(responseReceived,!responseReceived&&transportSuccess)},
+    {label:'诊断',value:diagnosis},
+  ]));
+  if(d.description||structured.message)panels.push(renderKvPanel('手势映射',[
+    {label:'快捷说明',value:d.description||'—'},
+    {label:'板端说明',value:structured.message||'—'},
+  ]));
+  panels.push(renderRawLine('原始回传',structured.raw_line||(`${legacyDescription}${d.message||''}`).trim()));
+  panels.push(renderRecentRx('最近串口输出',d.recent_rx||[]));
+  return panels.filter(Boolean).join('');
+}
+function renderErrorPanel(title,message,recentRx=[]){
+  const panels=[renderKvPanel(title,[{label:'状态',value:'失败',tone:'badge-err'},{label:'原因',value:message||'未知错误'}])];
+  panels.push(renderRecentRx('最近串口输出',recentRx));
+  return panels.filter(Boolean).join('');
+}
+function updateSerialStatus(d){const on=!!d.connected;setDot('serialDot',on);document.getElementById('serialStatusTop').textContent=on?`${d.port||'COM13'} 已连接`:'COM13 未连接';const badge=document.getElementById('serialTermBadge');badge.textContent=on?`${d.port||'COM13'} 已连接`:'未连接';renderSerialTermLines(d.latest_lines||[]);renderGestureStatus(d.gesture_status||{})}
 function loadSerialTermPorts(showToast=false){return apiJson('/api/serial_term/ports').then(d=>{const sel=document.getElementById('serialTermPortSelect');const current=sel.value||d.preferred||'COM13';const ports=d.ports&&d.ports.length?d.ports:[{port:current,desc:'手动端口'}];sel.innerHTML=ports.map(p=>`<option value="${p.port}">${p.port}${p.desc?' · '+p.desc:''}</option>`).join('');if([...sel.options].some(o=>o.value===current))sel.value=current;if(showToast)toast('串口列表已刷新')})}
 function loadSerialTermConfig(){return apiJson('/api/serial_term/config').then(d=>{if(d.port)document.getElementById('serialTermPortSelect').value=d.port;if(d.baud)document.getElementById('serialTermBaud').value=d.baud;if('append_newline'in d)document.getElementById('serialTermAppendNewline').checked=!!d.append_newline}).catch(()=>{})}
-function loadSerialTermStatus(){return apiJson('/api/serial_term/status').then(updateSerialStatus).catch(()=>updateSerialStatus({connected:false,latest_lines:[]}))}
+function loadSerialTermStatus(){return apiJson('/api/serial_term/status').then(updateSerialStatus).catch(()=>updateSerialStatus({connected:false,latest_lines:[],gesture_status:{}}))}
 function autoConnectSerialTerm(){const baud=parseInt(document.getElementById('serialTermBaud').value||'115200',10);document.getElementById('serialTermHint').textContent='正在自动连接 A1 终端…';return apiJson('/api/serial_term/auto_connect',{method:'POST',body:JSON.stringify({baud})}).then(d=>{if(!d.success)throw new Error(d.error||'自动连接失败');document.getElementById('serialTermHint').textContent=`已连接 ${d.port} @ ${d.baud}`;toast('A1 终端已连接');loadSerialTermStatus()}).catch(e=>toast('自动连接失败: '+e))}
 function connectSerialTerm(){const port=document.getElementById('serialTermPortSelect').value||'COM13';const baud=parseInt(document.getElementById('serialTermBaud').value||'115200',10);return apiJson('/api/serial_term/connect',{method:'POST',body:JSON.stringify({port,baud})}).then(d=>{if(!d.success)throw new Error(d.error||'连接失败');toast('A1 终端已连接');loadSerialTermStatus()}).catch(e=>toast('连接失败: '+e))}
 function disconnectSerialTerm(){return apiJson('/api/serial_term/disconnect',{method:'POST'}).then(()=>{toast('终端已断开');loadSerialTermStatus()})}
@@ -137,20 +224,23 @@ function sendA1Debug(command){
   const badge=document.getElementById('a1DebugBadge');
   const result=document.getElementById('a1DebugResult');
   badge.textContent='发送中…';
-  result.textContent='正在发送 '+command+' …';
+  result.innerHTML=renderKvPanel('A1 调试概览',[
+    {label:'状态',value:'发送中',tone:'badge-warn'},
+    {label:'命令',value:'A1_TEST '+command},
+  ]);
   return apiJson('/api/serial_term/a1_debug',{method:'POST',body:JSON.stringify({command,timeout_sec:2.5})}).then(d=>{
+    renderGestureStatus(d.gesture_status||{});
     loadSerialTermStatus();
     if(!d.success){
       badge.textContent='失败';
-      result.textContent='✗ '+(d.message||d.error||'未收到 A1_DEBUG 回包');
+      result.innerHTML=renderErrorPanel('A1 调试概览',d.message||d.error||'未收到 A1_DEBUG 回包',d.recent_rx||[]);
       return;
     }
     badge.textContent='已响应';
-    result.textContent=((d.description?d.description+'
-':'')+(d.message||JSON.stringify(d,null,2)));
+    result.innerHTML=formatA1DebugResult(d,'debug');
   }).catch(e=>{
     badge.textContent='错误';
-    result.textContent='✗ 网络错误: '+e;
+    result.innerHTML=renderErrorPanel('A1 调试概览','网络错误: '+e,[]);
   });
 }
 function runA1LinkTest(){
@@ -159,22 +249,26 @@ function runA1LinkTest(){
   const result=document.getElementById('a1LinkResult');
   btn.disabled=true;
   badge.textContent='测试中…';
-  result.textContent='正在发送 A1_TEST ping…';
+  result.innerHTML=renderKvPanel('联通测试概览',[
+    {label:'状态',value:'测试中',tone:'badge-warn'},
+    {label:'命令',value:'A1_TEST ping'},
+  ]);
   return apiJson('/api/serial_term/a1_debug',{method:'POST',body:JSON.stringify({command:'ping',timeout_sec:2.5})}).then(d=>{
     btn.disabled=false;
+    renderGestureStatus(d.gesture_status||{});
     if(!d.success){
       badge.textContent='未连通';
-      result.textContent='✗ '+(d.message||d.error||'未收到 A1_DEBUG ping 回传');
+      result.innerHTML=renderErrorPanel('联通测试概览',d.message||d.error||'未收到 A1_DEBUG ping 回传',d.recent_rx||[]);
       loadSerialTermStatus();
       return;
     }
     badge.textContent='A1_TEST 已响应';
-    result.textContent=`✅ COM13 / A1_TEST 已响应\n命令: A1_TEST ping\nTX: ${d.hex||'—'}\n回传: ${d.message||'收到 A1_DEBUG'}`;
+    result.innerHTML=formatA1DebugResult(d,'link');
     loadSerialTermStatus();
   }).catch(e=>{
     btn.disabled=false;
     badge.textContent='错误';
-    result.textContent='✗ 网络错误: '+e;
+    result.innerHTML=renderErrorPanel('联通测试概览','网络错误: '+e,[]);
   });
 }
 function clearSerialTermLogs(){return apiJson('/api/serial_term/clear',{method:'POST'}).then(()=>{renderSerialTermLines([]);document.getElementById('serialTermTxHint').textContent=''})}

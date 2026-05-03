@@ -451,6 +451,10 @@ def _resolve_qt_bridge_port(host: str, preferred_port: int, blocked_ports: Optio
     raise RuntimeError(f"No available Qt bridge port from {preferred_port}")
 
 
+def _resolve_available_port(preferred_port: int, host: Optional[str] = None, blocked_ports: Optional[set] = None) -> int:
+    return _resolve_qt_bridge_port(host or QT_BRIDGE_HOST, preferred_port, blocked_ports=blocked_ports)
+
+
 def _qt_bridge_stop(timeout: float = 5.0) -> dict:
     try:
         return _qt_bridge_request("/stop", method="POST", timeout=timeout)
@@ -779,7 +783,7 @@ def ensure_qt_bridge_running(timeout: float = 12.0) -> dict:
 
         if _qt_bridge_process is None or _qt_bridge_process.poll() is not None:
             bridge_python = _select_qt_bridge_python()
-            bridge_port = _resolve_qt_bridge_port(QT_BRIDGE_HOST, QT_BRIDGE_PORT)
+            bridge_port = _resolve_available_port(QT_BRIDGE_PORT, host=QT_BRIDGE_HOST)
             _set_qt_bridge_endpoint(bridge_port)
             kwargs: Dict[str, Any] = {
                 "cwd": str(Path(__file__).resolve().parent),
