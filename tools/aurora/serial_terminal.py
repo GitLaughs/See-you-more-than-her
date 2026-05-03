@@ -22,6 +22,21 @@ serial_term_bp = Blueprint("serial_term", __name__, url_prefix="/api/serial_term
 
 _DEFAULT_PORT = "COM13"
 _DEFAULT_DESC_HINTS = ("usb-hispeed-serial-a", "ch347f", "smartsens", "flyingchip")
+_A1_DEBUG_PREFIX = "A1_TEST"
+_A1_DEBUG_WAIT_PREFIX = "A1_DEBUG"
+_A1_DEBUG_COMMANDS = {
+    "ping": "ping",
+    "osd_status": "osd_status",
+    "uart_status": "uart_status",
+    "chassis_stop": "chassis_test stop",
+    "chassis_forward": "chassis_test forward",
+    "chassis_backward": "chassis_test backward",
+}
+_A1_DEBUG_DESCRIPTIONS = {
+    "chassis_forward": "R/rock -> forward",
+    "chassis_backward": "S/scissors -> backward",
+    "chassis_stop": "P/paper or NoTarget -> stop",
+}
 
 _state_lock = threading.Lock()
 _state: Dict[str, Any] = {
@@ -378,6 +393,24 @@ def send_raw_payload(payload: bytes, text: Optional[str] = None) -> Dict[str, An
     return _send_payload(payload, display, hex_mode=text is None)
 
 
+def build_a1_debug_line(command_key: str) -> Dict[str, Any]:
+    key = str(command_key or "").strip()
+    command = _A1_DEBUG_COMMANDS.get(key)
+    if command is None:
+        return {"success": False, "error": f"不支持的调试命令: {key}"}
+    return {
+        "success": True,
+        "key": key,
+        "command": command,
+        "line": f"{_A1_DEBUG_PREFIX} {command}",
+        "description": _A1_DEBUG_DESCRIPTIONS.get(key, ""),
+        "wait_tokens": [
+            _A1_DEBUG_WAIT_PREFIX,
+            f'"command":"{command.split()[0]}"',
+        ],
+    }
+
+
 def send_text_line(line: str, wait_tokens: Optional[List[str]] = None, timeout_sec: float = 0.8) -> Dict[str, Any]:
     ready = ensure_connected()
     if not ready.get("success"):
@@ -445,6 +478,10 @@ def _auto_connect(baud: Optional[int] = None, timeout: Optional[float] = None) -
     return {"success": False, "error": last_error}
 
 
+def _recent_rx_lines(limit: int = 8) -> List[str]:
+    return [str(item.get("text") or item.get("hex") or "") for item in list(_latest_lines)[-limit:]]
+
+
 def _wait_for_text(tokens: List[str], timeout_sec: float = 1.8, after_seq: Optional[int] = None) -> Dict[str, Any]:
     deadline = time.time() + max(0.1, timeout_sec)
     start_seq = _rx_seq if after_seq is None else after_seq
@@ -460,9 +497,9 @@ def _wait_for_text(tokens: List[str], timeout_sec: float = 1.8, after_seq: Optio
             continue
         for item in current_items:
             text = str(item.get("text") or "").lower()
-            if any(token in text for token in lowered):
+            if lowered and all(token in text for token in lowered):
                 return {"success": True, "matched": item}
-    return {"success": False, "error": "未在串口输出中等到预期回传"}
+    return {"success": False, "error": "未在串口输出中等到预期回传", "recent_rx": _recent_rx_lines()}
 
 
 @serial_term_bp.route("/available")
@@ -613,6 +650,43 @@ def send_test():
         "wait": waited,
         "matched": waited.get("matched"),
         "message": waited.get("matched", {}).get("text", "") if waited.get("success") else waited.get("error", ""),
+    })
+
+
+@serial_term_bp.route("/a1_debug", methods=["POST"])
+def a1_debug():
+    if not _SERIAL_AVAILABLE:
+        return jsonify({"success": False, "error": "pyserial 未安装"})
+    data = request.get_json(silent=True) or {}
+    built = build_a1_debug_line(str(data.get("command") or ""))
+    if not built.get("success"):
+        return jsonify(built)
+
+    timeout_sec = max(0.3, float(data.get("timeout_sec") or 2.5))
+    ready = ensure_connected()
+    if not ready.get("success"):
+        return jsonify(ready)
+
+    start_seq = _rx_seq
+    result = _send_payload((built["line"] + "\r\n").encode("utf-8"), built["line"], hex_mode=False)
+    if not result.get("success"):
+        return jsonify(result)
+
+    waited = _wait_for_text(list(built["wait_tokens"]), timeout_sec=timeout_sec, after_seq=start_seq)
+    response_received = bool(waited.get("success"))
+    return jsonify({
+        **result,
+        "success": bool(result.get("success")) and response_received,
+        "transport_success": bool(result.get("success")),
+        "response_received": response_received,
+        "command": built["command"],
+        "key": built["key"],
+        "sent_line": built["line"],
+        "description": built.get("description", ""),
+        "wait_tokens": built["wait_tokens"],
+        "matched": waited.get("matched"),
+        "message": waited.get("matched", {}).get("text", "") if response_received else waited.get("error", ""),
+        "recent_rx": waited.get("recent_rx", _recent_rx_lines()),
     })
 
 

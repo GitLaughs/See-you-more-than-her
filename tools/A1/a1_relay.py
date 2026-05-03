@@ -118,7 +118,7 @@ def relay_connect():
     data = request.get_json(silent=True) or {}
     baud = int(data.get("baud") or 115200)
     result = _ensure_connected(baud=baud)
-    return jsonify({**result, "transport": "COM13"})
+    return jsonify({**result, "transport": "COM13", "gesture_map": "P/paper or NoTarget -> stop"})
 
 
 @a1_bp.route("/disconnect", methods=["POST"])
@@ -135,7 +135,7 @@ def relay_move():
     vz = int(data.get("vz") or 0)
     line = f"A1_TEST move {vx} {vy} {vz}"
     result = _send_cli(line)
-    return jsonify({**result, "vx": vx, "vy": vy, "vz": vz, "transport": "COM13"})
+    return jsonify({**result, "vx": vx, "vy": vy, "vz": vz, "transport": "COM13", "gesture_map": "R/rock=forward, S/scissors=backward, P/paper or NoTarget=stop"})
 
 
 @a1_bp.route("/stop", methods=["POST"])

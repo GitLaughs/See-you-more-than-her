@@ -4,21 +4,14 @@ services:
     container_name: A1_Builder
     command: ["/bin/bash", "-lc", "sleep infinity"]
     restart: unless-stopped
-    stdin_open: true    # -i
-    tty: true           # -t
+    stdin_open: true
+    tty: true
     volumes:
-      # 挂载数据目录（包含 SDK）
-      - ../data:/app/data
-      # 挂载 src 目录
+      - ../data/A1_SDK_SC132GS:/app/data/A1_SDK_SC132GS
       - ../src:/app/src
-      # 挂载构建脚本目录
       - ../scripts:/app/scripts
-      # 挂载模型目录
       - ../models:/app/models
-      # 挂载输出目录
       - ../output:/app/output
-    working_dir: /app/src
+    working_dir: /app
     ports:
       - "8080:8080"
-    # 如有需要，指定 entrypoint
-    # entrypoint: /app/src/docker/entrypoint.sh
