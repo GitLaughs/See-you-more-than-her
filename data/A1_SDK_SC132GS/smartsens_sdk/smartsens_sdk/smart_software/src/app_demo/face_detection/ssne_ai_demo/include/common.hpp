@@ -23,13 +23,13 @@ class IMAGEPROCESSOR {
       * \return none
       */
     // void Initialize(std::array<int, 2>* in_img_shape, BinningRatioType in_scale);
-    bool Initialize(std::array<int, 2>* in_img_shape);
+    void Initialize(std::array<int, 2>* in_img_shape);
     /**
      * 获取offline或者online的图像。
      *
-     * \param[in] img_sensor // 输出图像, SSNE_YUV422_16 online frame。
+     * \param[in] img_sensor // 输出图像, 3-D array with layout HWC, SSNE_Y_8 format。
     */
-    bool GetImage(ssne_tensor_t* img_sensor);
+    void GetImage(ssne_tensor_t* img_sensor);
 
     // 释放资源
     void Release();
@@ -39,8 +39,7 @@ class IMAGEPROCESSOR {
 
   private:
     // online setting
-    uint8_t format_online = SSNE_YUV422_16;
-    bool opened = false;
+    uint8_t format_online;
 };
 
 
