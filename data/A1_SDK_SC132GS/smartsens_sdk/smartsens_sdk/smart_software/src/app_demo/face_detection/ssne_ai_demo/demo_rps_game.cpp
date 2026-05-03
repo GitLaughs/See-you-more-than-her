@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include <iostream>
+#include <map>
 #include <string>
 #include <sstream>
 #include <thread>
@@ -17,7 +18,18 @@ namespace {
 constexpr int kImageWidth = 1920;
 constexpr int kImageHeight = 1280;
 constexpr int16_t kForwardVelocity = 200;
-constexpr int16_t kBackwardVelocity = -200;
+
+constexpr int kClassPerson   = 0;
+constexpr int kClassStop     = 1;
+constexpr int kClassForward  = 2;
+constexpr int kClassObstacle = 3;
+
+const std::map<int, std::string> kClassNames = {
+    {kClassPerson,   "person"},
+    {kClassStop,     "stop"},
+    {kClassForward,  "forward"},
+    {kClassObstacle, "obstacle"},
+};
 
 volatile sig_atomic_t g_exit_flag = 0;
 ChassisController* g_chassis = nullptr;
@@ -35,13 +47,8 @@ void handle_signal(int) {
 
 void send_cli_chassis_action(const std::string& action) {
     int16_t vx = 0;
-    std::string gesture = "P/NoTarget";
     if (action == "forward") {
         vx = kForwardVelocity;
-        gesture = "R";
-    } else if (action == "backward") {
-        vx = kBackwardVelocity;
-        gesture = "S";
     }
 
     if (g_chassis != nullptr && g_chassis_ready) {
@@ -50,9 +57,9 @@ void send_cli_chassis_action(const std::string& action) {
     }
 
     std::ostringstream body;
-    body << "\"gesture\":\"" << gesture << "\",\"action\":\"" << action
+    body << "\"action\":\"" << action
          << "\",\"vx\":" << vx << ",\"chassis_ok\":" << (g_chassis_ready ? "true" : "false")
-         << ",\"message\":\"R/rock=forward, S/scissors=backward, P/paper/no target=stop\"";
+         << ",\"message\":\"forward=forward, stop=stop\"";
     print_debug_response("chassis_test", body.str(), true);
 }
 
@@ -80,7 +87,7 @@ void handle_a1_test_command(const std::string& line) {
     if (command == "chassis_test") {
         std::string action;
         iss >> action;
-        if (action == "forward" || action == "backward" || action == "stop") {
+        if (action == "forward" || action == "stop") {
             send_cli_chassis_action(action);
             return;
         }
@@ -120,20 +127,14 @@ void keyboard_listener() {
     }
 }
 
-int16_t map_label_to_velocity(const std::string& label) {
-    if (label == "R") return kForwardVelocity;
-    if (label == "S") return kBackwardVelocity;
-    return 0;
-}
-
 void send_velocity_if_changed(ChassisController& chassis, bool chassis_ready,
                               int16_t vx, std::string& last_action) {
     if (!chassis_ready) return;
-    std::string action = (vx > 0) ? "forward" : (vx < 0) ? "backward" : "stop";
+    std::string action = (vx > 0) ? "forward" : "stop";
     if (action == last_action) return;
     chassis.SendVelocity(vx, 0, 0);
     last_action = action;
-    std::cout << "[RPS_CHASSIS] action=" << action << " vx=" << vx << std::endl;
+    std::cout << "[YOLOV8_CHASSIS] action=" << action << " vx=" << vx << std::endl;
 }
 
 }  // namespace
@@ -143,8 +144,8 @@ int main() {
     signal(SIGTERM, handle_signal);
 
     std::array<int, 2> img_shape = {kImageWidth, kImageHeight};
-    std::array<int, 2> cls_shape = {320, 320};
-    std::string model_path = "/app_demo/app_assets/models/model_rps.m1model";
+    std::array<int, 2> det_shape = {640, 640};
+    std::string model_path = "/app_demo/app_assets/models/25d59a3b-fb19-4da2-8eb8-912bf18f05e6_best_head6.m1model";
 
     if (ssne_initial()) {
         fprintf(stderr, "SSNE initialization failed!\n");
@@ -154,24 +155,25 @@ int main() {
     IMAGEPROCESSOR processor;
     processor.Initialize(&img_shape);
 
-    RPS_CLASSIFIER classifier;
-    classifier.Initialize(model_path, &img_shape, &cls_shape);
+    YOLOV8 detector;
+    detector.Initialize(model_path, &img_shape, &det_shape);
 
     VISUALIZER visualizer;
-    visualizer.Initialize(img_shape, "shared_colorLUT.sscl");
-    visualizer.DrawBitmap("background.ssbmp", "shared_colorLUT.sscl", 0, 0, 2);
+    visualizer.Initialize(img_shape, "background_colorLUT.sscl");
+    visualizer.DrawBitmap("background.ssbmp", "background_colorLUT.sscl", 0, 0, 2);
 
     ChassisController chassis;
     const bool chassis_ready = chassis.Init();
     g_chassis = &chassis;
     g_chassis_ready = chassis_ready;
     if (!chassis_ready) {
-        std::cout << "[RPS_CHASSIS] chassis unavailable, gesture display only" << std::endl;
+        std::cout << "[YOLOV8_CHASSIS] chassis unavailable, detection only" << std::endl;
     }
 
     std::thread listener_thread(keyboard_listener);
 
     ssne_tensor_t img_sensor;
+    DetectionResult det_result;
     std::string last_action = "stop";
 
     if (chassis_ready) {
@@ -181,19 +183,37 @@ int main() {
     while (!g_exit_flag) {
         processor.GetImage(&img_sensor);
 
-        std::string label;
-        float score = 0.0f;
-        float scores[3] = {0.0f, 0.0f, 0.0f};
-        classifier.Predict(&img_sensor, label, score, scores);
+        detector.Predict(&img_sensor, &det_result, 0.4f);
 
-        int16_t vx = map_label_to_velocity(label);
+        bool has_obstacle = false, has_person = false, has_stop = false, has_forward = false;
+        for (size_t i = 0; i < det_result.class_ids.size(); ++i) {
+            switch (det_result.class_ids[i]) {
+                case kClassObstacle: has_obstacle = true; break;
+                case kClassPerson:   has_person   = true; break;
+                case kClassStop:     has_stop     = true; break;
+                case kClassForward:  has_forward  = true; break;
+            }
+        }
+
+        int16_t vx = 0;
+        if (has_obstacle || has_person || has_stop) {
+            vx = 0;
+        } else if (has_forward) {
+            vx = kForwardVelocity;
+        }
         send_velocity_if_changed(chassis, chassis_ready, vx, last_action);
 
-        std::cout << "[RPS] label=" << label
-                  << " score=" << score
-                  << " vx=" << vx
-                  << " scores(P,R,S)=" << scores[0] << "," << scores[1] << "," << scores[2]
-                  << std::endl;
+        for (size_t i = 0; i < det_result.class_ids.size(); ++i) {
+            int cls = det_result.class_ids[i];
+            auto it = kClassNames.find(cls);
+            const char* name = (it != kClassNames.end()) ? it->second.c_str() : "?";
+            printf("[YOLOV8] class=%s score=%.3f box=[%.1f,%.1f,%.1f,%.1f]\n",
+                   name, det_result.scores[i],
+                   det_result.boxes[i][0], det_result.boxes[i][1],
+                   det_result.boxes[i][2], det_result.boxes[i][3]);
+        }
+
+        visualizer.Draw(det_result.boxes);
 
         usleep(100000);
     }
@@ -202,7 +222,7 @@ int main() {
         chassis.SendVelocity(0, 0, 0);
     }
 
-    classifier.Release();
+    detector.Release();
     processor.Release();
     visualizer.Release();
     chassis.Release();

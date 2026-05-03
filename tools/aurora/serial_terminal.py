@@ -2,6 +2,7 @@
 """serial_terminal.py — A1 调试串口实时终端 / 简易 CLI。"""
 
 import codecs
+import json
 import threading
 import time
 from collections import deque
@@ -30,13 +31,12 @@ _A1_DEBUG_COMMANDS = {
     "uart_status": "uart_status",
     "chassis_stop": "chassis_test stop",
     "chassis_forward": "chassis_test forward",
-    "chassis_backward": "chassis_test backward",
 }
 _A1_DEBUG_DESCRIPTIONS = {
-    "chassis_forward": "R/rock -> forward",
-    "chassis_backward": "S/scissors -> backward",
-    "chassis_stop": "P/paper or NoTarget -> stop",
+    "chassis_forward": "forward gesture -> forward",
+    "chassis_stop": "stop/person/obstacle -> stop",
 }
+_A1_DEBUG_MESSAGE_PREFIX = "A1_DEBUG "
 
 _state_lock = threading.Lock()
 _state: Dict[str, Any] = {
@@ -62,6 +62,16 @@ _rx_last_data_ts = 0.0
 _PARTIAL_IDLE_FLUSH_SEC = 3.0  # 增加到3秒，避免频繁刷新部分行
 _PARTIAL_BUFFER_LIMIT = 8192
 _LOCK_SNAPSHOT_TIMEOUT_SEC = 0.02
+_GESTURE_HOLD_SEC = 1.0
+_GESTURE_VISIBLE_SEC = 3.0
+_gesture_state: Dict[str, Any] = {
+    "gesture": None,
+    "action": None,
+    "success": False,
+    "updated_at": 0.0,
+    "raw_line": "",
+    "message": "",
+}
 
 
 def _serial_snapshot() -> Dict[str, Any]:
@@ -482,6 +492,82 @@ def _recent_rx_lines(limit: int = 8) -> List[str]:
     return [str(item.get("text") or item.get("hex") or "") for item in list(_latest_lines)[-limit:]]
 
 
+def _parse_a1_debug_line(line: str) -> Optional[Dict[str, Any]]:
+    text = str(line or "").strip()
+    if not text.startswith(_A1_DEBUG_MESSAGE_PREFIX):
+        return None
+    payload_text = text[len(_A1_DEBUG_MESSAGE_PREFIX):].strip()
+    if not payload_text.startswith("{"):
+        return None
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    payload["raw_line"] = text
+    return payload
+
+
+def _update_gesture_state_from_a1_debug(payload: Optional[Dict[str, Any]]) -> None:
+    if not payload:
+        return
+    gesture = payload.get("gesture")
+    action = payload.get("action")
+    success = bool(payload.get("success"))
+    if gesture is None and action is None:
+        return
+    now = time.time()
+    _gesture_state.update({
+        "gesture": gesture,
+        "action": action,
+        "success": success,
+        "updated_at": now,
+        "raw_line": str(payload.get("raw_line") or ""),
+        "message": str(payload.get("message") or ""),
+    })
+
+
+def _gesture_status_payload() -> Dict[str, Any]:
+    updated_at = float(_gesture_state.get("updated_at") or 0.0)
+    now = time.time()
+    age = max(0.0, now - updated_at) if updated_at > 0 else None
+    visible = updated_at > 0 and age is not None and age <= _GESTURE_VISIBLE_SEC
+    held = updated_at > 0 and age is not None and _GESTURE_HOLD_SEC <= age <= _GESTURE_VISIBLE_SEC
+    if not visible:
+        return {
+            "gesture": None,
+            "action": None,
+            "success": False,
+            "visible": False,
+            "held": False,
+            "updated_at": updated_at,
+            "age_sec": age,
+            "raw_line": "",
+            "message": "",
+        }
+    return {
+        "gesture": _gesture_state.get("gesture"),
+        "action": _gesture_state.get("action"),
+        "success": bool(_gesture_state.get("success")),
+        "visible": True,
+        "held": held,
+        "updated_at": updated_at,
+        "age_sec": age,
+        "raw_line": _gesture_state.get("raw_line") or "",
+        "message": _gesture_state.get("message") or "",
+    }
+
+
+def _structured_a1_debug_payload(entry: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not entry:
+        return None
+    payload = _parse_a1_debug_line(str(entry.get("text") or ""))
+    if payload:
+        _update_gesture_state_from_a1_debug(payload)
+    return payload
+
+
 def _wait_for_text(tokens: List[str], timeout_sec: float = 1.8, after_seq: Optional[int] = None) -> Dict[str, Any]:
     deadline = time.time() + max(0.1, timeout_sec)
     start_seq = _rx_seq if after_seq is None else after_seq
@@ -547,6 +633,7 @@ def status():
         "busy": serial_state["busy"],
         "append_newline": state.get("append_newline", True),
         "latest_lines": list(_latest_lines),
+        "gesture_status": _gesture_status_payload(),
         "rx_count": len(_rx_log),
         "tx_count": len(_tx_log),
     })
@@ -674,6 +761,7 @@ def a1_debug():
 
     waited = _wait_for_text(list(built["wait_tokens"]), timeout_sec=timeout_sec, after_seq=start_seq)
     response_received = bool(waited.get("success"))
+    structured = _structured_a1_debug_payload(waited.get("matched")) if response_received else None
     return jsonify({
         **result,
         "success": bool(result.get("success")) and response_received,
@@ -685,6 +773,8 @@ def a1_debug():
         "description": built.get("description", ""),
         "wait_tokens": built["wait_tokens"],
         "matched": waited.get("matched"),
+        "structured": structured,
+        "gesture_status": _gesture_status_payload(),
         "message": waited.get("matched", {}).get("text", "") if response_received else waited.get("error", ""),
         "recent_rx": waited.get("recent_rx", _recent_rx_lines()),
     })

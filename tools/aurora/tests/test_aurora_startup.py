@@ -15,6 +15,7 @@ def _patched_path_exists(self):
 
 with mock.patch("pathlib.Path.exists", new=_patched_path_exists):
     aurora_companion = importlib.import_module("tools.aurora.aurora_companion")
+    serial_terminal = importlib.import_module("tools.aurora.serial_terminal")
 
 
 class AuroraStartupTests(unittest.TestCase):
@@ -208,6 +209,45 @@ class AuroraStartupTests(unittest.TestCase):
         self.assertNotIn("$pId = [int]$conn.OwningProcess", cleanup_block)
         self.assertIn("$ownerPid = [int]$conn.OwningProcess", cleanup_block)
         self.assertIn("$ownerPid -le 0 -or $ownerPid -eq $PID", cleanup_block)
+    def test_companion_ui_escapes_a1_debug_newline_in_javascript(self):
+        template = Path("tools/aurora/templates/companion_ui.html").read_text(encoding="utf-8")
+        self.assertIn("d.description+'\\n'", template)
+        self.assertNotIn("d.description+'\n':'')", template)
+
+    def test_serial_terminal_parses_a1_debug_payload(self):
+        parsed = serial_terminal._parse_a1_debug_line(
+            'A1_DEBUG {"command":"chassis_test","success":true,"action":"stop","vx":0,"chassis_ok":false,"message":"forward=forward, stop=stop"}'
+        )
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["command"], "chassis_test")
+        self.assertIsNone(parsed.get("gesture"))
+        self.assertEqual(parsed["action"], "stop")
+        self.assertEqual(parsed["vx"], 0)
+        self.assertEqual(parsed["raw_line"], 'A1_DEBUG {"command":"chassis_test","success":true,"action":"stop","vx":0,"chassis_ok":false,"message":"forward=forward, stop=stop"}')
+
+    def test_serial_terminal_tracks_sticky_gesture_state(self):
+        with mock.patch.object(serial_terminal.time, "time", side_effect=[100.0, 100.0, 101.2, 103.8]):
+            serial_terminal._update_gesture_state_from_a1_debug({"gesture": "forward", "action": "forward", "success": True})
+            current = serial_terminal._gesture_status_payload()
+            held = serial_terminal._gesture_status_payload()
+            expired = serial_terminal._gesture_status_payload()
+
+        self.assertEqual(current["gesture"], "forward")
+        self.assertEqual(current["action"], "forward")
+        self.assertFalse(current["held"])
+        self.assertEqual(held["gesture"], "forward")
+        self.assertTrue(held["held"])
+        self.assertTrue(held["visible"])
+        self.assertIsNone(expired["gesture"])
+        self.assertFalse(expired["visible"])
+
+    def test_companion_ui_renders_structured_a1_debug_panels(self):
+        template = Path("tools/aurora/templates/companion_ui.html").read_text(encoding="utf-8")
+        self.assertIn("formatA1DebugResult", template)
+        self.assertIn("renderGestureStatus", template)
+        self.assertIn("a1GestureBadge", template)
+        self.assertIn("a1GestureSummary", template)
 
 
 if __name__ == "__main__":

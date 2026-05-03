@@ -43,47 +43,56 @@ class IMAGEPROCESSOR {
 };
 
 
+struct DetectionResult {
+    std::vector<std::array<float, 4>> boxes;
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    void Clear() { boxes.clear(); scores.clear(); class_ids.clear(); }
+};
+
 /**
- * @brief 石头剪刀布分类器类
- * @description 基于model_rps.m1model的分类器，支持RGB三通道输入
+ * @brief YOLOv8 head6 检测器
+ * @description 640×640 RGB 输入，6 输出头 (3 cls + 3 reg)，DFL + per-class NMS
  */
-class RPS_CLASSIFIER {
+class YOLOV8 {
   public:
-    std::string ModelName() const { return "rps_classifier"; }
+    std::string ModelName() const { return "yolov8"; }
 
-    /** \brief 输入单张图像，预测石头剪刀布分类结果。
-     *
-     * \param[in] img_in // 输入图像, RGB format。
-     * \param[out] out_label 分类结果标签 (P/R/S/NoTarget)。
-     * \param[out] out_score 分类置信度得分。
-     * \param[out] out_scores 3个类别的原始得分 [P_score, R_score, S_score]。
-     * \return none
-     */
-    void Predict(ssne_tensor_t* img_in, std::string& out_label, float& out_score, float out_scores[3] = nullptr);
-
-    /** \brief 分类模型初始化。
-      *
-      * \param[in] model_path 模型路径，字符串类型。
-      * \param[in] in_img_shape 输入图像尺寸(w, h)。
-      * \param[in] in_cls_shape 分类模型输入尺寸(w, h)。
-      * \return none
-      */
     void Initialize(std::string& model_path, std::array<int, 2>* in_img_shape,
-                    std::array<int, 2>* in_cls_shape);
+                    std::array<int, 2>* in_det_shape);
 
-    // 释放资源
+    void Predict(ssne_tensor_t* img_in, DetectionResult* result,
+                 float conf_threshold = 0.4f);
+
     void Release();
 
+    float nms_threshold = 0.45f;
+    int top_k = 150;
+    int keep_top_k = 30;
+
   private:
-    // 推理用的模型
+    void DecodeHeadOutputs(const float* cls_head, const float* reg_head,
+                           int height, int width, int stride,
+                           float conf_threshold,
+                           std::vector<std::array<float, 4>>& boxes,
+                           std::vector<float>& scores,
+                           std::vector<int>& class_ids);
+
+    void Postprocess(std::vector<std::array<float, 4>>* boxes,
+                     std::vector<float>* scores,
+                     std::vector<int>* class_ids,
+                     DetectionResult* result);
+
+    static float Sigmoid(float x);
+    static float IoU(const std::array<float, 4>& a, const std::array<float, 4>& b);
+
     uint16_t model_id = 0;
     ssne_tensor_t inputs[1];
-    ssne_tensor_t outputs[1];
-    // offline setting
+    ssne_tensor_t outputs[6];
     AiPreprocessPipe pipe_offline = GetAIPreprocessPipe();
-
-    // 前处理时，原始图像尺寸，（width，height）
     std::array<int, 2> img_shape;
-    // 前处理时，模型推理需要的分类图像尺寸，（width，height）
-    std::array<int, 2> cls_shape;
+    std::array<int, 2> det_shape;
+    float w_scale;
+    float h_scale;
+    int crop_x0;
 };
