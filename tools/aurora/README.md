@@ -46,7 +46,7 @@ pip install -r requirements.txt
 - 随后启动 `aurora_companion.py`
 - Companion 就绪后会自动打开浏览器
 - 如果端口被旧进程占用，启动脚本会先清理 stale Companion / Qt bridge 进程
-- 启动脚本使用固定端口；默认端口不可用时会报错，不自动抢后续端口
+- 默认端口不可用时，启动脚本会自动向后寻找可用端口，并用实际端口拉起页面
 
 ## 核心能力
 
@@ -85,7 +85,7 @@ pip install -r requirements.txt
 ## 常见问题
 
 ### Companion 没画面
-当前已接受流程：先打开 `Aurora.exe` 完成相机初始化，再由 Companion 接管。
+当前默认流程是启动脚本先尝试自动拉起 `Aurora.exe`，再由 Companion 接管；如果自动启动失败，可手动打开 `Aurora.exe` 后重试，或使用 `-SkipAurora` 跳过。
 
 ### COM13 连接失败
 确认串口号、115200 波特率、A1 板端程序已运行，且没有 A1 工具或其他串口工具占用 COM13。
@@ -94,7 +94,7 @@ pip install -r requirements.txt
 确认 `tools/aurora/launch.ps1` 已启动，并访问 `http://127.0.0.1:6201`。
 
 ### 默认端口为什么不是 5801？
-Windows 当前会保留 `5730-5929` 端口段，`5801` 会触发 `WinError 10013` / “以一种访问权限不允许的方式做了一个访问套接字的尝试”。因此默认改为 `6201`。
+历史上 `5801` 容易命中 Windows 保留端口段并触发 `WinError 10013` / “以一种访问权限不允许的方式做了一个访问套接字的尝试”。当前默认端口已统一调整为 `6201`。
 
 ### 想只看 Windows 摄像头
 使用 `./launch.ps1 -Source windows`。

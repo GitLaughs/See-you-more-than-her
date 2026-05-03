@@ -41,7 +41,8 @@ docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh --app-o
 ### 4. 板端运行验证
 ```bash
 ssh root@<A1_IP>
-/app_demo/scripts/run.sh
+cd /app_demo
+./scripts/run.sh
 ```
 
 ### 5. Windows 侧联调工具
@@ -83,14 +84,14 @@ pip install -r requirements.txt
 
 ### 板端
 - 板端主应用位于 `ssne_ai_demo/`
-- 通过 `/app_demo/scripts/run.sh` 做基础运行验证
+- 通过 `cd /app_demo && ./scripts/run.sh` 做基础运行验证
 - A1_TEST、Link-Test、UART 底盘控制都在这条路径上
 
 ### Windows 工具
 - `tools/aurora/`：视频预览、拍照、COM13 终端、A1_TEST 手动测试
 - `tools/PC/`：电脑直连 STM32 调试
 - `tools/A1/`：COM13 → A1_TEST → STM32 中继控制
-- 当前接受的 Aurora 相机初始化流程：先打开 `Aurora.exe`，再由 Companion 接管
+- 当前 Aurora 默认会由启动脚本自动尝试拉起 `Aurora.exe` 做相机初始化；如果失败，Companion 仍会继续启动，必要时可使用 `-SkipAurora`
 
 ## 文档索引
 
