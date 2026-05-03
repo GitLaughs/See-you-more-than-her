@@ -8,7 +8,7 @@
 
 本仓库是 A1 视觉机器人整套工程，不是单一应用。当前主要由四个一方层组成：
 
-- **板端 AI Demo** — `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
+- **板端 AI Demo** — `data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
   - 运行在 SmartSens A1 开发板上。
   - 负责推理流水线、OSD、`A1_TEST` CLI/调试路径，以及 UART/底盘集成。
 - **SDK / 固件打包层** — `data/A1_SDK_SC132GS/smartsens_sdk/` 以及仓库根目录下的 `scripts/`
@@ -133,7 +133,7 @@ python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_termin
 
 ### 2. 板端应用与 SDK 打包
 
-`ssne_ai_demo` 是当前板端运行路径。实际生效的构建根目录是 `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/`。`scripts/build_complete_evb.sh` 会重建应用、重新执行 SDK 打包，并输出可刷写的 `zImage.smartsens-m1-evb`。
+`ssne_ai_demo` 是当前板端运行路径。实际生效的构建根目录是 `data/A1_SDK_SC132GS/smartsens_sdk/`。`scripts/build_complete_evb.sh` 会重建应用、重新执行 SDK 打包，并输出可刷写的 `zImage.smartsens-m1-evb`。
 
 ### 3. Windows 工具结构
 
@@ -173,18 +173,24 @@ python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_termin
 - 使用 `Read` 工具读取源码 / 文本文件时，不要传 `pages`。`pages` 仅适用于 PDF，空值也会导致读取失败。
 - 容器内的修改默认都是临时的，除非已经同步回本仓库。优先先改仓库，再通过 `docker exec A1_Builder ...` 构建；如果在 `/app` 内临时排查或打补丁，提交前必须同步回对应仓库路径。
 - 排查板端 OSD 问题时，在 `VISUALIZER::Initialize`、`DrawBitmap`、`osd_add_texture_layer`、`osd_flush_texture_layer` 周围补 stdout 证据后再下结论。仅靠截图无法区分“应用未运行”“刷入镜像过旧”“OSD API 调用失败”还是“Aurora 预览路径问题”。
-- `data/A1_SDK_SC132GS/smartsens_sdk/` 是上游仓库根；真正参与构建的是嵌套的 `.../smartsens_sdk/smartsens_sdk/`。
+- `data/A1_SDK_SC132GS/smartsens_sdk/` 是 SDK 构建根（已扁平化，不再嵌套）。Docker 内存在符号链接 `smartsens_sdk/smartsens_sdk/smart_software -> ../smart_software` 用于兼容 toolchain-wrapper 硬编码路径。
 - 从 `git.smartsenstech.ai` clone/fetch 时，如果 Git 实际走到 `127.0.0.1` 并断开，需要在命令级关闭代理环境变量和代理配置。
 - 在 Windows 上替换官方 SDK 内容后，首次容器构建前要把 SDK 的 Buildroot 控制文件和可执行脚本统一规范为 LF，不只是 `scripts/*.sh`。
 - Docker 应将宿主机的 `data/A1_SDK_SC132GS` bind mount 到 `/app/data/A1_SDK_SC132GS`；构建脚本面向的是挂载后的嵌套 SDK 根目录。
-- 外层 `data/A1_SDK_SC132GS/smartsens_sdk/smart_software/` 在替换仓库后可能会变旧；真正生效的 demo / build 路径是嵌套 SDK 根，而不是外层镜像目录。
+- 本地 `data/A1_SDK_SC132GS/smartsens_sdk/smart_software/` 是 SDK 外部树，不是镜像。
 - `scripts/build_complete_evb.sh --app-only` 在找不到嵌套 SDK 基线产物时应快速失败；先完整构建一次以建立缓存。
 - `tools/aurora/launch.ps1` 当前会在默认端口不可用时自动向后寻找可用端口，不再是“固定端口不可用就直接失败”的旧行为。
 - `tools/aurora/aurora_companion.py` 内仍保留少量历史端口常量，但实际默认启动端口以启动脚本和命令行参数为准，即 `6201`。
 
 ## 板端 OSD 交互指导
 
-- RPS OSD 的建议模式：资源使用 `app_assets/` 下的 `.ssbmp`，通过 `VISUALIZER::DrawBitmap` 绘制；背景固定在第 2 层，临时状态 / 动画放在第 3/4 层，并在状态切换时清理临时层。
-- 当前规划的产品 OSD 状态包括：检测到人时显示 hello 气泡；前进手势时显示车辆前进动画；停止手势时显示车辆停止动画；障碍物出现时显示避障警示和绕行动画。
-- OSD 资源尺寸建议：状态气泡约 `360x120`，车辆动作动画约 `320x180`，障碍警示约 `480x160`，绕行动画约 `480x270`；语义设计基于 `640x480` 输入，但板端 OSD 的位置和尺寸应按显示层绝对坐标放置。
-- 训练 / 推理语义与 OSD 像素必须分离：YOLO 输入保持 `640x480`，OSD 位图的位置与尺寸按显示层坐标系处理。
+- 当前模型：YOLOv8 head6 检测器（640×640 RGB 输入），4 类（person/stop/forward/obstacle）。
+- OSD 图层分布：
+  - Layer 0：检测框（TYPE_GRAPHIC），由 `VISUALIZER::Draw(boxes)` 绘制空心矩形
+  - Layer 1：预留固定正方形（TYPE_GRAPHIC）
+  - Layer 2：背景位图（TYPE_IMAGE），透明开窗 720×1280 摄像头区域
+  - Layer 3/4：预留（TYPE_IMAGE）
+- 坐标管线：1920×1280 在线输出 → 居中 crop 1280×1280 → resize 640×640 → 推理 → DFL decode + NMS → 坐标还原到 1920×1280 → OSD 绘制
+- 底盘优先级：obstacle(3) > person(0) > stop(1) > forward(2)
+- 仅使用 `background.ssbmp`（透明开窗）和 `background_colorLUT.sscl` 两个 OSD 资源
+- 训练/推理语义与 OSD 像素必须分离：YOLO 输入 640×640，OSD 检测框坐标按 1920×1280 显示层绝对坐标处理

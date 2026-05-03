@@ -13,8 +13,8 @@
 ### Task 1: Restore board-side chassis controller
 
 **Files:**
-- Create: `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/include/chassis_controller.hpp`
-- Create: `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/src/chassis_controller.cpp`
+- Create: `data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/include/chassis_controller.hpp`
+- Create: `data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/src/chassis_controller.cpp`
 - Source reference: `memories/repo/chassis_controller_backup.md`
 
 - [ ] Extract the two code blocks from `memories/repo/chassis_controller_backup.md` exactly into the target nested SDK paths.
@@ -24,7 +24,7 @@
 ### Task 2: Convert RPS demo from guessing game to control loop
 
 **Files:**
-- Modify: `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/demo_rps_game.cpp`
+- Modify: `data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/demo_rps_game.cpp`
 
 - [ ] Add includes: `#include <chrono>` if needed and `#include "include/chassis_controller.hpp"`.
 - [ ] Remove game-only state: `GamePhase`, `g_game_mtx`, `g_phase`, `g_trigger_battle`, countdown/random/accum_score logic, and `'a'` start handling. Keep keyboard `q` exit.
@@ -39,7 +39,7 @@
 ### Task 3: Update OSD action display
 
 **Files:**
-- Modify: `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/demo_rps_game.cpp`
+- Modify: `data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/demo_rps_game.cpp`
 
 - [ ] Keep background bitmap on layer 2.
 - [ ] Use layer 3 for current gesture/action:
