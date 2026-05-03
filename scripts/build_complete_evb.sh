@@ -3,8 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT_DIR=$(cd "${SCRIPT_DIR}/.." && pwd)
-SDK_REPO_ROOT="${ROOT_DIR}/data/A1_SDK_SC132GS/smartsens_sdk"
-SDK_ROOT="${SDK_REPO_ROOT}/smartsens_sdk"
+SDK_ROOT="${ROOT_DIR}/data/A1_SDK_SC132GS/smartsens_sdk"
 SDK_BUILD_APP="${SDK_ROOT}/scripts/build_app.sh"
 SDK_RELEASE="${SDK_ROOT}/scripts/build_release_sdk.sh"
 SDK_ARTIFACT="${SDK_ROOT}/output/images/zImage.smartsens-m1-evb"
@@ -144,11 +143,8 @@ normalize_sdk_line_endings() {
   fi
 }
 
-if [[ ! -d "${SDK_REPO_ROOT}" ]]; then
-  fail "缺少 SDK 仓库目录: ${SDK_REPO_ROOT}"
-fi
 if [[ ! -d "${SDK_ROOT}" ]]; then
-  fail "缺少 SDK 内层构建根: ${SDK_ROOT}"
+  fail "缺少 SDK 构建根: ${SDK_ROOT}"
 fi
 if [[ ! -f "${SDK_BUILD_APP}" ]]; then
   fail "缺少 build_app.sh: ${SDK_BUILD_APP}"
