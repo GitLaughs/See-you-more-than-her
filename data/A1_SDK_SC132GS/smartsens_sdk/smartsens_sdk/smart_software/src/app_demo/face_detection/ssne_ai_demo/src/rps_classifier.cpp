@@ -31,8 +31,13 @@ void RPS_CLASSIFIER::Initialize(std::string& model_path, std::array<int, 2>* in_
     uint32_t cls_height = static_cast<uint32_t>(cls_shape[1]);
     inputs[0] = create_tensor(cls_width, cls_height, SSNE_RGB, SSNE_BUF_AI);
 
-    // 设置预处理管道：crop {210, 270, 750, 810}，输出尺寸由inputs[0]决定（320×320）
-    SetCrop(pipe_offline, 210, 270, 750, 810);
+    // 设置预处理管道：按实际online输出取中心正方形，输出尺寸由inputs[0]决定（320×320）
+    int crop_size = std::min(img_shape[0], img_shape[1]);
+    int crop_x0 = (img_shape[0] - crop_size) / 2;
+    int crop_y0 = (img_shape[1] - crop_size) / 2;
+    SetCrop(pipe_offline, crop_x0, crop_y0, crop_x0 + crop_size, crop_y0 + crop_size);
+    printf("[INFO] RPS classifier crop [%d, %d, %d, %d] from image shape [%d, %d]\n",
+           crop_x0, crop_y0, crop_x0 + crop_size, crop_y0 + crop_size, img_shape[0], img_shape[1]);
 
     // 设置归一化参数（从模型自动获取）
     SetNormalize(pipe_offline, model_id);

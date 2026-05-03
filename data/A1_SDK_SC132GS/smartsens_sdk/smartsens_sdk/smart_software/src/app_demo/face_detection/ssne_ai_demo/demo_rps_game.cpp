@@ -15,21 +15,9 @@
 namespace {
 
 constexpr int kImageWidth = 1920;
-constexpr int kImageHeight = 1080;
+constexpr int kImageHeight = 1280;
 constexpr int16_t kForwardVelocity = 200;
 constexpr int16_t kBackwardVelocity = -200;
-
-struct OsdInfo {
-    std::string filename;
-    uint16_t x;
-    uint16_t y;
-};
-
-struct GestureAction {
-    std::string name;
-    int16_t vx;
-    const OsdInfo* osd;
-};
 
 volatile sig_atomic_t g_exit_flag = 0;
 ChassisController* g_chassis = nullptr;
@@ -86,7 +74,7 @@ void handle_a1_test_command(const std::string& line) {
         return;
     }
     if (command == "osd_status") {
-        print_debug_response("osd_status", "\"message\":\"RPS action OSD active\",\"layers\":[2,3]");
+        print_debug_response("osd_status", "\"message\":\"background OSD active\",\"layers\":[2]");
         return;
     }
     if (command == "chassis_test") {
@@ -132,36 +120,20 @@ void keyboard_listener() {
     }
 }
 
-GestureAction map_gesture_to_action(const std::string& label,
-                                    const OsdInfo& rock_osd,
-                                    const OsdInfo& paper_osd,
-                                    const OsdInfo& scissors_osd,
-                                    const OsdInfo& stop_osd) {
-    if (label == "R") {
-        return {"forward", kForwardVelocity, &rock_osd};
-    }
-    if (label == "S") {
-        return {"backward", kBackwardVelocity, &scissors_osd};
-    }
-    if (label == "P") {
-        return {"stop", 0, &paper_osd};
-    }
-    return {"stop", 0, &stop_osd};
+int16_t map_label_to_velocity(const std::string& label) {
+    if (label == "R") return kForwardVelocity;
+    if (label == "S") return kBackwardVelocity;
+    return 0;
 }
 
-void send_action_if_changed(ChassisController& chassis,
-                            bool chassis_ready,
-                            const GestureAction& action,
-                            std::string& last_action) {
-    if (!chassis_ready) {
-        return;
-    }
-    if (action.name == last_action) {
-        return;
-    }
-    chassis.SendVelocity(action.vx, 0, 0);
-    last_action = action.name;
-    std::cout << "[RPS_CHASSIS] action=" << action.name << " vx=" << action.vx << std::endl;
+void send_velocity_if_changed(ChassisController& chassis, bool chassis_ready,
+                              int16_t vx, std::string& last_action) {
+    if (!chassis_ready) return;
+    std::string action = (vx > 0) ? "forward" : (vx < 0) ? "backward" : "stop";
+    if (action == last_action) return;
+    chassis.SendVelocity(vx, 0, 0);
+    last_action = action;
+    std::cout << "[RPS_CHASSIS] action=" << action << " vx=" << vx << std::endl;
 }
 
 }  // namespace
@@ -174,27 +146,20 @@ int main() {
     std::array<int, 2> cls_shape = {320, 320};
     std::string model_path = "/app_demo/app_assets/models/model_rps.m1model";
 
-    const OsdInfo background_osd = {"background.ssbmp", 0, 0};
-    const OsdInfo rock_osd = {"r.ssbmp", 960, 300};
-    const OsdInfo paper_osd = {"p.ssbmp", 960, 300};
-    const OsdInfo scissors_osd = {"s.ssbmp", 960, 300};
-    const OsdInfo stop_osd = {"ready.ssbmp", 960, 270};
-
     if (ssne_initial()) {
         fprintf(stderr, "SSNE initialization failed!\n");
         return 1;
     }
 
     IMAGEPROCESSOR processor;
-    const bool image_ready = processor.Initialize(&img_shape);
+    processor.Initialize(&img_shape);
 
     RPS_CLASSIFIER classifier;
-    classifier.Initialize(model_path, &processor.img_shape, &cls_shape);
+    classifier.Initialize(model_path, &img_shape, &cls_shape);
 
     VISUALIZER visualizer;
     visualizer.Initialize(img_shape, "shared_colorLUT.sscl");
-    visualizer.DrawBitmap(background_osd.filename, "shared_colorLUT.sscl", background_osd.x, background_osd.y, 2);
-    visualizer.DrawBitmap(stop_osd.filename, "shared_colorLUT.sscl", stop_osd.x, stop_osd.y, 3);
+    visualizer.DrawBitmap("background.ssbmp", "shared_colorLUT.sscl", 0, 0, 2);
 
     ChassisController chassis;
     const bool chassis_ready = chassis.Init();
@@ -208,34 +173,25 @@ int main() {
 
     ssne_tensor_t img_sensor;
     std::string last_action = "stop";
-    std::string last_osd = stop_osd.filename;
 
     if (chassis_ready) {
         chassis.SendVelocity(0, 0, 0);
     }
 
     while (!g_exit_flag) {
-        if (!image_ready || !processor.GetImage(&img_sensor)) {
-            usleep(100000);
-            continue;
-        }
+        processor.GetImage(&img_sensor);
 
         std::string label;
         float score = 0.0f;
         float scores[3] = {0.0f, 0.0f, 0.0f};
         classifier.Predict(&img_sensor, label, score, scores);
 
-        GestureAction action = map_gesture_to_action(label, rock_osd, paper_osd, scissors_osd, stop_osd);
-        send_action_if_changed(chassis, chassis_ready, action, last_action);
-
-        if (action.osd != nullptr && action.osd->filename != last_osd) {
-            visualizer.DrawBitmap(action.osd->filename, "shared_colorLUT.sscl", action.osd->x, action.osd->y, 3);
-            last_osd = action.osd->filename;
-        }
+        int16_t vx = map_label_to_velocity(label);
+        send_velocity_if_changed(chassis, chassis_ready, vx, last_action);
 
         std::cout << "[RPS] label=" << label
                   << " score=" << score
-                  << " action=" << action.name
+                  << " vx=" << vx
                   << " scores(P,R,S)=" << scores[0] << "," << scores[1] << "," << scores[2]
                   << std::endl;
 

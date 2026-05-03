@@ -1,53 +1,41 @@
+/*
+ * @Filename: pipeline_image.cpp
+ * @Author: Hongying He
+ * @Email: hongying.he@smartsenstech.com
+ * @Date: 2025-12-30 14-57-47
+ * @Copyright (c) 2025 SmartSens
+ */
 #include "../include/common.hpp"
 
-namespace {
-constexpr uint16_t kCaptureWidth = 720;
-constexpr uint16_t kCaptureHeight = 1280;
-}
-
-bool IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
+void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
 {
     img_shape = *in_img_shape;
+
+    uint16_t img_width = static_cast<uint16_t>(img_shape[0]);
+    uint16_t img_height = static_cast<uint16_t>(img_shape[1]);
     format_online = SSNE_YUV422_16;
 
-    int set_result = OnlineSetOutputImage(kPipeline0, format_online, kCaptureWidth, kCaptureHeight);
-    if (set_result != 0) {
-        printf("[ERROR] Failed to set online output image: %d\n", set_result);
-        return false;
-    }
+    OnlineSetOutputImage(kPipeline0, format_online, img_width, img_height);
 
-    int open_result = OpenOnlinePipeline(kPipeline0);
-    if (open_result != 0) {
-        printf("[ERROR] Failed to open online pipeline: %d\n", open_result);
-        return false;
+    int res0 = OpenOnlinePipeline(kPipeline0);
+    if (res0 != 0) {
+        printf("[ERROR] Failed to open online pipeline!\n");
+        printf("ret: %d\n", res0);
+        return;
     }
-
-    img_shape = {kCaptureWidth, kCaptureHeight};
-    opened = true;
-    printf("[INFO] open online pipe0: %d, format=%u, size=%ux%u\n",
-           open_result, format_online, kCaptureWidth, kCaptureHeight);
-    return true;
+    printf("[INFO] open online pipe0: %d\n", res0);
 }
 
-bool IMAGEPROCESSOR::GetImage(ssne_tensor_t* img_sensor)
+void IMAGEPROCESSOR::GetImage(ssne_tensor_t* img_sensor)
 {
-    if (!opened) {
-        return false;
-    }
-
-    int capture_code = GetImageData(img_sensor, kPipeline0, kSensor0, false);
+    int capture_code = GetImageData(img_sensor, kPipeline0, kSensor0, 0);
     if (capture_code != 0) {
-        printf("[IMAGEPROCESSOR] Get Invalid Image from kPipeline0: %d\n", capture_code);
-        return false;
+        printf("[IMAGEPROCESSOR] Get Invalid Image from kPipeline0!\n");
     }
-    return true;
 }
 
 void IMAGEPROCESSOR::Release()
 {
-    if (opened) {
-        CloseOnlinePipeline(kPipeline0);
-        opened = false;
-        printf("[INFO] OnlinePipe closed!\n");
-    }
+    CloseOnlinePipeline(kPipeline0);
+    printf("[INFO] OnlinePipe closed!\n");
 }
