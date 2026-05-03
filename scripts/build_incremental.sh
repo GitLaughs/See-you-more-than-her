@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]-$0}")" && pwd)
 ROOT_DIR=$(cd "${SCRIPT_DIR}/.." && pwd)
-SDK_DIR="${ROOT_DIR}/data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk"
+SDK_DIR="${ROOT_DIR}/data/A1_SDK_SC132GS/smartsens_sdk"
 
 usage() {
   cat <<'EOF'

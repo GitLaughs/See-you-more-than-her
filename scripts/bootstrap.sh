@@ -26,7 +26,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]-$0}")" && pwd)
 ROOT_DIR=$(cd "${SCRIPT_DIR}/.." && pwd)
-SDK_ROOT="${ROOT_DIR}/data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk"
+SDK_ROOT="${ROOT_DIR}/data/A1_SDK_SC132GS/smartsens_sdk"
 
 normalize_sdk_line_endings() {
   [[ -d "${SDK_ROOT}" ]] || return 0
@@ -281,7 +281,7 @@ verify() {
 }
 
 verify "SDK 外层目录挂载" "test -d /app/data/A1_SDK_SC132GS/smartsens_sdk"
-verify "SDK 内层构建根"   "test -f /app/data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/scripts/build_release_sdk.sh"
+verify "SDK 内层构建根"   "test -f /app/data/A1_SDK_SC132GS/smartsens_sdk/scripts/build_release_sdk.sh"
 verify "构建脚本挂载"     "test -f /app/scripts/build_complete_evb.sh"
 echo ""
 

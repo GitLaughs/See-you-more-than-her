@@ -156,8 +156,8 @@ fi
 if [[ ! -f "${SDK_RELEASE}" ]]; then
   fail "缺少 build_release_sdk.sh: ${SDK_RELEASE}"
 fi
-if [[ -d /app && ! -d /app/data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk ]]; then
-  fail "容器内 /app/data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk 不存在，说明 bind mount 未生效"
+if [[ -d /app && ! -d /app/data/A1_SDK_SC132GS/smartsens_sdk ]]; then
+  fail "容器内 /app/data/A1_SDK_SC132GS/smartsens_sdk 不存在，说明 bind mount 未生效"
 fi
 
 normalize_sdk_line_endings

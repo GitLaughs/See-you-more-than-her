@@ -8,7 +8,7 @@
 
 本仓库是 A1 视觉机器人整套工程，不是单一应用。当前主要由四个一方层组成：
 
-- **板端 AI Demo** — `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
+- **板端 AI Demo** — `data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
   - 运行在 SmartSens A1 开发板上。
   - 负责推理流水线、OSD、`A1_TEST` CLI/调试路径，以及 UART/底盘集成。
 - **SDK / 固件打包层** — `data/A1_SDK_SC132GS/smartsens_sdk/` 以及仓库根目录下的 `scripts/`
@@ -133,7 +133,7 @@ python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_termin
 
 ### 2. 板端应用与 SDK 打包
 
-`ssne_ai_demo` 是当前板端运行路径。实际生效的构建根目录是 `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/`。`scripts/build_complete_evb.sh` 会重建应用、重新执行 SDK 打包，并输出可刷写的 `zImage.smartsens-m1-evb`。
+`ssne_ai_demo` 是当前板端运行路径。实际生效的构建根目录是 `data/A1_SDK_SC132GS/smartsens_sdk/`。`scripts/build_complete_evb.sh` 会重建应用、重新执行 SDK 打包，并输出可刷写的 `zImage.smartsens-m1-evb`。
 
 ### 3. Windows 工具结构
 
@@ -173,7 +173,7 @@ python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_termin
 - 使用 `Read` 工具读取源码 / 文本文件时，不要传 `pages`。`pages` 仅适用于 PDF，空值也会导致读取失败。
 - 容器内的修改默认都是临时的，除非已经同步回本仓库。优先先改仓库，再通过 `docker exec A1_Builder ...` 构建；如果在 `/app` 内临时排查或打补丁，提交前必须同步回对应仓库路径。
 - 排查板端 OSD 问题时，在 `VISUALIZER::Initialize`、`DrawBitmap`、`osd_add_texture_layer`、`osd_flush_texture_layer` 周围补 stdout 证据后再下结论。仅靠截图无法区分“应用未运行”“刷入镜像过旧”“OSD API 调用失败”还是“Aurora 预览路径问题”。
-- `data/A1_SDK_SC132GS/smartsens_sdk/` 是上游仓库根；真正参与构建的是嵌套的 `.../smartsens_sdk/smartsens_sdk/`。
+- `data/A1_SDK_SC132GS/smartsens_sdk/` 是上游仓库根；真正参与构建的是嵌套的 `.../smartsens_sdk/`。
 - 从 `git.smartsenstech.ai` clone/fetch 时，如果 Git 实际走到 `127.0.0.1` 并断开，需要在命令级关闭代理环境变量和代理配置。
 - 在 Windows 上替换官方 SDK 内容后，首次容器构建前要把 SDK 的 Buildroot 控制文件和可执行脚本统一规范为 LF，不只是 `scripts/*.sh`。
 - Docker 应将宿主机的 `data/A1_SDK_SC132GS` bind mount 到 `/app/data/A1_SDK_SC132GS`；构建脚本面向的是挂载后的嵌套 SDK 根目录。

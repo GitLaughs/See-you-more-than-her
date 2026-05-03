@@ -3,7 +3,7 @@
 基于 SmartSens A1 开发板的嵌入式机器人软件栈，覆盖板端视觉推理、SDK 镜像打包、STM32 底盘集成和 Windows Aurora 联调工具。
 
 ## 仓库由什么组成
-- 板端 AI Demo：`data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
+- 板端 AI Demo：`data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
 - SDK / 固件打包层：`data/A1_SDK_SC132GS/smartsens_sdk/`
 - Windows 工具：`tools/aurora/`、`tools/PC/`、`tools/A1/`
 - STM32 集成参考：`src/stm32_akm_driver/`
@@ -63,17 +63,17 @@ pip install -r requirements.txt
 - `scripts/`
 - `tools/aurora/`
 - `docs/`
-- `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
+- `data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
 
 谨慎修改：
-- `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/` 其余部分
+- `data/A1_SDK_SC132GS/smartsens_sdk/` 其余部分
 - `third_party/ultralytics/`
 - `WHEELTEC_C50X_2025.12.26/`
 - `output/`
 
 ## 构建与部署路径
 
-`scripts/build_complete_evb.sh` 会在内层 SDK 构建根 `data/A1_SDK_SC132GS/smartsens_sdk/smartsens_sdk/` 下重建 `ssne_ai_demo`、重新打包 SDK 镜像，并把最终可烧录产物落到 `output/evb/<timestamp>/zImage.smartsens-m1-evb`（同时更新 `output/evb/latest/zImage.smartsens-m1-evb`），不是单独的 `ssne_ai_demo`。
+`scripts/build_complete_evb.sh` 会在内层 SDK 构建根 `data/A1_SDK_SC132GS/smartsens_sdk/` 下重建 `ssne_ai_demo`、重新打包 SDK 镜像，并把最终可烧录产物落到 `output/evb/<timestamp>/zImage.smartsens-m1-evb`（同时更新 `output/evb/latest/zImage.smartsens-m1-evb`），不是单独的 `ssne_ai_demo`。
 
 常用脚本：
 - 完整镜像：`scripts/build_complete_evb.sh`
