@@ -70,10 +70,16 @@ DEFAULT_CAPTURE_FORMAT = "720x1280"
 
 app = Flask(__name__, template_folder="templates")
 try:
-    from serial_terminal import get_latest_depth_frame, serial_term_bp
+    try:
+        from . import serial_terminal
+        from .serial_terminal import get_latest_depth_frame, serial_term_bp
+    except ImportError:
+        import serial_terminal
+        from serial_terminal import get_latest_depth_frame, serial_term_bp
     app.register_blueprint(serial_term_bp)
     print("[INFO] A1 终端模块已加载")
 except ImportError:
+    serial_terminal = None
     def get_latest_depth_frame():
         return {"success": False, "error": "serial_terminal unavailable"}
     print("[WARN] serial_terminal 未找到，A1 终端模块不可用")
@@ -149,6 +155,12 @@ class LatestFrameCache:
             self._condition.notify_all()
             return self._sequence
 
+    def latest(self) -> Optional[Tuple[int, bytes]]:
+        with self._condition:
+            if not self._payload:
+                return None
+            return self._sequence, self._payload
+
     def wait_for_next(self, last_sequence: int = 0, timeout: float = 1.0) -> Optional[Tuple[int, bytes]]:
         deadline = time.time() + max(0.0, timeout)
         with self._condition:
@@ -185,6 +197,12 @@ _last_detect_snapshot: Dict[str, Any] = {
     "frame_width": CAMERA_WIDTH,
     "frame_height": CAMERA_HEIGHT,
 }
+_detect_frame_cache = LatestFrameCache()
+_detect_worker_lock = threading.Lock()
+_detect_worker_thread: Optional[threading.Thread] = None
+_detect_worker_key: Optional[Tuple[int, str, str]] = None
+_detect_target_fps = 10.0
+
 
 def _mark_camera_connected() -> None:
     global camera_connected, _fail_streak, _consecutive_failures
@@ -453,7 +471,7 @@ def _resolve_qt_bridge_port(host: str, preferred_port: int, blocked_ports: Optio
     raise RuntimeError(f"No available Qt bridge port from {preferred_port}")
 
 
-def _resolve_available_port(preferred_port: int, host: Optional[str] = None, blocked_ports: Optional[set] = None) -> int:
+def _resolve_available_port(host: Optional[str], preferred_port: int, blocked_ports: Optional[set] = None) -> int:
     return _resolve_qt_bridge_port(host or QT_BRIDGE_HOST, preferred_port, blocked_ports=blocked_ports)
 
 
@@ -785,7 +803,7 @@ def ensure_qt_bridge_running(timeout: float = 12.0) -> dict:
 
         if _qt_bridge_process is None or _qt_bridge_process.poll() is not None:
             bridge_python = _select_qt_bridge_python()
-            bridge_port = _resolve_available_port(QT_BRIDGE_PORT, host=QT_BRIDGE_HOST)
+            bridge_port = _resolve_available_port(QT_BRIDGE_HOST, QT_BRIDGE_PORT, blocked_ports={COMPANION_PORT})
             _set_qt_bridge_endpoint(bridge_port)
             kwargs: Dict[str, Any] = {
                 "cwd": str(Path(__file__).resolve().parent),
@@ -916,6 +934,9 @@ class QtBridgeCapture:
 
     def wait_for_next_jpeg(self, last_sequence: int = 0, timeout: float = 1.0) -> Optional[Tuple[int, bytes]]:
         return self.start_stream_worker().wait_for_next(last_sequence=last_sequence, timeout=timeout)
+
+    def latest_jpeg(self) -> Optional[Tuple[int, bytes]]:
+        return self.start_stream_worker().latest()
 
     def _open(self) -> None:
         status = ensure_qt_bridge_running()
@@ -1770,6 +1791,65 @@ def _update_detection_runtime(detections, frame_shape: Tuple[int, int]) -> Dict[
         return dict(_last_detect_snapshot)
 
 
+def _render_detect_frame(frame_gray: np.ndarray, detections) -> np.ndarray:
+    display = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2BGR)
+    for (x1, y1, x2, y2, score, cls_id) in detections:
+        color = _CLASS_COLORS[cls_id % len(_CLASS_COLORS)]
+        name = _CLASS_NAMES.get(cls_id, f"cls{cls_id}")
+        cv2.rectangle(display, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+        label = f"{name} {score:.2f}"
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        ty = max(int(y1) - 4, th + 4)
+        cv2.rectangle(display, (int(x1), ty - th - 4), (int(x1) + tw + 4, ty), color, -1)
+        cv2.putText(display, label, (int(x1) + 2, ty - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+    cv2.putText(display, f"Det: {len(detections)}  conf>={_DETECT_CONF:.2f}", (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 80), 2)
+    return display
+
+
+def _detect_worker(stream_key: Tuple[int, str, str]) -> None:
+    interval = 1.0 / max(1.0, _detect_target_fps)
+    while True:
+        with camera_lock:
+            cap = camera
+            current_key = (device_id_global, camera_source_global, _DETECT_MODEL_PATH.name)
+        if current_key != stream_key or cap is None:
+            return
+        loop_start = time.time()
+        frame = _read_gray(cap)
+        if frame is not None:
+            infer_start = time.time()
+            detections = detect_on_frame(frame)
+            inference_ms = (time.time() - infer_start) * 1000.0
+            _update_detection_runtime(detections, frame.shape[:2])
+            display = _render_detect_frame(frame, detections)
+            encode_start = time.time()
+            ok, buf = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            encode_ms = (time.time() - encode_start) * 1000.0
+            if ok:
+                _detect_frame_cache.publish(buf.tobytes())
+                with _detect_state_lock:
+                    _last_detect_snapshot.update({
+                        "inference_ms": round(inference_ms, 1),
+                        "encode_ms": round(encode_ms, 1),
+                        "detect_fps": round(1.0 / max(0.001, time.time() - loop_start), 1),
+                        "source_frame_age_ms": 0.0,
+                    })
+        elapsed = time.time() - loop_start
+        if elapsed < interval:
+            time.sleep(interval - elapsed)
+
+
+def _ensure_detect_worker() -> None:
+    global _detect_worker_thread, _detect_worker_key
+    key = (device_id_global, camera_source_global, _DETECT_MODEL_PATH.name)
+    with _detect_worker_lock:
+        if _detect_worker_thread is not None and _detect_worker_thread.is_alive() and _detect_worker_key == key:
+            return
+        _detect_worker_key = key
+        _detect_worker_thread = threading.Thread(target=_detect_worker, args=(key,), daemon=True, name="aurora-detect-worker")
+        _detect_worker_thread.start()
+
+
 def _judge_action_from_snapshot(snapshot: Dict[str, Any]) -> str:
     counts = snapshot.get("class_counts") or {}
     if counts.get("gesture2", 0) > 0:
@@ -1810,6 +1890,189 @@ def _judge_risk_from_snapshot(snapshot: Dict[str, Any]) -> str:
     if best_score > 0:
         return "low"
     return "clear"
+
+
+def _parse_a1_debug_json_line(text: str) -> Optional[Dict[str, Any]]:
+    raw = str(text or "").strip()
+    prefix = "A1_DEBUG "
+    if not raw.startswith(prefix):
+        return None
+    payload = raw[len(prefix):].strip()
+    if not payload.startswith("{"):
+        return None
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _extract_yolo_snapshot_payload(serial_result: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str, list, str]:
+    recent_rx = serial_result.get("recent_rx") or []
+    matched = serial_result.get("matched") or {}
+    candidates = []
+    if matched.get("text"):
+        candidates.append(str(matched.get("text")))
+    candidates.extend(str(line) for line in recent_rx)
+
+    for line in candidates:
+        payload = _parse_a1_debug_json_line(line)
+        if payload and payload.get("command") == "yolo_snapshot":
+            return payload, "", recent_rx, line
+
+    message = str(serial_result.get("message") or serial_result.get("error") or "未收到有效 A1_DEBUG yolo_snapshot 回包")
+    return None, message, recent_rx, ""
+
+
+
+def _extract_tensor_dump_lines(serial_result: Dict[str, Any]) -> str:
+    lines = []
+    for entry in serial_result.get("recent_rx") or []:
+        if isinstance(entry, dict):
+            lines.append(str(entry.get("text") or entry.get("message") or ""))
+        else:
+            lines.append(str(entry))
+    matched = serial_result.get("matched") or {}
+    matched_text = str(matched.get("text") or "") if isinstance(matched, dict) else ""
+    if matched_text:
+        lines.append(matched_text)
+    raw_line = str(serial_result.get("raw_line") or "")
+    if raw_line:
+        lines.append(raw_line)
+
+    begin = -1
+    for idx, line in enumerate(lines):
+        if "[YOLOV8_TENSOR_OUTPUT_BEGIN]" in line:
+            begin = idx
+            break
+    if begin < 0:
+        return ""
+
+    captured = []
+    for line in lines[begin:]:
+        captured.append(line)
+        if "[YOLOV8_TENSOR_OUTPUT_END]" in line:
+            break
+    if not any("[YOLOV8_TENSOR_OUTPUT_END]" in line for line in captured):
+        return ""
+    return "\n".join(captured)
+def _int_value(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _float_list(value: Any, limit: int = 3) -> list:
+    if not isinstance(value, list):
+        return []
+    items = []
+    for item in value[:limit]:
+        try:
+            items.append(float(item))
+        except (TypeError, ValueError):
+            items.append(0.0)
+    return items
+
+
+def _int_list(value: Any, limit: int = 3) -> list:
+    if not isinstance(value, list):
+        return []
+    items = []
+    for item in value[:limit]:
+        items.append(_int_value(item, -1))
+    return items
+
+
+def _snapshot_diagnostics(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "threshold": snapshot.get("threshold"),
+        "raw_candidates": _int_value(snapshot.get("raw_candidates")),
+        "top_score": float(snapshot.get("top_score") or 0.0),
+        "top_class_id": _int_value(snapshot.get("top_class_id"), -1),
+        "top_class": str(snapshot.get("top_class") or "unknown"),
+        "preprocess_ok": bool(snapshot.get("preprocess_ok")),
+        "inference_ok": bool(snapshot.get("inference_ok")),
+        "input_dtype": _int_value(snapshot.get("input_dtype"), -1),
+        "decoded_candidates": _int_value(snapshot.get("decoded_candidates")),
+        "after_nms_count": _int_value(snapshot.get("after_nms_count")),
+        "score_over_005": _int_value(snapshot.get("score_over_005")),
+        "score_over_010": _int_value(snapshot.get("score_over_010")),
+        "score_over_025": _int_value(snapshot.get("score_over_025")),
+        "score_over_040": _int_value(snapshot.get("score_over_040")),
+        "head_top_scores": _float_list(snapshot.get("head_top_scores")),
+        "head_top_classes": _int_list(snapshot.get("head_top_classes")),
+        "error_stage": str(snapshot.get("error_stage") or ""),
+        "error_code": _int_value(snapshot.get("error_code")),
+    }
+
+
+def _draw_a1_snapshot_overlay(frame: np.ndarray, snapshot: Dict[str, Any]) -> np.ndarray:
+    display = frame.copy()
+    if len(display.shape) == 2:
+        display = cv2.cvtColor(display, cv2.COLOR_GRAY2BGR)
+    elif display.shape[2] == 1:
+        display = cv2.cvtColor(display[:, :, 0], cv2.COLOR_GRAY2BGR)
+
+    frame_h, frame_w = display.shape[:2]
+    camera_w = float(snapshot.get("camera_w") or frame_w)
+    camera_h = float(snapshot.get("camera_h") or frame_h)
+    x_scale = frame_w / max(1.0, camera_w)
+    y_scale = frame_h / max(1.0, camera_h)
+
+    for item in snapshot.get("objects") or []:
+        box = item.get("box") or []
+        if len(box) != 4:
+            continue
+        cls_id = int(item.get("class_id") or 0)
+        color = _CLASS_COLORS[cls_id % len(_CLASS_COLORS)]
+        x1 = int(max(0, min(frame_w - 1, float(box[0]) * x_scale)))
+        y1 = int(max(0, min(frame_h - 1, float(box[1]) * y_scale)))
+        x2 = int(max(0, min(frame_w - 1, float(box[2]) * x_scale)))
+        y2 = int(max(0, min(frame_h - 1, float(box[3]) * y_scale)))
+        cv2.rectangle(display, (x1, y1), (x2, y2), color, 2)
+        label_name = str(item.get("class") or item.get("class_name") or _CLASS_NAMES.get(cls_id, f"cls{cls_id}"))
+        score = float(item.get("score") or 0.0)
+        label = f"A1 {label_name} {score:.2f}"
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        ty = max(y1 - 4, th + 4)
+        cv2.rectangle(display, (x1, ty - th - 4), (min(frame_w - 1, x1 + tw + 4), ty), color, -1)
+        cv2.putText(display, label, (x1 + 2, ty - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
+    cv2.putText(display, f"A1 snapshot frame={snapshot.get('frame', '—')} count={snapshot.get('count', 0)}", (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 80), 2)
+    return display
+
+
+def _save_a1_yolo_snapshot_image(display: np.ndarray, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    global capture_count
+    capture_count += 1
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    name = f"a1_yolo_snapshot_{ts}_{capture_count:04d}.jpg"
+    path = os.path.join(output_dir, name)
+    os.makedirs(output_dir, exist_ok=True)
+    cv2.imwrite(path, display, [cv2.IMWRITE_JPEG_QUALITY, 90])
+
+    thumb = cv2.resize(display, (160, 120))
+    _, thumb_buf = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 72])
+    thumb_b64 = base64.b64encode(thumb_buf).decode()
+    _, image_buf = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 86])
+    image_b64 = base64.b64encode(image_buf).decode()
+
+    info = {
+        "filename": name,
+        "path": path,
+        "format": "a1_yolo_snapshot",
+        "size": f"{display.shape[1]}×{display.shape[0]}",
+        "thumb": thumb_b64,
+        "image_b64": image_b64,
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "index": capture_count,
+        "frame": snapshot.get("frame"),
+        "count": int(snapshot.get("count") or len(snapshot.get("objects") or [])),
+    }
+    recent_captures.appendleft(info)
+    print(f"[A1_SNAPSHOT] {path} frame={info['frame']} count={info['count']}")
+    return info
 
 
 def _save_capture(frame: np.ndarray, fmt: str) -> dict:
@@ -1861,14 +2124,15 @@ def generate_frames():
     global _fail_streak, _consecutive_failures, _last_reconnect_time
     RECONNECT_INTERVAL = 3.0
     FAIL_THRESHOLD = 10
+    last_sequence = 0
 
     while True:
         with camera_lock:
             cap = camera
         if isinstance(cap, QtBridgeCapture):
-            item = cap.wait_for_next_jpeg(timeout=1.0)
+            item = cap.wait_for_next_jpeg(last_sequence=last_sequence, timeout=1.0)
             if item is not None:
-                _sequence, payload = item
+                last_sequence, payload = item
                 _mark_camera_connected()
                 _frame_count += 1
                 now = time.time()
@@ -1931,52 +2195,19 @@ def generate_frames():
 
 
 def _generate_detect_frames():
-    """本地 YOLOv8+OSD 检测视频流（MJPEG）。"""
-    global current_fps, _frame_count, _fps_ts
+    """本地 YOLOv8 检测视频流；后台推理只保留最新帧。"""
+    last_sequence = 0
     while True:
-        with camera_lock:
-            cap = camera
-        frame = _read_gray(cap) if cap else None
-
-        if frame is None:
+        _ensure_detect_worker()
+        item = _detect_frame_cache.wait_for_next(last_sequence=last_sequence, timeout=1.0)
+        if item is None:
             blk = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH, 3), dtype=np.uint8)
-            cv2.putText(blk, "No Signal", (CAMERA_WIDTH // 2 - 80, CAMERA_HEIGHT // 2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (60, 60, 60), 2)
+            cv2.putText(blk, "Waiting for detect frame", (CAMERA_WIDTH // 2 - 160, CAMERA_HEIGHT // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (60, 60, 60), 2)
             _, buf = cv2.imencode(".jpg", blk, [cv2.IMWRITE_JPEG_QUALITY, 50])
             yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n")
-            time.sleep(0.5)
             continue
-
-        # YOLOv8 需要灰度输入（_read_gray 已返回灰度帧）
-        frame_gray = frame
-        detections = detect_on_frame(frame_gray)
-        _update_detection_runtime(detections, frame_gray.shape[:2])
-        display = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2BGR)
-
-        for (x1, y1, x2, y2, score, cls_id) in detections:
-            color = _CLASS_COLORS[cls_id % len(_CLASS_COLORS)]
-            name = _CLASS_NAMES.get(cls_id, f"cls{cls_id}")
-            cv2.rectangle(display, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-            label = f"{name} {score:.2f}"
-            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-            ty = max(int(y1) - 4, th + 4)
-            cv2.rectangle(display, (int(x1), ty - th - 4), (int(x1) + tw + 4, ty), color, -1)
-            cv2.putText(display, label, (int(x1) + 2, ty - 2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-
-        n = len(detections)
-        cv2.putText(display, f"Det: {n}  conf>={_DETECT_CONF:.2f}", (8, 28),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 80), 2)
-
-        _frame_count += 1
-        now = time.time()
-        if now - _fps_ts >= 1.0:
-            current_fps = _frame_count / (now - _fps_ts)
-            _frame_count = 0
-            _fps_ts = now
-
-        _, buf = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 75])
-        yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n")
+        last_sequence, payload = item
+        yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + payload + b"\r\n")
 
 
 # ─── Flask 路由 ───────────────────────────────────────────────────────────────
@@ -2084,6 +2315,55 @@ def detect_snapshot():
         "judge_action": _judge_action_from_snapshot(snapshot),
         "judge_risk": _judge_risk_from_snapshot(snapshot),
         **snapshot,
+    })
+
+
+@app.route("/api/a1/yolo_snapshot", methods=["POST"])
+def a1_yolo_snapshot():
+    if serial_terminal is None:
+        return jsonify({"success": False, "error": "serial_terminal unavailable"})
+
+    with camera_lock:
+        cap = camera
+    frame = _read_display_frame(cap) if cap else None
+    if frame is None:
+        return jsonify({"success": False, "error": "无法获取摄像头画面"})
+
+    serial_result = serial_terminal.send_text_line(
+        "A1_TEST yolo_snapshot",
+        wait_tokens=["A1_DEBUG", '"command":"yolo_snapshot"'],
+        timeout_sec=4.0,
+    )
+    if not serial_result.get("success"):
+        return jsonify({
+            "success": False,
+            "error": str(serial_result.get("message") or serial_result.get("error") or "A1 yolo_snapshot 回包超时"),
+            "serial": serial_result,
+            "recent_rx": serial_result.get("recent_rx", []),
+        })
+
+    snapshot, error, recent_rx, raw_line = _extract_yolo_snapshot_payload(serial_result)
+    tensor_dump = _extract_tensor_dump_lines(serial_result)
+    if not snapshot:
+        return jsonify({"success": False, "error": f"未解析到有效 A1_DEBUG yolo_snapshot 回包: {error}", "recent_rx": recent_rx})
+    if not snapshot.get("success"):
+        return jsonify({"success": False, "error": str(snapshot.get("message") or "A1 尚无检测快照"), "snapshot": snapshot})
+
+    display = _draw_a1_snapshot_overlay(frame, snapshot)
+    image_info = _save_a1_yolo_snapshot_image(display, snapshot)
+    objects = snapshot.get("objects") or []
+    return jsonify({
+        "success": True,
+        "warning": "预览帧与板端检测帧为近似同步，不保证像素级同帧",
+        "objects": objects,
+        "raw_line": raw_line,
+        "tensor_dump": tensor_dump,
+        "diagnostics": _snapshot_diagnostics(snapshot),
+        "frame": snapshot.get("frame"),
+        "count": int(snapshot.get("count") or len(objects)),
+        "camera_w": snapshot.get("camera_w"),
+        "camera_h": snapshot.get("camera_h"),
+        **image_info,
     })
 
 

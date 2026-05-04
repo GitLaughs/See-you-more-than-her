@@ -64,7 +64,6 @@ void VISUALIZER::Draw() {
  * @description 将所有检测到的人脸框绘制到OSD显示层（使用layer 0，不影响固定正方形所在的layer 1）
  */
 void VISUALIZER::Draw(const std::vector<std::array<float, 4>>& boxes) {
-    printf("Drawing %zu detection boxes\n", boxes.size());
 
     std::vector<sst::device::osd::OsdQuadRangle> quad_rangle_vec;  // OSD矩形框向量
 

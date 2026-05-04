@@ -29,14 +29,14 @@ _A1_DEBUG_PREFIX = "A1_TEST"
 _A1_DEBUG_WAIT_PREFIX = "A1_DEBUG"
 _A1_DEBUG_COMMANDS = {
     "ping": "ping",
-    "osd_status": "osd_status",
-    "uart_status": "uart_status",
     "chassis_stop": "chassis_test stop",
     "chassis_forward": "chassis_test forward",
+    "yolo_snapshot": "yolo_snapshot",
 }
 _A1_DEBUG_DESCRIPTIONS = {
     "chassis_forward": "forward gesture -> forward",
     "chassis_stop": "stop/person/obstacle -> stop",
+    "yolo_snapshot": "latest board YOLO boxes + tensor dump -> overlay on PC preview",
 }
 _A1_DEBUG_MESSAGE_PREFIX = "A1_DEBUG "
 

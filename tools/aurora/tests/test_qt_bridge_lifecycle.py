@@ -109,14 +109,16 @@ class QtBridgeLifecycleTests(unittest.TestCase):
                      mock.patch.object(aurora_companion, "_select_qt_bridge_python", return_value="python"), \
                      mock.patch.object(aurora_companion.subprocess, "Popen", return_value=fake_process) as popen:
                     status = aurora_companion.ensure_qt_bridge_running(timeout=0.1)
+                    selected_port = aurora_companion.QT_BRIDGE_PORT
+                    selected_url = aurora_companion.QT_BRIDGE_URL
             finally:
                 aurora_companion.QT_BRIDGE_PORT = original_port
                 aurora_companion.QT_BRIDGE_URL = original_url
 
         self.assertEqual(status, healthy_status)
         resolve_port.assert_called_once_with(aurora_companion.QT_BRIDGE_HOST, original_port, blocked_ports={aurora_companion.COMPANION_PORT})
-        self.assertEqual(aurora_companion.QT_BRIDGE_PORT, 5930)
-        self.assertEqual(aurora_companion.QT_BRIDGE_URL, f"http://{aurora_companion.QT_BRIDGE_HOST}:5930")
+        self.assertEqual(selected_port, 5930)
+        self.assertEqual(selected_url, f"http://{aurora_companion.QT_BRIDGE_HOST}:5930")
         popen.assert_called_once_with(
             [
                 "python",
