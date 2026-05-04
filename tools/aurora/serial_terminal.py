@@ -389,13 +389,23 @@ def get_latest_depth_frame() -> Dict[str, Any]:
         payload["objects"] = [dict(item) for item in payload.get("objects") or []]
     payload["success"] = True
     payload["age_sec"] = max(0.0, time.time() - float(payload.get("timestamp") or 0.0))
+    payload["yolo"] = {
+        "count": len(payload.get("objects") or []),
+        "items": payload.get("objects") or [],
+    }
     return payload
 
 
 def _append_rx_entry(raw: bytes, text: str, partial: bool = False) -> None:
     global _rx_seq
-    if text and not partial:
-        _handle_depth_line(text.strip())
+    stripped = text.strip() if text else ""
+    if stripped and not partial:
+        _handle_depth_line(stripped)
+        if stripped.startswith("A1_DEPTH_"):
+            with _rx_cond:
+                _rx_seq += 1
+                _rx_cond.notify_all()
+            return
     if text and not partial and _rx_log:
         previous = _rx_log[0]
         prev_text = str(previous.get("text") or "")

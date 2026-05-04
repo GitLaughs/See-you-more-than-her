@@ -19,8 +19,10 @@
 
 namespace {
 
-constexpr int kImageWidth = 1920;
-constexpr int kImageHeight = 1280;
+constexpr int kCameraWidth = 720;
+constexpr int kCameraHeight = 1280;
+constexpr int kOsdWidth = 1920;
+constexpr int kOsdHeight = 1280;
 constexpr int16_t kForwardVelocity = 200;
 
 constexpr int kClassPerson   = 0;
@@ -78,15 +80,36 @@ bool is_valid_box(const std::array<float, 4>& box) {
 }
 
 float compute_box_depth_score(const std::array<float, 4>& box) {
-    const float x1 = std::max(0.0f, std::min(static_cast<float>(kImageWidth), box[0]));
-    const float y1 = std::max(0.0f, std::min(static_cast<float>(kImageHeight), box[1]));
-    const float x2 = std::max(0.0f, std::min(static_cast<float>(kImageWidth), box[2]));
-    const float y2 = std::max(0.0f, std::min(static_cast<float>(kImageHeight), box[3]));
+    const float x1 = std::max(0.0f, std::min(static_cast<float>(kCameraWidth), box[0]));
+    const float y1 = std::max(0.0f, std::min(static_cast<float>(kCameraHeight), box[1]));
+    const float x2 = std::max(0.0f, std::min(static_cast<float>(kCameraWidth), box[2]));
+    const float y2 = std::max(0.0f, std::min(static_cast<float>(kCameraHeight), box[3]));
     const float width = std::max(0.0f, x2 - x1);
     const float height = std::max(0.0f, y2 - y1);
-    const float area_ratio = (width * height) / static_cast<float>(kImageWidth * kImageHeight);
-    const float bottom_ratio = y2 / static_cast<float>(kImageHeight);
+    const float area_ratio = (width * height) / static_cast<float>(kCameraWidth * kCameraHeight);
+    const float bottom_ratio = y2 / static_cast<float>(kCameraHeight);
     return 0.65f * std::sqrt(area_ratio) + 0.35f * bottom_ratio;
+}
+
+std::array<float, 4> scale_box_to_osd(const std::array<float, 4>& box) {
+    constexpr float kXScale = static_cast<float>(kOsdWidth) / static_cast<float>(kCameraWidth);
+    constexpr float kYScale = static_cast<float>(kOsdHeight) / static_cast<float>(kCameraHeight);
+    return {box[0] * kXScale, box[1] * kYScale, box[2] * kXScale, box[3] * kYScale};
+}
+
+void print_detection_summary(uint64_t frame_index, const DetectionResult& det_result) {
+    printf("[YOLOV8] frame=%llu det_count=%zu\n",
+           static_cast<unsigned long long>(frame_index), det_result.boxes.size());
+    if (det_result.boxes.empty()) return;
+
+    const int cls = det_result.class_ids.empty() ? -1 : det_result.class_ids[0];
+    auto it = kClassNames.find(cls);
+    const char* name = (it != kClassNames.end()) ? it->second.c_str() : "unknown";
+    const float score = det_result.scores.empty() ? 0.0f : det_result.scores[0];
+    const auto& box = det_result.boxes[0];
+    printf("[YOLOV8] frame=%llu first_cls=%s score=%.3f box=[%.1f,%.1f,%.1f,%.1f]\n",
+           static_cast<unsigned long long>(frame_index), name, score,
+           box[0], box[1], box[2], box[3]);
 }
 
 void emit_heuristic_depth_frame(uint64_t frame_index, const DetectionResult& det_result) {
@@ -95,16 +118,23 @@ void emit_heuristic_depth_frame(uint64_t frame_index, const DetectionResult& det
     constexpr size_t kDepthBytes = kDepthWidth * kDepthHeight;
     constexpr size_t kMaxChunkChars = 1600;
 
-    std::vector<uint8_t> depth(kDepthBytes, 20);
+    std::vector<uint8_t> depth(kDepthBytes, 0);
+    uint32_t seed = static_cast<uint32_t>(frame_index * 2654435761u);
+    for (size_t i = 0; i < depth.size(); ++i) {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        depth[i] = static_cast<uint8_t>(20 + (seed % 200));
+    }
     for (size_t i = 0; i < det_result.boxes.size(); ++i) {
         const auto& box = det_result.boxes[i];
         if (!is_valid_box(box)) continue;
         const float depth_score = compute_box_depth_score(box);
         const uint8_t value = depth_value_for_score(depth_score);
-        const int x1 = std::max(0, std::min(kDepthWidth - 1, static_cast<int>(box[0] * kDepthWidth / kImageWidth)));
-        const int y1 = std::max(0, std::min(kDepthHeight - 1, static_cast<int>(box[1] * kDepthHeight / kImageHeight)));
-        const int x2 = std::max(0, std::min(kDepthWidth - 1, static_cast<int>(box[2] * kDepthWidth / kImageWidth)));
-        const int y2 = std::max(0, std::min(kDepthHeight - 1, static_cast<int>(box[3] * kDepthHeight / kImageHeight)));
+        const int x1 = std::max(0, std::min(kDepthWidth - 1, static_cast<int>(box[0] * kDepthWidth / kCameraWidth)));
+        const int y1 = std::max(0, std::min(kDepthHeight - 1, static_cast<int>(box[1] * kDepthHeight / kCameraHeight)));
+        const int x2 = std::max(0, std::min(kDepthWidth - 1, static_cast<int>(box[2] * kDepthWidth / kCameraWidth)));
+        const int y2 = std::max(0, std::min(kDepthHeight - 1, static_cast<int>(box[3] * kDepthHeight / kCameraHeight)));
         for (int y = y1; y <= y2; ++y) {
             for (int x = x1; x <= x2; ++x) {
                 uint8_t& pixel = depth[y * kDepthWidth + x];
@@ -246,7 +276,8 @@ int main() {
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
-    std::array<int, 2> img_shape = {kImageWidth, kImageHeight};
+    std::array<int, 2> camera_shape = {kCameraWidth, kCameraHeight};
+    std::array<int, 2> osd_shape = {kOsdWidth, kOsdHeight};
     std::array<int, 2> det_shape = {640, 640};
     std::string model_path = "/app_demo/app_assets/models/25d59a3b-fb19-4da2-8eb8-912bf18f05e6_best_head6.m1model";
 
@@ -256,14 +287,14 @@ int main() {
     }
 
     IMAGEPROCESSOR processor;
-    if (!processor.Initialize(&img_shape)) {
+    if (!processor.Initialize(&camera_shape)) {
         fprintf(stderr, "Image pipeline initialization failed!\n");
         ssne_release();
         return 1;
     }
 
     YOLOV8 detector;
-    if (!detector.Initialize(model_path, &img_shape, &det_shape)) {
+    if (!detector.Initialize(model_path, &camera_shape, &det_shape)) {
         fprintf(stderr, "YOLOv8 initialization failed!\n");
         processor.Release();
         ssne_release();
@@ -271,14 +302,12 @@ int main() {
     }
 
     VISUALIZER visualizer;
-    if (!visualizer.Initialize(img_shape, "background_colorLUT.sscl")) {
-        fprintf(stderr, "OSD initialization failed!\n");
-        detector.Release();
-        processor.Release();
-        ssne_release();
-        return 1;
+    const bool osd_ready = visualizer.Initialize(osd_shape, "background_colorLUT.sscl");
+    if (!osd_ready) {
+        std::cout << "[YOLOV8_OSD] init failed, detection continues without OSD" << std::endl;
+    } else {
+        std::cout << "[YOLOV8_OSD] init ok, background bitmap disabled" << std::endl;
     }
-    visualizer.DrawBitmap("background.ssbmp", "background_colorLUT.sscl", 0, 0, 2);
 
     ChassisController chassis;
     const bool chassis_ready = chassis.Init();
@@ -305,6 +334,7 @@ int main() {
         processor.GetImage(&img_sensor);
 
         detector.Predict(&img_sensor, &det_result, 0.4f);
+        print_detection_summary(frame_index, det_result);
 
         bool has_obstacle = false, has_person = false, has_stop = false, has_forward = false;
         for (size_t i = 0; i < det_result.class_ids.size(); ++i) {
@@ -340,7 +370,18 @@ int main() {
             last_depth_log = now;
         }
 
-        visualizer.Draw(det_result.boxes);
+        if (osd_ready) {
+            std::vector<std::array<float, 4>> osd_boxes;
+            osd_boxes.reserve(det_result.boxes.size());
+            for (const auto& box : det_result.boxes) {
+                if (is_valid_box(box)) {
+                    osd_boxes.emplace_back(scale_box_to_osd(box));
+                }
+            }
+            printf("[YOLOV8] frame=%llu osd_draw_count=%zu\n",
+                   static_cast<unsigned long long>(frame_index), osd_boxes.size());
+            visualizer.Draw(osd_boxes);
+        }
 
         usleep(100000);
     }
@@ -349,9 +390,11 @@ int main() {
         chassis.SendVelocity(0, 0, 0);
     }
 
+    if (osd_ready) {
+        visualizer.Release();
+    }
     detector.Release();
     processor.Release();
-    visualizer.Release();
     chassis.Release();
     g_chassis = nullptr;
     g_chassis_ready = false;

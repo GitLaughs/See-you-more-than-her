@@ -286,7 +286,11 @@ void OsdDevice::Draw(std::vector<OsdQuadRangle> &quad_rangle, int layer_id){
     }
 
     // flush data to ddr
-    osd_flush_quad_rangle_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
+    std::cout << "[OsdDevice] osd_flush_quad_rangle_layer begin layer=" << layer_id
+              << " boxes=" << quad_rangle.size() << std::endl;
+    ret = osd_flush_quad_rangle_layer(m_osd_handle, (ssLAYER_HANDLE)layer_id);
+    std::cout << "[OsdDevice] osd_flush_quad_rangle_layer end layer=" << layer_id
+              << " ret=" << ret << std::endl;
 }
 
 // draw mode: manual alloc layer

@@ -11,6 +11,13 @@
 #include <iomanip>
 #include <cstdio>
 
+namespace {
+constexpr int kGrayBoxColor = 1;
+
+int detection_box_color() {
+    return kGrayBoxColor;
+}
+}
 
 /**
  * @brief OSD可视化器初始化函数
@@ -75,7 +82,7 @@ void VISUALIZER::Draw(const std::vector<std::array<float, 4>>& boxes) {
                  static_cast<float>(xmax), static_cast<float>(ymax)};  // 设置矩形框坐标
 
         // 设置矩形框样式参数
-        q.color = 2;                         // 颜色索引1（不同于测试框）
+        q.color = detection_box_color();        // 固定灰度框
         q.border = 3;                        // 边框宽度3像素
         q.alpha = fdevice::TYPE_ALPHA75;     // 透明度75%
         q.type = fdevice::TYPE_HOLLOW;       // 空心矩形
@@ -120,7 +127,7 @@ void VISUALIZER::DrawFixedSquare(int x_min, int y_min, int x_max, int y_max, int
                     layer_id,                       // 使用指定的layer_id
                     fdevice::TYPE_SOLID,            // 实心矩形
                     fdevice::TYPE_ALPHA100,        // 完全不透明
-                    2);                             // 颜色索引2（可根据需要修改）
+                    detection_box_color());     // 固定灰度
     std::cout << "[VISUALIZER] Fixed square drawn: (" << abs_x_min << ", " << abs_y_min
               << ") to (" << abs_x_max << ", " << abs_y_max << "), layer_id=" << layer_id << std::endl;
 }

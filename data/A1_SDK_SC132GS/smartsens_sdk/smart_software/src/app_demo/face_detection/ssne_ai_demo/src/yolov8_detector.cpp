@@ -52,10 +52,7 @@ bool YOLOV8::Initialize(std::string& model_path, std::array<int, 2>* in_img_shap
 
     char* model_path_char = const_cast<char*>(model_path.c_str());
     model_id = ssne_loadmodel(model_path_char, SSNE_STATIC_ALLOC);
-    if (model_id == 0) {
-        printf("[YOLOV8] ssne_loadmodel failed: %s\n", model_path.c_str());
-        return false;
-    }
+    printf("[YOLOV8] loaded model_id=%u path=%s\n", model_id, model_path.c_str());
 
     uint32_t det_w = static_cast<uint32_t>(det_shape[0]);
     uint32_t det_h = static_cast<uint32_t>(det_shape[1]);
