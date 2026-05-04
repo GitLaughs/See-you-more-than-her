@@ -7,7 +7,7 @@
  */
 #include "../include/common.hpp"
 
-void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
+bool IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
 {
     img_shape = *in_img_shape;
 
@@ -21,9 +21,10 @@ void IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
     if (res0 != 0) {
         printf("[ERROR] Failed to open online pipeline!\n");
         printf("ret: %d\n", res0);
-        return;
+        return false;
     }
     printf("[INFO] open online pipe0: %d\n", res0);
+    return true;
 }
 
 void IMAGEPROCESSOR::GetImage(ssne_tensor_t* img_sensor)

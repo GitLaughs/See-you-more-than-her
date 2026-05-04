@@ -70,10 +70,12 @@ DEFAULT_CAPTURE_FORMAT = "720x1280"
 
 app = Flask(__name__, template_folder="templates")
 try:
-    from serial_terminal import serial_term_bp
+    from serial_terminal import get_latest_depth_frame, serial_term_bp
     app.register_blueprint(serial_term_bp)
     print("[INFO] A1 终端模块已加载")
 except ImportError:
+    def get_latest_depth_frame():
+        return {"success": False, "error": "serial_terminal unavailable"}
     print("[WARN] serial_terminal 未找到，A1 终端模块不可用")
 
 # ─── 全局状态 ─────────────────────────────────────────────────────────────────
@@ -2057,6 +2059,11 @@ def detect_latest():
     snapshot["judge_action"] = _judge_action_from_snapshot(snapshot)
     snapshot["judge_risk"] = _judge_risk_from_snapshot(snapshot)
     return jsonify(snapshot)
+
+
+@app.route("/api/depth/latest")
+def depth_latest():
+    return jsonify(get_latest_depth_frame())
 
 
 @app.route("/api/detect/snapshot", methods=["GET", "POST"])

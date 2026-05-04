@@ -29,28 +29,38 @@ OsdDevice::~OsdDevice(){
     std::cout << "OsdDevice Destructor" << std::endl;
 }
 
-void OsdDevice::Initialize(int width, int height, const char* bitmap_lut_path){
+bool OsdDevice::Initialize(int width, int height, const char* bitmap_lut_path){
     m_width = width;
     m_height = height;
 
-    // load osd color lut
-    // 如果提供了位图LUT路径，优先使用位图LUT；否则使用默认LUT
+    bool lut_loaded = false;
     if (bitmap_lut_path != nullptr && strlen(bitmap_lut_path) > 0) {
         if (LoadLutFile(bitmap_lut_path) == 0) {
             std::cout << "[OsdDevice] Using bitmap LUT: " << bitmap_lut_path << std::endl;
+            lut_loaded = true;
         } else {
-            // 如果位图LUT加载失败，回退到默认LUT
             std::cerr << "[OsdDevice] Warning: Failed to load bitmap LUT, using default LUT" << std::endl;
-            LoadLutFile(m_osd_lut_path.c_str());
         }
-    } else {
-        LoadLutFile(m_osd_lut_path.c_str());
+    }
+    if (!lut_loaded) {
+        lut_loaded = (LoadLutFile(m_osd_lut_path.c_str()) == 0);
+    }
+    if (!lut_loaded) {
+        std::cerr << "[OsdDevice] ERROR: no valid OSD LUT loaded" << std::endl;
+        return false;
     }
 
-    // open osd device
     m_osd_handle = osd_open_device();
-    // init osd (必须在创建图层前调用)
-    osd_init_device(m_osd_handle, OSD_LAYER_SIZE, (char*)m_pcolor_lut);
+    if (m_osd_handle == 0) {
+        std::cerr << "[OsdDevice] ERROR: osd_open_device failed" << std::endl;
+        return false;
+    }
+
+    int ret = osd_init_device(m_osd_handle, OSD_LAYER_SIZE, (char*)m_pcolor_lut);
+    if (ret != 0) {
+        std::cerr << "[OsdDevice] ERROR: osd_init_device failed! ret=" << ret << std::endl;
+        return false;
+    }
 
     // init quad-rangle layer (TYPE_GRAPHIC) for layers 0-1
     int dma_size = 1024;
@@ -68,8 +78,18 @@ void OsdDevice::Initialize(int width, int height, const char* bitmap_lut_path){
         osd_layer.layerSize.layer_width = m_width;
         osd_layer.layerSize.layer_height = m_height;
         osd_layer.layer_rgn = {TYPE_GRAPHIC, {m_width, m_height}};
-        osd_create_layer(m_osd_handle, (ssLAYER_HANDLE)layer_index, &osd_layer);
-        osd_set_layer_buffer(m_osd_handle, (ssLAYER_HANDLE)layer_index, m_layer_dma[layer_index]);
+        int ret = osd_create_layer(m_osd_handle, (ssLAYER_HANDLE)layer_index, &osd_layer);
+        if (ret != 0) {
+            std::cerr << "[OsdDevice] ERROR: osd_create_layer failed! ret=" << ret
+                      << ", layer_index=" << layer_index << std::endl;
+            return false;
+        }
+        ret = osd_set_layer_buffer(m_osd_handle, (ssLAYER_HANDLE)layer_index, m_layer_dma[layer_index]);
+        if (ret != 0) {
+            std::cerr << "[OsdDevice] ERROR: osd_set_layer_buffer failed! ret=" << ret
+                      << ", layer_index=" << layer_index << std::endl;
+            return false;
+        }
     }
 
     // init image layer (TYPE_IMAGE) for layers 2-4 (bitmap layers)
@@ -101,6 +121,7 @@ void OsdDevice::Initialize(int width, int height, const char* bitmap_lut_path){
         if (ret != 0) {
             std::cerr << "[OsdDevice] ERROR: osd_create_layer failed! ret=" << ret
                       << ", layer_index=" << layer_index << std::endl;
+            return false;
         } else {
             std::cout << "[OsdDevice] Layer " << layer_index << " created successfully" << std::endl;
         }
@@ -109,6 +130,7 @@ void OsdDevice::Initialize(int width, int height, const char* bitmap_lut_path){
         if (ret != 0) {
             std::cerr << "[OsdDevice] ERROR: osd_set_layer_buffer failed! ret=" << ret
                       << ", layer_index=" << layer_index << std::endl;
+            return false;
         } else {
             std::cout << "[OsdDevice] Layer " << layer_index << " buffer set successfully" << std::endl;
         }
@@ -136,8 +158,7 @@ void OsdDevice::Initialize(int width, int height, const char* bitmap_lut_path){
     //     osd_set_layer_buffer(m_osd_handle, (ssLAYER_HANDLE)layer_index, m_layer_dma[layer_index]);
     // }
 
-    // // draw image use run-length
-    // DrawTexture(m_texture_path.c_str(), OSD_LAYER_SIZE - 1);
+    return true;
 }
 
 
@@ -155,7 +176,7 @@ void OsdDevice::Release(){
     }
 
     if(m_pcolor_lut != nullptr){
-        delete m_pcolor_lut;
+        delete[] m_pcolor_lut;
         m_pcolor_lut = nullptr;
     }
 

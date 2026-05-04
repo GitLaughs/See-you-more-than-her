@@ -12,7 +12,7 @@
 
 class VISUALIZER {
   public:
-    void Initialize(std::array<int, 2>& in_img_shape, const std::string& bitmap_lut_path = "");
+    bool Initialize(std::array<int, 2>& in_img_shape, const std::string& bitmap_lut_path = "");
     void Release();
     void Draw();
     void Draw(const std::vector<std::array<float, 4>>& boxes);

@@ -23,7 +23,7 @@ class IMAGEPROCESSOR {
       * \return none
       */
     // void Initialize(std::array<int, 2>* in_img_shape, BinningRatioType in_scale);
-    void Initialize(std::array<int, 2>* in_img_shape);
+    bool Initialize(std::array<int, 2>* in_img_shape);
     /**
      * 获取offline或者online的图像。
      *
@@ -58,7 +58,7 @@ class YOLOV8 {
   public:
     std::string ModelName() const { return "yolov8"; }
 
-    void Initialize(std::string& model_path, std::array<int, 2>* in_img_shape,
+    bool Initialize(std::string& model_path, std::array<int, 2>* in_img_shape,
                     std::array<int, 2>* in_det_shape);
 
     void Predict(ssne_tensor_t* img_in, DetectionResult* result,

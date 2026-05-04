@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """serial_terminal.py — A1 调试串口实时终端 / 简易 CLI。"""
 
+import base64
 import codecs
 import json
+import re
 import threading
 import time
 from collections import deque
@@ -58,6 +60,15 @@ _rx_buffer = bytearray()
 _rx_seq = 0
 _rx_cond = threading.Condition()
 _rx_last_data_ts = 0.0
+
+_depth_lock = threading.Lock()
+_depth_inflight: Optional[Dict[str, Any]] = None
+_latest_depth_frame: Optional[Dict[str, Any]] = None
+_DEPTH_MAX_WIDTH = 320
+_DEPTH_MAX_HEIGHT = 240
+_DEPTH_MAX_CHUNKS = 64
+_DEPTH_MAX_CHUNK_CHARS = 2048
+_DEPTH_KV_RE = re.compile(r"(\w+)=([^\s]+)")
 
 _PARTIAL_IDLE_FLUSH_SEC = 3.0  # 增加到3秒，避免频繁刷新部分行
 _PARTIAL_BUFFER_LIMIT = 8192
@@ -237,8 +248,109 @@ def _should_merge_partial(previous_text: str, next_text: str) -> bool:
     return False
 
 
+def _parse_depth_kv(text: str) -> Dict[str, str]:
+    return {match.group(1): match.group(2) for match in _DEPTH_KV_RE.finditer(text)}
+
+
+def _parse_depth_int(fields: Dict[str, str], name: str, default: int = -1) -> int:
+    try:
+        return int(fields.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _handle_depth_line(text: str) -> None:
+    global _depth_inflight, _latest_depth_frame
+    if not text.startswith("A1_DEPTH_"):
+        return
+
+    fields = _parse_depth_kv(text)
+    frame = _parse_depth_int(fields, "frame")
+    now = time.time()
+
+    with _depth_lock:
+        if text.startswith("A1_DEPTH_BEGIN"):
+            width = _parse_depth_int(fields, "w")
+            height = _parse_depth_int(fields, "h")
+            chunks = _parse_depth_int(fields, "chunks")
+            byte_count = _parse_depth_int(fields, "bytes")
+            fmt = fields.get("fmt", "")
+            encoding = fields.get("encoding", "")
+            if (frame < 0 or width <= 0 or height <= 0 or width > _DEPTH_MAX_WIDTH or height > _DEPTH_MAX_HEIGHT
+                    or fmt != "u8" or encoding != "base64" or chunks <= 0 or chunks > _DEPTH_MAX_CHUNKS
+                    or byte_count != width * height):
+                _depth_inflight = None
+                return
+            _depth_inflight = {
+                "frame": frame,
+                "width": width,
+                "height": height,
+                "format": fmt,
+                "encoding": encoding,
+                "chunks_expected": chunks,
+                "bytes": byte_count,
+                "parts": {},
+                "timestamp": now,
+            }
+            return
+
+        if text.startswith("A1_DEPTH_CHUNK"):
+            if not _depth_inflight or frame != _depth_inflight.get("frame"):
+                return
+            index = _parse_depth_int(fields, "index")
+            data = fields.get("data", "")
+            chunks_expected = int(_depth_inflight.get("chunks_expected") or 0)
+            if index < 0 or index >= chunks_expected or not data or len(data) > _DEPTH_MAX_CHUNK_CHARS:
+                _depth_inflight = None
+                return
+            _depth_inflight["parts"][index] = data
+            return
+
+        if text.startswith("A1_DEPTH_END"):
+            if not _depth_inflight or frame != _depth_inflight.get("frame"):
+                return
+            chunks_expected = int(_depth_inflight.get("chunks_expected") or 0)
+            parts = _depth_inflight.get("parts") or {}
+            if len(parts) != chunks_expected or any(i not in parts for i in range(chunks_expected)):
+                _depth_inflight = None
+                return
+            data = "".join(parts[i] for i in range(chunks_expected))
+            try:
+                raw = base64.b64decode(data, validate=True)
+            except Exception:
+                _depth_inflight = None
+                return
+            if len(raw) != int(_depth_inflight.get("bytes") or -1):
+                _depth_inflight = None
+                return
+            _latest_depth_frame = {
+                "timestamp": now,
+                "frame": frame,
+                "width": int(_depth_inflight["width"]),
+                "height": int(_depth_inflight["height"]),
+                "format": _depth_inflight["format"],
+                "encoding": _depth_inflight["encoding"],
+                "data": data,
+                "bytes": len(raw),
+                "chunks": chunks_expected,
+            }
+            _depth_inflight = None
+
+
+def get_latest_depth_frame() -> Dict[str, Any]:
+    with _depth_lock:
+        if not _latest_depth_frame:
+            return {"success": False, "error": "no depth frame"}
+        payload = dict(_latest_depth_frame)
+    payload["success"] = True
+    payload["age_sec"] = max(0.0, time.time() - float(payload.get("timestamp") or 0.0))
+    return payload
+
+
 def _append_rx_entry(raw: bytes, text: str, partial: bool = False) -> None:
     global _rx_seq
+    if text and not partial:
+        _handle_depth_line(text.strip())
     if text and not partial and _rx_log:
         previous = _rx_log[0]
         prev_text = str(previous.get("text") or "")
