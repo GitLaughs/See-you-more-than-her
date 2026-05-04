@@ -17,19 +17,15 @@
  * @param in_img_shape 图像尺寸 [宽度, 高度]
  * @description 初始化OSD设备
  */
-void VISUALIZER::Initialize(std::array<int, 2>& in_img_shape, const std::string& bitmap_lut_path) {
-    // 初始化OSD设备，配置图像宽度和高度
+bool VISUALIZER::Initialize(std::array<int, 2>& in_img_shape, const std::string& bitmap_lut_path) {
     m_width = in_img_shape[0];
     m_height = in_img_shape[1];
-    // 如果提供了位图LUT路径，在初始化时加载
-    // 位图LUT和默认LUT都在app_assets目录下，使用相同的路径格式
-    // 注意：需要将完整路径保存为成员变量，确保生命周期
     const char* lut_path = nullptr;
     if (!bitmap_lut_path.empty()) {
         m_bitmap_lut_path_full = "/app_demo/app_assets/" + bitmap_lut_path;
         lut_path = m_bitmap_lut_path_full.c_str();
     }
-    osd_device.Initialize(m_width, m_height, lut_path);
+    return osd_device.Initialize(m_width, m_height, lut_path);
 }
 
 
@@ -75,7 +71,8 @@ void VISUALIZER::Draw(const std::vector<std::array<float, 4>>& boxes) {
         int xmax = static_cast<int>(boxes[i][2]);  // 右下角x坐标
         int ymax = static_cast<int>(boxes[i][3]);  // 右下角y坐标
 
-        q.box = {xmin, ymin, xmax, ymax};  // 设置矩形框坐标
+        q.box = {static_cast<float>(xmin), static_cast<float>(ymin),
+                 static_cast<float>(xmax), static_cast<float>(ymax)};  // 设置矩形框坐标
 
         // 设置矩形框样式参数
         q.color = 2;                         // 颜色索引1（不同于测试框）

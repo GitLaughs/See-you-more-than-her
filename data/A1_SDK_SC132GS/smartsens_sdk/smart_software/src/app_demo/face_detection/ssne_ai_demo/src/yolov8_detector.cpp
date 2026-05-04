@@ -34,7 +34,7 @@ float YOLOV8::IoU(const std::array<float, 4>& a, const std::array<float, 4>& b) 
     return inter_area / (area_a + area_b - inter_area);
 }
 
-void YOLOV8::Initialize(std::string& model_path, std::array<int, 2>* in_img_shape,
+bool YOLOV8::Initialize(std::string& model_path, std::array<int, 2>* in_img_shape,
                         std::array<int, 2>* in_det_shape) {
     img_shape = *in_img_shape;
     det_shape = *in_det_shape;
@@ -52,15 +52,28 @@ void YOLOV8::Initialize(std::string& model_path, std::array<int, 2>* in_img_shap
 
     char* model_path_char = const_cast<char*>(model_path.c_str());
     model_id = ssne_loadmodel(model_path_char, SSNE_STATIC_ALLOC);
+    if (model_id == 0) {
+        printf("[YOLOV8] ssne_loadmodel failed: %s\n", model_path.c_str());
+        return false;
+    }
 
     uint32_t det_w = static_cast<uint32_t>(det_shape[0]);
     uint32_t det_h = static_cast<uint32_t>(det_shape[1]);
     inputs[0] = create_tensor(det_w, det_h, SSNE_RGB, SSNE_BUF_AI);
 
-    SetCrop(pipe_offline, crop_x0, crop_y0, crop_x0 + crop_size, crop_y0 + crop_size);
-    SetNormalize(pipe_offline, model_id);
+    int ret = SetCrop(pipe_offline, crop_x0, crop_y0, crop_x0 + crop_size, crop_y0 + crop_size);
+    if (ret != 0) {
+        printf("[YOLOV8] SetCrop failed: %d\n", ret);
+        return false;
+    }
+    ret = SetNormalize(pipe_offline, model_id);
+    if (ret != 0) {
+        printf("[YOLOV8] SetNormalize failed: %d\n", ret);
+        return false;
+    }
 
     printf("[YOLOV8] initialized, model_id=%u\n", model_id);
+    return true;
 }
 
 void YOLOV8::DecodeHeadOutputs(const float* cls_head, const float* reg_head,

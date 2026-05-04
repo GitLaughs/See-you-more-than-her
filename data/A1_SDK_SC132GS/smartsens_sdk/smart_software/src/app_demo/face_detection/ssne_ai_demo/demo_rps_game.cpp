@@ -1,4 +1,5 @@
 #include <array>
+#include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
@@ -8,6 +9,7 @@
 #include <string>
 #include <sstream>
 #include <thread>
+#include <vector>
 #include <unistd.h>
 
 #include "include/chassis_controller.hpp"
@@ -35,6 +37,52 @@ volatile sig_atomic_t g_exit_flag = 0;
 ChassisController* g_chassis = nullptr;
 bool g_chassis_ready = false;
 std::string g_last_cli_action = "stop";
+
+std::string base64_encode(const uint8_t* data, size_t len) {
+    static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(((len + 2) / 3) * 4);
+    for (size_t i = 0; i < len; i += 3) {
+        uint32_t value = static_cast<uint32_t>(data[i]) << 16;
+        if (i + 1 < len) {
+            value |= static_cast<uint32_t>(data[i + 1]) << 8;
+        }
+        if (i + 2 < len) {
+            value |= static_cast<uint32_t>(data[i + 2]);
+        }
+        out.push_back(table[(value >> 18) & 0x3f]);
+        out.push_back(table[(value >> 12) & 0x3f]);
+        out.push_back(i + 1 < len ? table[(value >> 6) & 0x3f] : '=');
+        out.push_back(i + 2 < len ? table[value & 0x3f] : '=');
+    }
+    return out;
+}
+
+void emit_synthetic_depth_frame(uint64_t frame_index) {
+    constexpr int kDepthWidth = 80;
+    constexpr int kDepthHeight = 60;
+    constexpr size_t kDepthBytes = kDepthWidth * kDepthHeight;
+    constexpr size_t kMaxChunkChars = 1600;
+
+    std::vector<uint8_t> depth(kDepthBytes);
+    for (int y = 0; y < kDepthHeight; ++y) {
+        for (int x = 0; x < kDepthWidth; ++x) {
+            depth[y * kDepthWidth + x] = static_cast<uint8_t>((x * 3 + y * 5 + frame_index * 7) & 0xff);
+        }
+    }
+
+    const std::string encoded = base64_encode(depth.data(), depth.size());
+    const size_t chunks = (encoded.size() + kMaxChunkChars - 1) / kMaxChunkChars;
+    printf("A1_DEPTH_BEGIN frame=%llu w=%d h=%d fmt=u8 encoding=base64 chunks=%zu bytes=%zu\n",
+           static_cast<unsigned long long>(frame_index), kDepthWidth, kDepthHeight, chunks, kDepthBytes);
+    for (size_t i = 0; i < chunks; ++i) {
+        const size_t offset = i * kMaxChunkChars;
+        printf("A1_DEPTH_CHUNK frame=%llu index=%zu data=%s\n",
+               static_cast<unsigned long long>(frame_index), i, encoded.substr(offset, kMaxChunkChars).c_str());
+    }
+    printf("A1_DEPTH_END frame=%llu\n", static_cast<unsigned long long>(frame_index));
+    fflush(stdout);
+}
 
 void print_debug_response(const std::string& command, const std::string& body, bool success = true) {
     std::cout << "A1_DEBUG {\"command\":\"" << command << "\",\"success\":"
@@ -153,13 +201,28 @@ int main() {
     }
 
     IMAGEPROCESSOR processor;
-    processor.Initialize(&img_shape);
+    if (!processor.Initialize(&img_shape)) {
+        fprintf(stderr, "Image pipeline initialization failed!\n");
+        ssne_release();
+        return 1;
+    }
 
     YOLOV8 detector;
-    detector.Initialize(model_path, &img_shape, &det_shape);
+    if (!detector.Initialize(model_path, &img_shape, &det_shape)) {
+        fprintf(stderr, "YOLOv8 initialization failed!\n");
+        processor.Release();
+        ssne_release();
+        return 1;
+    }
 
     VISUALIZER visualizer;
-    visualizer.Initialize(img_shape, "background_colorLUT.sscl");
+    if (!visualizer.Initialize(img_shape, "background_colorLUT.sscl")) {
+        fprintf(stderr, "OSD initialization failed!\n");
+        detector.Release();
+        processor.Release();
+        ssne_release();
+        return 1;
+    }
     visualizer.DrawBitmap("background.ssbmp", "background_colorLUT.sscl", 0, 0, 2);
 
     ChassisController chassis;
@@ -175,12 +238,15 @@ int main() {
     ssne_tensor_t img_sensor;
     DetectionResult det_result;
     std::string last_action = "stop";
+    uint64_t frame_index = 0;
+    auto last_depth_log = std::chrono::steady_clock::now() - std::chrono::seconds(1);
 
     if (chassis_ready) {
         chassis.SendVelocity(0, 0, 0);
     }
 
     while (!g_exit_flag) {
+        ++frame_index;
         processor.GetImage(&img_sensor);
 
         detector.Predict(&img_sensor, &det_result, 0.4f);
@@ -211,6 +277,12 @@ int main() {
                    name, det_result.scores[i],
                    det_result.boxes[i][0], det_result.boxes[i][1],
                    det_result.boxes[i][2], det_result.boxes[i][3]);
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_depth_log >= std::chrono::seconds(1)) {
+            emit_synthetic_depth_frame(frame_index);
+            last_depth_log = now;
         }
 
         visualizer.Draw(det_result.boxes);
