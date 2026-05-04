@@ -1,5 +1,7 @@
+#include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
@@ -58,16 +60,56 @@ std::string base64_encode(const uint8_t* data, size_t len) {
     return out;
 }
 
-void emit_synthetic_depth_frame(uint64_t frame_index) {
+const char* depth_bucket_name(float depth_score) {
+    if (depth_score >= 0.55f) return "near";
+    if (depth_score >= 0.30f) return "mid";
+    return "far";
+}
+
+uint8_t depth_value_for_score(float depth_score) {
+    if (depth_score >= 0.55f) return 240;
+    if (depth_score >= 0.30f) return 160;
+    return 80;
+}
+
+bool is_valid_box(const std::array<float, 4>& box) {
+    return std::isfinite(box[0]) && std::isfinite(box[1]) &&
+           std::isfinite(box[2]) && std::isfinite(box[3]);
+}
+
+float compute_box_depth_score(const std::array<float, 4>& box) {
+    const float x1 = std::max(0.0f, std::min(static_cast<float>(kImageWidth), box[0]));
+    const float y1 = std::max(0.0f, std::min(static_cast<float>(kImageHeight), box[1]));
+    const float x2 = std::max(0.0f, std::min(static_cast<float>(kImageWidth), box[2]));
+    const float y2 = std::max(0.0f, std::min(static_cast<float>(kImageHeight), box[3]));
+    const float width = std::max(0.0f, x2 - x1);
+    const float height = std::max(0.0f, y2 - y1);
+    const float area_ratio = (width * height) / static_cast<float>(kImageWidth * kImageHeight);
+    const float bottom_ratio = y2 / static_cast<float>(kImageHeight);
+    return 0.65f * std::sqrt(area_ratio) + 0.35f * bottom_ratio;
+}
+
+void emit_heuristic_depth_frame(uint64_t frame_index, const DetectionResult& det_result) {
     constexpr int kDepthWidth = 80;
     constexpr int kDepthHeight = 60;
     constexpr size_t kDepthBytes = kDepthWidth * kDepthHeight;
     constexpr size_t kMaxChunkChars = 1600;
 
-    std::vector<uint8_t> depth(kDepthBytes);
-    for (int y = 0; y < kDepthHeight; ++y) {
-        for (int x = 0; x < kDepthWidth; ++x) {
-            depth[y * kDepthWidth + x] = static_cast<uint8_t>((x * 3 + y * 5 + frame_index * 7) & 0xff);
+    std::vector<uint8_t> depth(kDepthBytes, 20);
+    for (size_t i = 0; i < det_result.boxes.size(); ++i) {
+        const auto& box = det_result.boxes[i];
+        if (!is_valid_box(box)) continue;
+        const float depth_score = compute_box_depth_score(box);
+        const uint8_t value = depth_value_for_score(depth_score);
+        const int x1 = std::max(0, std::min(kDepthWidth - 1, static_cast<int>(box[0] * kDepthWidth / kImageWidth)));
+        const int y1 = std::max(0, std::min(kDepthHeight - 1, static_cast<int>(box[1] * kDepthHeight / kImageHeight)));
+        const int x2 = std::max(0, std::min(kDepthWidth - 1, static_cast<int>(box[2] * kDepthWidth / kImageWidth)));
+        const int y2 = std::max(0, std::min(kDepthHeight - 1, static_cast<int>(box[3] * kDepthHeight / kImageHeight)));
+        for (int y = y1; y <= y2; ++y) {
+            for (int x = x1; x <= x2; ++x) {
+                uint8_t& pixel = depth[y * kDepthWidth + x];
+                if (value > pixel) pixel = value;
+            }
         }
     }
 
@@ -81,6 +123,19 @@ void emit_synthetic_depth_frame(uint64_t frame_index) {
                static_cast<unsigned long long>(frame_index), i, encoded.substr(offset, kMaxChunkChars).c_str());
     }
     printf("A1_DEPTH_END frame=%llu\n", static_cast<unsigned long long>(frame_index));
+
+    for (size_t i = 0; i < det_result.boxes.size(); ++i) {
+        const int cls = i < det_result.class_ids.size() ? det_result.class_ids[i] : -1;
+        if (!is_valid_box(det_result.boxes[i])) continue;
+        const float score = i < det_result.scores.size() ? det_result.scores[i] : 0.0f;
+        const float depth_score = compute_box_depth_score(det_result.boxes[i]);
+        const char* bucket = depth_bucket_name(depth_score);
+        auto it = kClassNames.find(cls);
+        const char* name = (it != kClassNames.end()) ? it->second.c_str() : "unknown";
+        printf("A1_DEPTH_OBJECT frame=%llu cls=%s score=%.3f bucket=%s depth=%.3f box=%.1f,%.1f,%.1f,%.1f\n",
+               static_cast<unsigned long long>(frame_index), name, score, bucket, depth_score,
+               det_result.boxes[i][0], det_result.boxes[i][1], det_result.boxes[i][2], det_result.boxes[i][3]);
+    }
     fflush(stdout);
 }
 
@@ -281,7 +336,7 @@ int main() {
 
         const auto now = std::chrono::steady_clock::now();
         if (now - last_depth_log >= std::chrono::seconds(1)) {
-            emit_synthetic_depth_frame(frame_index);
+            emit_heuristic_depth_frame(frame_index, det_result);
             last_depth_log = now;
         }
 

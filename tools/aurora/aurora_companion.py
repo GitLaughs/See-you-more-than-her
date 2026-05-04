@@ -2279,8 +2279,9 @@ def status():
     if qt_status:
         stream_width = int(qt_status.get("frame_width") or stream_width)
         stream_height = int(qt_status.get("frame_height") or stream_height)
+    connected = bool(camera_connected or (qt_status and qt_status.get("connected")))
     return jsonify({
-        "connected": bool(camera_connected),
+        "connected": connected,
         "capture_count": capture_count,
         "fps": round(current_fps, 1),
         "output_dir": output_dir,
