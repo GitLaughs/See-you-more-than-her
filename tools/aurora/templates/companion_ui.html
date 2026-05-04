@@ -6,7 +6,8 @@
 <title>Aurora Companion</title>
 <style>
 :root{--bg:#f3f6fb;--panel:#fff;--line:#d7e3f4;--text:#18324d;--muted:#5f7894;--brand:#2f6fec;--ok:#18a957;--warn:#e39a18;--err:#df4b48}
-*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f8fbff,#eef3f9);color:var(--text);font:14px/1.5 "Segoe UI","Noto Sans SC",sans-serif}.topbar{position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 18px;background:rgba(255,255,255,.92);border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}.logo{font-weight:800;letter-spacing:.04em}.pills{display:flex;gap:8px;flex-wrap:wrap}.pill{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;background:#fff;color:var(--muted);font-size:12px}.dot{width:8px;height:8px;border-radius:50%;background:var(--err)}.dot.on{background:var(--ok)}.shell{display:grid;grid-template-columns:minmax(640px,1.45fr) minmax(380px,.85fr);gap:14px;padding:14px}.stack{display:flex;flex-direction:column;gap:14px}.card{background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(246,250,255,.98));border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 40px rgba(85,110,144,.12);overflow:hidden}.head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(95,120,148,.16);font-size:12px;font-weight:800;color:#4c6d8d;text-transform:uppercase;letter-spacing:.06em}.body{padding:12px}.preview{position:relative;--camera-window-width:18.75%;--camera-window-height:59.26%;--camera-window-left:25%;background:#020617;border-radius:10px;overflow:hidden;max-height:72vh;aspect-ratio:16/9;border:1px solid #17324d}.preview img{position:absolute;left:var(--camera-window-left);top:50%;transform:translate(-50%,-50%);width:var(--camera-window-width);height:var(--camera-window-height);object-fit:cover;display:block;filter:grayscale(1);z-index:2}.osd-frame{position:absolute;inset:0;z-index:1;pointer-events:none;background:radial-gradient(circle at 40% 25%,rgba(35,220,255,.18),transparent 10%),linear-gradient(135deg,#020617,#071324 60%,#020617)}.osd-hole{position:absolute;left:var(--camera-window-left);top:50%;transform:translate(-50%,-50%);width:var(--camera-window-width);height:var(--camera-window-height);border:3px solid #25e6ff;box-shadow:0 0 18px rgba(37,230,255,.7);z-index:3;pointer-events:none}.osd-corner{position:absolute;z-index:3;border-color:#20e7ff;border-style:solid;opacity:.8}.osd-corner.a{left:0;top:0;width:33%;height:20%;border-width:3px 0 0 3px}.osd-corner.b{right:0;bottom:0;width:38%;height:22%;border-width:0 3px 3px 0}.fps{position:absolute;right:8px;top:8px;background:rgba(255,255,255,.9);border:1px solid var(--line);border-radius:8px;padding:3px 8px;font:12px/1.4 monospace;color:var(--muted);z-index:5}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.row label{min-width:72px;color:var(--muted);font-weight:700}.row input,.row select,textarea{border:1px solid var(--line);border-radius:8px;padding:8px;background:#fff;color:var(--text)}.row input,.row select{flex:1;min-width:140px}textarea{width:100%;min-height:110px;font-family:Consolas,monospace;resize:vertical}.btn{border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:#fff;color:var(--text);cursor:pointer;font-weight:700}.btn:hover{background:#eef4ff}.btn.blue{background:var(--brand);border-color:var(--brand);color:#fff}.btn.green{background:var(--ok);border-color:var(--ok);color:#fff}.btn.red{background:var(--err);border-color:var(--err);color:#fff}.btn.warn{background:var(--warn);border-color:var(--warn);color:#fff}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.hero{background:linear-gradient(135deg,rgba(47,111,236,.10),rgba(255,255,255,.96));border:1px solid var(--line);border-radius:14px;padding:16px}.hero h1{margin:4px 0 8px;font-size:24px}.eyebrow{font-size:12px;color:var(--brand);font-weight:800;letter-spacing:.08em;text-transform:uppercase}.muted{color:var(--muted)}.log{height:240px;overflow:auto;background:#0d1726;color:#dce8f7;border-radius:10px;padding:10px;font:12px/1.5 Consolas,monospace;white-space:pre-wrap}.pre{min-height:90px;white-space:pre-wrap;background:#f7fbff;border:1px solid var(--line);border-radius:10px;padding:10px;color:#24415e}.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}.gallery img{width:100%;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}.depthBox{background:#07111f;border-radius:10px;display:flex;align-items:center;justify-content:center;min-height:220px}.depthBox canvas{width:100%;max-width:480px;height:auto;image-rendering:pixelated;border-radius:8px}.toast{position:fixed;right:18px;bottom:18px;max-width:380px;padding:10px 14px;border-radius:10px;background:#16304a;color:#fff;opacity:0;transform:translateY(8px);transition:.18s}.toast.show{opacity:1;transform:translateY(0)}.status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:10px}.status-tile{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}.status-label{font-size:12px;color:var(--muted);margin-bottom:4px}.status-value{font-size:18px;font-weight:800}.status-sub{font-size:12px;color:var(--muted);margin-top:3px}.panel-stack{display:flex;flex-direction:column;gap:10px}.info-panel{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px}.panel-title{font-size:12px;font-weight:800;color:#4c6d8d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}.kv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}.kv{border:1px solid var(--line);border-radius:10px;padding:8px;background:#f8fbff}.kv b{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}.kv span{display:block;font-size:14px;font-weight:700;color:var(--text);word-break:break-word}.badge-ok{color:var(--ok)}.badge-warn{color:var(--warn)}.badge-err{color:var(--err)}.mono{font-family:Consolas,monospace}.raw-line{margin-top:8px;padding:8px;border:1px dashed var(--line);border-radius:10px;background:#f8fbff;color:#24415e;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:break-word}@media(max-width:1120px){.shell{grid-template-columns:1fr}.preview{max-height:60vh;--camera-window-left:50%}}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f8fbff,#eef3f9);color:var(--text);font:14px/1.5 "Segoe UI","Noto Sans SC",sans-serif}.topbar{position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 18px;background:rgba(255,255,255,.92);border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}.logo{font-weight:800;letter-spacing:.04em}.pills{display:flex;gap:8px;flex-wrap:wrap}.pill{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;background:#fff;color:var(--muted);font-size:12px}.dot{width:8px;height:8px;border-radius:50%;background:var(--err)}.dot.on{background:var(--ok)}.shell{display:grid;grid-template-columns:minmax(0,1fr) minmax(380px,1fr);gap:22px;padding:18px;align-items:start}.stack{display:flex;flex-direction:column;gap:14px}.card{background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(246,250,255,.98));border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 40px rgba(85,110,144,.12);overflow:hidden}.head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(95,120,148,.16);font-size:12px;font-weight:800;color:#4c6d8d;text-transform:uppercase;letter-spacing:.06em}.body{padding:12px}.preview-card{grid-column:1}.preview{position:relative;background:#020617;border-radius:10px;overflow:hidden;height:auto;max-height:none;aspect-ratio:16/9;border:1px solid #17324d;margin:0;width:100%;background-image:url('/static/a1_theme_bg.svg');background-size:cover;background-position:center}.preview img{position:absolute;left:5%;top:9%;width:48%;height:82%;object-fit:cover;display:block;filter:grayscale(1);z-index:2;border-radius:18px;box-shadow:0 18px 44px rgba(0,0,0,.32)}.preview-right{position:absolute;right:3%;top:9%;bottom:9%;width:40%;display:flex;flex-direction:column;justify-content:space-between;gap:14px;padding:0;z-index:3;pointer-events:none}.status-hero{background:linear-gradient(180deg,rgba(10,21,40,.86),rgba(11,33,60,.72));border:1px solid rgba(111,188,255,.22);border-radius:24px;padding:20px 22px;color:#eef6ff;backdrop-filter:blur(6px);min-width:0}.status-hero .label{font-size:14px;letter-spacing:.16em;text-transform:uppercase;color:#8eb7e6;margin-bottom:8px}.status-hero .action{font-size:38px;font-weight:900;line-height:1.05;margin-bottom:8px}.status-hero .meta{font-size:15px;color:#d4e6ff}.rover-panel{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:end;background:linear-gradient(180deg,rgba(6,16,31,.92),rgba(8,24,46,.84));border:1px solid rgba(98,183,255,.18);border-radius:24px;padding:20px 22px;color:#eff7ff;backdrop-filter:blur(8px);min-width:0}.rover-copy{display:flex;flex-direction:column;gap:10px;min-width:0}.rover-title{font-size:clamp(20px,2.2vw,28px);font-weight:900;letter-spacing:.04em}.rover-sub{font-size:15px;color:#cfe2fb}.motion-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.motion-chip{border:1px solid rgba(135,188,255,.18);border-radius:16px;padding:10px 12px;background:rgba(255,255,255,.06);min-width:0}.motion-chip b{display:block;font-size:12px;color:#8fb2d7;margin-bottom:4px;text-transform:uppercase;letter-spacing:.08em}.motion-chip span{display:block;font-size:18px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rover-figure{display:none}.fps{position:absolute;right:8px;top:8px;background:rgba(255,255,255,.9);border:1px solid var(--line);border-radius:8px;padding:3px 8px;font:12px/1.4 monospace;color:var(--muted);z-index:5}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.row label{min-width:72px;color:var(--muted);font-weight:700}.row input,.row select,textarea{border:1px solid var(--line);border-radius:8px;padding:8px;background:#fff;color:var(--text)}.row input,.row select{flex:1;min-width:140px}textarea{width:100%;min-height:110px;font-family:Consolas,monospace;resize:vertical}.btn{border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:#fff;color:var(--text);cursor:pointer;font-weight:700}.btn:hover{background:#eef4ff}.btn.blue{background:var(--brand);border-color:var(--brand);color:#fff}.btn.green{background:var(--ok);border-color:var(--ok);color:#fff}.btn.red{background:var(--err);border-color:var(--err);color:#fff}.btn.warn{background:var(--warn);border-color:var(--warn);color:#fff}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.hero{background:linear-gradient(135deg,rgba(47,111,236,.10),rgba(255,255,255,.96));border:1px solid var(--line);border-radius:14px;padding:16px}.hero h1{margin:4px 0 8px;font-size:24px}.eyebrow{font-size:12px;color:var(--brand);font-weight:800;letter-spacing:.08em;text-transform:uppercase}.muted{color:var(--muted)}.log{height:240px;overflow:auto;background:#0d1726;color:#dce8f7;border-radius:10px;padding:10px;font:12px/1.5 Consolas,monospace;white-space:pre-wrap}.pre{min-height:90px;white-space:pre-wrap;background:#f7fbff;border:1px solid var(--line);border-radius:10px;padding:10px;color:#24415e}.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}.gallery img{width:100%;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}.depthBox{background:#07111f;border-radius:10px;display:flex;align-items:center;justify-content:center;min-height:220px}.depthBox canvas{width:100%;max-width:480px;height:auto;image-rendering:pixelated;border-radius:8px}.toast{position:fixed;right:18px;bottom:18px;max-width:380px;padding:10px 14px;border-radius:10px;background:#16304a;color:#fff;opacity:0;transform:translateY(8px);transition:.18s}.toast.show{opacity:1;transform:translateY(0)}.status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:10px}.status-tile{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}.status-label{font-size:12px;color:var(--muted);margin-bottom:4px}.status-value{font-size:18px;font-weight:800}.status-sub{font-size:12px;color:var(--muted);margin-top:3px}.panel-stack{display:flex;flex-direction:column;gap:10px}.info-panel{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px}.panel-title{font-size:12px;font-weight:800;color:#4c6d8d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}.kv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}.kv{border:1px solid var(--line);border-radius:10px;padding:8px;background:#f8fbff}.kv b{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}.kv span{display:block;font-size:14px;font-weight:700;color:var(--text);word-break:break-word}.badge-ok{color:var(--ok)}.badge-warn{color:var(--warn)}.badge-err{color:var(--err)}.mono{font-family:Consolas,monospace}.err-card{border-left:5px solid var(--err);background:linear-gradient(135deg,#fff5f5,#fff)}.err-card.warn{border-left-color:var(--warn);background:linear-gradient(135deg,#fff8eb,#fff)}.err-mark{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:8px;background:var(--err);color:#fff;font-weight:900;margin-right:8px}.err-mark.warn{background:var(--warn)}.err-title{display:flex;align-items:center;font-weight:900;color:#24415e}.err-hint{margin-top:8px;color:var(--muted)}.rx-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.rx-chip{border:1px solid var(--line);border-radius:999px;padding:3px 8px;background:#fff;font:12px/1.4 Consolas,monospace;color:#24415e}@media(max-width:1120px){.shell{grid-template-columns:1fr}.preview-card{grid-column:1}.preview{aspect-ratio:16/11}.preview-right{right:3%;top:7%;bottom:7%;width:42%}.status-hero{padding:16px}.status-hero .action{font-size:30px}.rover-panel{padding:16px}.motion-grid{grid-template-columns:1fr}}
+@media(min-width:1600px){.shell{grid-template-columns:minmax(760px,1.05fr) minmax(520px,.95fr)}.preview{aspect-ratio:16/9}.preview img{left:5%;width:48%}.preview-right{width:40%}}
 </style>
 </head>
 <body>
@@ -21,18 +22,55 @@
 
 <main class="shell">
   <section class="stack">
-    <div class="card">
+    <div class="card preview-card">
       <div class="head"><span>官方 OSD 横屏预览</span><div class="row" style="margin:0"><button class="btn" onclick="setStream('preview')">预览</button><button class="btn" onclick="setStream('detect')">YOLOv8</button></div></div>
       <div class="body">
         <div class="preview">
           <img id="stream" src="/video_feed" alt="camera">
-          <div class="osd-frame"></div>
-          <div class="osd-hole"></div>
-          <div class="osd-corner a"></div>
-          <div class="osd-corner b"></div>
-          <div class="fps" id="streamInfo">1920x1080 OSD · 左半区 360x640</div>
+          <div class="preview-right">
+            <div class="status-hero">
+              <div class="label">A1 视觉底盘联动</div>
+              <div class="action" id="motionAction">停止</div>
+              <div class="meta" id="motionMeta">等待板端动作回传</div>
+            </div>
+            <div class="rover-panel">
+              <div class="rover-copy">
+                <div class="rover-title">A1 小车状态面板</div>
+                <div class="rover-sub">左侧为 720×1280 实时视频流，右侧为项目主题背景与运动状态展示。</div>
+                <div class="motion-grid">
+                  <div class="motion-chip"><b>当前动作</b><span id="motionChipAction">STOP</span></div>
+                  <div class="motion-chip"><b>手势来源</b><span id="motionChipGesture">—</span></div>
+                  <div class="motion-chip"><b>底盘状态</b><span id="motionChipChassis">未就绪</span></div>
+                  <div class="motion-chip"><b>串口链路</b><span id="motionChipSerial">等待连接</span></div>
+                </div>
+              </div>
+              <div class="rover-figure">
+                <svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="bodyGrad" x1="0" x2="1">
+                      <stop offset="0%" stop-color="#63d5ff"/>
+                      <stop offset="100%" stop-color="#2f6fec"/>
+                    </linearGradient>
+                    <linearGradient id="wheelGrad" x1="0" x2="1">
+                      <stop offset="0%" stop-color="#0f1728"/>
+                      <stop offset="100%" stop-color="#2f4466"/>
+                    </linearGradient>
+                  </defs>
+                  <rect x="0" y="0" width="260" height="110" rx="30" fill="url(#bodyGrad)"/>
+                  <rect x="44" y="-26" width="172" height="64" rx="20" fill="#dff7ff" opacity="0.96"/>
+                  <circle cx="54" cy="118" r="30" fill="url(#wheelGrad)"/>
+                  <circle cx="206" cy="118" r="30" fill="url(#wheelGrad)"/>
+                  <circle cx="54" cy="118" r="12" fill="#8ee7ff"/>
+                  <circle cx="206" cy="118" r="12" fill="#8ee7ff"/>
+                  <path d="M260 44H330" stroke="#83e6ff" stroke-width="14" stroke-linecap="round"/>
+                  <path d="M312 20L336 44L312 68" stroke="#83e6ff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+            </div>
+          </div>
+          <div class="fps" id="streamInfo">720x1280 摄像头 · 左侧预览</div>
         </div>
-        <p class="muted">此区域按官方 demo-rps 横屏构图显示；真实 OSD 仍以板端输出为准。</p>
+        <p class="muted">左侧显示 720×1280 实时视频，右侧显示项目主题背景与小车运动状态；底部不再保留额外白边。</p>
       </div>
     </div>
 
@@ -58,14 +96,14 @@
     </div>
 
     <div class="card">
-      <div class="head"><span>A1 识别状态</span><span id="a1GestureBadge" class="pill">等待识别</span></div>
+      <div class="head"><span>A1 识别状态</span><span id="a1GestureBadge" class="pill">等待 YOLO</span></div>
       <div class="body">
         <div class="status-grid" id="a1GestureSummary">
-          <div class="status-tile"><div class="status-label">手势</div><div class="status-value">—</div></div>
-          <div class="status-tile"><div class="status-label">动作</div><div class="status-value">—</div></div>
-          <div class="status-tile"><div class="status-label">状态</div><div class="status-value">未收到</div></div>
+          <div class="status-tile"><div class="status-label">目标数</div><div class="status-value">—</div></div>
+          <div class="status-tile"><div class="status-label">类别</div><div class="status-value">—</div></div>
+          <div class="status-tile"><div class="status-label">置信度</div><div class="status-value">—</div></div>
         </div>
-        <p class="muted" id="a1GestureHint">收到 A1_DEBUG gesture/action 后自动更新；短暂丢失时保持上一状态。</p>
+        <p class="muted" id="a1GestureHint">收到 A1_DEPTH_OBJECT 后自动更新 YOLO 摘要。</p>
       </div>
     </div>
 
@@ -99,6 +137,7 @@
       <div class="body">
         <div class="depthBox"><canvas id="depthCanvas" width="80" height="60"></canvas></div>
         <p class="muted" id="depthMeta">等待 A1_DEPTH 帧...</p>
+        <div class="rx-chips" id="depthObjects"><span class="rx-chip">无目标深度</span></div>
       </div>
     </div>
 
@@ -131,11 +170,12 @@ let toastTimer=null;
 function apiJson(url,options={}){if(options.body&&!options.headers)options.headers={'Content-Type':'application/json'};return fetch(url,options).then(r=>r.json())}
 function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.className='toast show';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3000)}
 function setDot(id,on){const el=document.getElementById(id);if(el)el.className='dot '+(on?'on':'')}
-function setStream(kind){const img=document.getElementById('stream');img.src=(kind==='detect'?'/detect_feed':'/video_feed')+'?t='+Date.now();document.getElementById('streamInfo').textContent=kind==='detect'?'YOLOv8 检测流 · 左半区 360x640':'1920x1080 OSD · 左半区 360x640'}
-function loadStatus(){fetch('/status').then(r=>r.json()).then(d=>{setDot('camDot',!!d.connected);document.getElementById('camStatus').textContent=d.connected?'摄像头在线':'摄像头离线';document.getElementById('fpsChip').textContent=d.fps!=null?d.fps.toFixed(1)+' fps':'— fps';if(d.source)document.getElementById('cameraSourceHint').textContent='当前源：'+d.source;if(d.model_name)document.getElementById('modelSelect').value=d.model_name;if(d.output_dir)document.getElementById('captureHint').textContent='保存目录：'+d.output_dir}).catch(()=>{})}
-function loadCameraDevices(showToast=false){return apiJson('/camera_devices').then(d=>{const sel=document.getElementById('cameraSelect');const devices=d.devices||[];sel.innerHTML=devices.map(x=>{const id=x.id??x.index??0;return `<option value="${id}">${id} · ${x.name||x.label||'Camera'}</option>`}).join('')||'<option value="0">0 · 默认摄像头</option>';if(showToast)toast('摄像头列表已刷新')}).catch(e=>toast('摄像头列表读取失败: '+e))}
-function switchCamera(){const raw=document.getElementById('cameraSelect').value||'0';const device=parseInt(raw,10);if(Number.isNaN(device))return toast('切换失败: 摄像头编号不是整数');return apiJson('/switch_camera',{method:'POST',body:JSON.stringify({device})}).then(d=>{if(!d.success)throw new Error(d.error||'切换失败');toast('摄像头已切换');loadStatus()}).catch(e=>toast('切换失败: '+e))}
-function setCameraSource(source){return apiJson('/switch_camera',{method:'POST',body:JSON.stringify({source})}).then(d=>{if(!d.success)throw new Error(d.error||'切换失败');toast('输入源已切换');loadStatus()}).catch(e=>toast('输入源切换失败: '+e))}
+function updateMotionPanel(status={}){const gesture=gestureName(status.gesture);const action=status.action==='forward'?'前进':'停止';const motion=status.action==='forward'?'FORWARD':'STOP';const chassisOk=!!status.chassis_ok||!!status.success;const serialText=document.getElementById('serialTermBadge')?.textContent||'未连接';const stateText=!status.visible?'等待识别':(status.held?'保持上一状态':'实时识别');const meta=`${stateText} · ${status.message||'等待板端动作回传'}`;const actionEl=document.getElementById('motionAction');const metaEl=document.getElementById('motionMeta');const chipAction=document.getElementById('motionChipAction');const chipGesture=document.getElementById('motionChipGesture');const chipChassis=document.getElementById('motionChipChassis');const chipSerial=document.getElementById('motionChipSerial');if(actionEl)actionEl.textContent=action;if(metaEl)metaEl.textContent=meta;if(chipAction)chipAction.textContent=motion;if(chipGesture)chipGesture.textContent=gesture;if(chipChassis)chipChassis.textContent=chassisOk?'已就绪':'未就绪';if(chipSerial)chipSerial.textContent=serialText.includes('已连接')?'已连接':'等待连接'}
+function setStream(kind){const img=document.getElementById('stream');img.src=(kind==='detect'?'/detect_feed':'/video_feed')+'?t='+Date.now();document.getElementById('streamInfo').textContent=kind==='detect'?'YOLOv8 检测流 · 左侧 720x1280':'720x1280 摄像头 · 左侧预览'}
+function loadStatus(){fetch('/status').then(r=>r.json()).then(d=>{const bridge=d.qt_bridge||{};const on=!!(d.connected||bridge.connected);setDot('camDot',on);const source=d.source_label||d.source||'camera';const device=d.device??'—';document.getElementById('camStatus').textContent=on?`${source} #${device} 在线`:'摄像头离线';document.getElementById('fpsChip').textContent=d.fps!=null?d.fps.toFixed(1)+' fps':'— fps';if(d.source)document.getElementById('cameraSourceHint').textContent=`当前源：${source} · 设备 ${device}`;if(d.model_name)document.getElementById('modelSelect').value=d.model_name;if(d.output_dir)document.getElementById('captureHint').textContent='保存目录：'+d.output_dir}).catch(()=>{})}
+function loadCameraDevices(showToast=false){const url='/camera_devices'+(showToast?'?refresh=1':'');return apiJson(url).then(d=>{const sel=document.getElementById('cameraSelect');const devices=d.devices||[];sel.innerHTML=devices.map(x=>{const id=x.id??x.index??0;return `<option value="${id}">${id} · ${x.name||x.label||'Camera'}</option>`}).join('')||'<option value="0">0 · 默认摄像头</option>';const current=String(d.current_device??'');if([...sel.options].some(o=>o.value===current))sel.value=current;document.getElementById('cameraSourceHint').textContent=d.bootstrapping?'正在扫描摄像头…':`当前源：${d.current_source||'auto'} · 设备 ${d.current_device??'—'}`;if(showToast)toast(d.bootstrapping?'正在扫描，列表稍后更新':'摄像头列表已刷新');if(d.bootstrapping)setTimeout(()=>loadCameraDevices(false),1200)}).catch(e=>toast('摄像头列表读取失败: '+e))}
+function switchCamera(){const raw=document.getElementById('cameraSelect').value||'0';const device=parseInt(raw,10);if(Number.isNaN(device))return toast('切换失败: 摄像头编号不是整数');return apiJson('/switch_camera',{method:'POST',body:JSON.stringify({device})}).then(d=>{if(!d.success)throw new Error(d.error||'切换失败');toast(`摄像头已切换: ${d.source||'auto'} #${d.device}`);loadStatus();loadCameraDevices()}).catch(e=>toast('切换失败: '+e))}
+function setCameraSource(source){return apiJson('/switch_camera',{method:'POST',body:JSON.stringify({source})}).then(d=>{if(!d.success)throw new Error(d.error||'切换失败');toast(`输入源已切换: ${d.source||source}`);loadStatus();loadCameraDevices()}).catch(e=>toast('输入源切换失败: '+e))}
 function refreshCam(){return apiJson('/refresh_camera',{method:'POST'}).then(d=>{toast(d.success?'摄像头已刷新':(d.error||'刷新失败'));loadStatus()})}
 function releaseCam(){return apiJson('/release_camera',{method:'POST'}).then(d=>{toast(d.success?'摄像头已释放':(d.error||'释放失败'));loadStatus()})}
 function safeExitAurora(){apiJson('/shutdown',{method:'POST'}).finally(()=>toast('已请求安全退出'))}
@@ -173,6 +213,23 @@ function renderGestureStatus(status={}){
   ].join('');
   hint.textContent=!visible?'收到 A1_DEBUG gesture/action 后自动更新；短暂丢失时保持上一状态。':(held?'识别短暂丢失，当前继续保持上一状态。':'正在显示最新识别结果。');
 }
+function renderYoloStatus(status={}){
+  const items=Array.isArray(status.items)?status.items:[];
+  const badge=document.getElementById('a1GestureBadge');
+  const summary=document.getElementById('a1GestureSummary');
+  const hint=document.getElementById('a1GestureHint');
+  if(!badge||!summary||!hint)return;
+  badge.textContent=items.length?`检测到 ${items.length} 个目标`:'0 个目标';
+  const classes=items.slice(0,3).map(x=>x.class||'unknown').join(' / ')||'—';
+  const first=items[0]||{};
+  const score=items.length?Number(first.score||0).toFixed(2):'—';
+  summary.innerHTML=[
+    `<div class="status-tile"><div class="status-label">目标数</div><div class="status-value">${items.length}</div></div>`,
+    `<div class="status-tile"><div class="status-label">类别</div><div class="status-value">${escapeHtml(classes)}</div></div>`,
+    `<div class="status-tile"><div class="status-label">置信度</div><div class="status-value">${escapeHtml(score)}</div></div>`,
+  ].join('');
+  hint.textContent=items.length?'YOLO 摘要来自最新 A1_DEPTH_OBJECT 回传。':'最新深度帧没有目标对象。';
+}
 function formatA1DebugResult(d,mode='debug'){
   const structured=d.structured||{};
   const panels=[];
@@ -209,16 +266,12 @@ function formatA1DebugResult(d,mode='debug'){
     {label:'快捷说明',value:d.description||'—'},
     {label:'板端说明',value:structured.message||'—'},
   ]));
-  panels.push(renderRawLine('原始回传',structured.raw_line||(`${legacyDescription}${d.message||''}`).trim()));
-  panels.push(renderRecentRx('最近串口输出',d.recent_rx||[]));
+  if(!success)panels.push(renderErrorSummary(mode==='link'?'联通错误报告':'调试错误报告',message||diagnosis,d.recent_rx||[]));
   return panels.filter(Boolean).join('');
 }
-function renderErrorPanel(title,message,recentRx=[]){
-  const panels=[renderKvPanel(title,[{label:'状态',value:'失败',tone:'badge-err'},{label:'原因',value:message||'未知错误'}])];
-  panels.push(renderRecentRx('最近串口输出',recentRx));
-  return panels.filter(Boolean).join('');
-}
-function updateSerialStatus(d){const on=!!d.connected;setDot('serialDot',on);document.getElementById('serialStatusTop').textContent=on?`${d.port||'COM13'} 已连接`:'COM13 未连接';const badge=document.getElementById('serialTermBadge');badge.textContent=on?`${d.port||'COM13'} 已连接`:'未连接';renderSerialTermLines(d.latest_lines||[]);renderGestureStatus(d.gesture_status||{})}
+function renderErrorSummary(title,message,recentRx=[]){const text=String(message||'未知错误');const lower=text.toLowerCase();const serial=lower.includes('com')||lower.includes('serial')||lower.includes('串口');const timeout=lower.includes('timeout')||lower.includes('超时')||lower.includes('未收到');const severity=serial?'err':(timeout?'warn':'err');const mark=severity==='warn'?'!':'×';const tone=severity==='warn'?'warn':'';const reason=serial?'串口连接失败':(timeout?'等待回传超时':'命令执行失败');const hint=serial?'检查 COM13 是否被占用、线缆是否连接、波特率是否为 115200。':(timeout?'命令已发出，但没有匹配回传；确认板端 demo 正在运行且 A1_TEST 可用。':'查看状态色块和简短原因；原始回传已隐藏，避免刷屏。');const chips=(Array.isArray(recentRx)?recentRx:[]).slice(0,4).map(x=>String(x).slice(0,48)).filter(Boolean).map(x=>`<span class="rx-chip">${escapeHtml(x)}</span>`).join('');return `<div class="info-panel err-card ${tone}"><div class="err-title"><span class="err-mark ${tone}">${mark}</span>${escapeHtml(title)}</div><div class="kv-grid" style="margin-top:10px"><div class="kv"><b>类型</b><span class="${severity==='warn'?'badge-warn':'badge-err'}">${escapeHtml(reason)}</span></div><div class="kv"><b>摘要</b><span>${escapeHtml(text.slice(0,90))}</span></div></div><div class="err-hint">${escapeHtml(hint)}</div>${chips?`<div class="rx-chips">${chips}</div>`:''}</div>`}
+function renderErrorPanel(title,message,recentRx=[]){return renderErrorSummary(title,message,recentRx)}
+function updateSerialStatus(d){const on=!!d.connected;setDot('serialDot',on);document.getElementById('serialStatusTop').textContent=on?`${d.port||'COM13'} 已连接`:'COM13 未连接';const badge=document.getElementById('serialTermBadge');badge.textContent=on?`${d.port||'COM13'} 已连接`:'未连接';renderSerialTermLines(d.latest_lines||[]);updateMotionPanel(d.gesture_status||{})}
 function loadSerialTermPorts(showToast=false){return apiJson('/api/serial_term/ports').then(d=>{const sel=document.getElementById('serialTermPortSelect');const current=sel.value||d.preferred||'COM13';const ports=d.ports&&d.ports.length?d.ports:[{port:current,desc:'手动端口'}];sel.innerHTML=ports.map(p=>`<option value="${p.port}">${p.port}${p.desc?' · '+p.desc:''}</option>`).join('');if([...sel.options].some(o=>o.value===current))sel.value=current;if(showToast)toast('串口列表已刷新')})}
 function loadSerialTermConfig(){return apiJson('/api/serial_term/config').then(d=>{if(d.port)document.getElementById('serialTermPortSelect').value=d.port;if(d.baud)document.getElementById('serialTermBaud').value=d.baud;if('append_newline'in d)document.getElementById('serialTermAppendNewline').checked=!!d.append_newline}).catch(()=>{})}
 function loadSerialTermStatus(){return apiJson('/api/serial_term/status').then(updateSerialStatus).catch(()=>updateSerialStatus({connected:false,latest_lines:[],gesture_status:{}}))}
@@ -237,7 +290,6 @@ function sendA1Debug(command){
     {label:'命令',value:'A1_TEST '+command},
   ]);
   return apiJson('/api/serial_term/a1_debug',{method:'POST',body:JSON.stringify({command,timeout_sec:2.5})}).then(d=>{
-    renderGestureStatus(d.gesture_status||{});
     loadSerialTermStatus();
     if(!d.success){
       badge.textContent='失败';
@@ -263,7 +315,6 @@ function runA1LinkTest(){
   ]);
   return apiJson('/api/serial_term/a1_debug',{method:'POST',body:JSON.stringify({command:'ping',timeout_sec:2.5})}).then(d=>{
     btn.disabled=false;
-    renderGestureStatus(d.gesture_status||{});
     if(!d.success){
       badge.textContent='未连通';
       result.innerHTML=renderErrorPanel('联通测试概览',d.message||d.error||'未收到 A1_DEBUG ping 回传',d.recent_rx||[]);
@@ -279,7 +330,9 @@ function runA1LinkTest(){
     result.innerHTML=renderErrorPanel('联通测试概览','网络错误: '+e,[]);
   });
 }
-function loadDepthLatest(){return apiJson('/api/depth/latest').then(d=>{const badge=document.getElementById('depthBadge');const meta=document.getElementById('depthMeta');if(!d.success){badge.textContent='无帧';meta.textContent='等待 A1_DEPTH 帧...';return}const w=parseInt(d.width||0,10),h=parseInt(d.height||0,10);if(!w||!h||!d.data){badge.textContent='无效帧';meta.textContent='深度帧元数据无效';return}let raw;try{const bin=atob(d.data);raw=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)raw[i]=bin.charCodeAt(i)}catch(e){badge.textContent='解码失败';meta.textContent='base64 解码失败';return}if(raw.length!==w*h){badge.textContent='尺寸错误';meta.textContent=`期望 ${w*h} bytes，收到 ${raw.length} bytes`;return}const canvas=document.getElementById('depthCanvas');canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d');const img=ctx.createImageData(w,h);for(let i=0,j=0;i<raw.length;i++,j+=4){const v=raw[i];img.data[j]=v;img.data[j+1]=v;img.data[j+2]=v;img.data[j+3]=255}ctx.putImageData(img,0,0);const age=Number(d.age_sec||0);badge.textContent=age>3?`frame ${d.frame} · 超时`:`frame ${d.frame}`;meta.textContent=`${w}x${h} ${d.format||'u8'} · ${d.bytes||raw.length} bytes · chunks ${d.chunks||'-'} · age ${age.toFixed(1)}s`}).catch(()=>{const badge=document.getElementById('depthBadge');const meta=document.getElementById('depthMeta');badge.textContent='接口错误';meta.textContent='无法读取 /api/depth/latest'})}}
+function renderDepthObjects(objects=[]){const el=document.getElementById('depthObjects');if(!el)return;if(!Array.isArray(objects)||!objects.length){el.innerHTML='<span class="rx-chip">无目标深度</span>';return}el.innerHTML=objects.slice(0,8).map(o=>{const bucket=o.bucket||'far';const mark=bucket==='near'?'●':(bucket==='mid'?'◆':'·');const cls=o.class||'unknown';const depth=Number(o.depth||0).toFixed(2);const score=Number(o.score||0).toFixed(2);return `<span class="rx-chip">${mark} ${escapeHtml(cls)} ${escapeHtml(bucket)} d=${depth} s=${score}</span>`}).join('')}
+function depthToHeatColor(v){const t=v/255;if(t<0.25)return[0,Math.round(t*4*255),255];if(t<0.5)return[0,255,Math.round((1-(t-0.25)*4)*255)];if(t<0.75)return[Math.round((t-0.5)*4*255),255,0];return[255,Math.round((1-(t-0.75)*4)*255),0]}
+function loadDepthLatest(){return apiJson('/api/depth/latest').then(d=>{const badge=document.getElementById('depthBadge');const meta=document.getElementById('depthMeta');if(!d.success){badge.textContent='无帧';meta.textContent='等待 A1_DEPTH 帧...';renderDepthObjects([]);renderYoloStatus({items:[]});return}const w=parseInt(d.width||0,10),h=parseInt(d.height||0,10);if(!w||!h||!d.data){badge.textContent='无效帧';meta.textContent='深度帧元数据无效';renderDepthObjects([]);renderYoloStatus({items:[]});return}let raw;try{const bin=atob(d.data);raw=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)raw[i]=bin.charCodeAt(i)}catch(e){badge.textContent='解码失败';meta.textContent='base64 解码失败';renderDepthObjects([]);renderYoloStatus({items:[]});return}if(raw.length!==w*h){badge.textContent='尺寸错误';meta.textContent=`期望 ${w*h} bytes，收到 ${raw.length} bytes`;renderDepthObjects([]);renderYoloStatus({items:[]});return}const canvas=document.getElementById('depthCanvas');canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d');const img=ctx.createImageData(w,h);for(let i=0,j=0;i<raw.length;i++,j+=4){const v=raw[i];const c=depthToHeatColor(v);img.data[j]=c[0];img.data[j+1]=c[1];img.data[j+2]=c[2];img.data[j+3]=255}ctx.putImageData(img,0,0);const age=Number(d.age_sec||0);badge.textContent=age>3?`frame ${d.frame} · 超时`:`frame ${d.frame}`;meta.textContent=`${w}x${h} ${d.format||'u8'} · ${d.bytes||raw.length} bytes · chunks ${d.chunks||'-'} · age ${age.toFixed(1)}s`;renderDepthObjects(d.objects||[]);renderYoloStatus(d.yolo||{items:d.objects||[]})}).catch(()=>{const badge=document.getElementById('depthBadge');const meta=document.getElementById('depthMeta');badge.textContent='接口错误';meta.textContent='无法读取 /api/depth/latest';renderDepthObjects([]);renderYoloStatus({items:[]})})}
 function clearSerialTermLogs(){return apiJson('/api/serial_term/clear',{method:'POST'}).then(()=>{renderSerialTermLines([]);document.getElementById('serialTermTxHint').textContent=''})}
 document.getElementById('serialTermInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendSerialTerm()}})
 setInterval(loadStatus,2000);setInterval(loadSerialTermStatus,1200);setInterval(loadDepthLatest,1000);
