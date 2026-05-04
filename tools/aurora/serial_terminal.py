@@ -64,10 +64,12 @@ _rx_last_data_ts = 0.0
 _depth_lock = threading.Lock()
 _depth_inflight: Optional[Dict[str, Any]] = None
 _latest_depth_frame: Optional[Dict[str, Any]] = None
+_depth_objects: Dict[int, list] = {}
 _DEPTH_MAX_WIDTH = 320
 _DEPTH_MAX_HEIGHT = 240
 _DEPTH_MAX_CHUNKS = 64
 _DEPTH_MAX_CHUNK_CHARS = 2048
+_DEPTH_MAX_OBJECTS = 32
 _DEPTH_KV_RE = re.compile(r"(\w+)=([^\s]+)")
 
 _PARTIAL_IDLE_FLUSH_SEC = 3.0  # 增加到3秒，避免频繁刷新部分行
@@ -259,6 +261,30 @@ def _parse_depth_int(fields: Dict[str, str], name: str, default: int = -1) -> in
         return default
 
 
+def _parse_depth_float(fields: Dict[str, str], name: str, default: float = 0.0) -> float:
+    try:
+        return float(fields.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_depth_object(fields: Dict[str, str]) -> Dict[str, Any]:
+    box_text = fields.get("box", "")
+    try:
+        box = [float(v) for v in box_text.split(",")]
+    except ValueError:
+        box = []
+    if len(box) != 4:
+        box = []
+    return {
+        "class": fields.get("cls", "unknown"),
+        "score": _parse_depth_float(fields, "score"),
+        "bucket": fields.get("bucket", "far"),
+        "depth": _parse_depth_float(fields, "depth"),
+        "box": box,
+    }
+
+
 def _handle_depth_line(text: str) -> None:
     global _depth_inflight, _latest_depth_frame
     if not text.startswith("A1_DEPTH_"):
@@ -269,6 +295,20 @@ def _handle_depth_line(text: str) -> None:
     now = time.time()
 
     with _depth_lock:
+        if text.startswith("A1_DEPTH_OBJECT"):
+            if frame < 0:
+                return
+            item = _parse_depth_object(fields)
+            if _latest_depth_frame and _latest_depth_frame.get("frame") == frame:
+                objects = _latest_depth_frame.setdefault("objects", [])
+                if len(objects) < _DEPTH_MAX_OBJECTS:
+                    objects.append(item)
+                return
+            items = _depth_objects.setdefault(frame, [])
+            if len(items) < _DEPTH_MAX_OBJECTS:
+                items.append(item)
+            return
+
         if text.startswith("A1_DEPTH_BEGIN"):
             width = _parse_depth_int(fields, "w")
             height = _parse_depth_int(fields, "h")
@@ -323,6 +363,9 @@ def _handle_depth_line(text: str) -> None:
             if len(raw) != int(_depth_inflight.get("bytes") or -1):
                 _depth_inflight = None
                 return
+            for old_frame in list(_depth_objects.keys()):
+                if old_frame < frame - 3:
+                    _depth_objects.pop(old_frame, None)
             _latest_depth_frame = {
                 "timestamp": now,
                 "frame": frame,
@@ -333,6 +376,7 @@ def _handle_depth_line(text: str) -> None:
                 "data": data,
                 "bytes": len(raw),
                 "chunks": chunks_expected,
+                "objects": list(_depth_objects.pop(frame, [])),
             }
             _depth_inflight = None
 
@@ -342,6 +386,7 @@ def get_latest_depth_frame() -> Dict[str, Any]:
         if not _latest_depth_frame:
             return {"success": False, "error": "no depth frame"}
         payload = dict(_latest_depth_frame)
+        payload["objects"] = [dict(item) for item in payload.get("objects") or []]
     payload["success"] = True
     payload["age_sec"] = max(0.0, time.time() - float(payload.get("timestamp") or 0.0))
     return payload
