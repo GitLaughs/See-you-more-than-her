@@ -1,13 +1,16 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <condition_variable>
 #include <cmath>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <iomanip>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <string>
 #include <sstream>
 #include <thread>
@@ -21,8 +24,6 @@ namespace {
 
 constexpr int kCameraWidth = 720;
 constexpr int kCameraHeight = 1280;
-constexpr int kOsdWidth = 1920;
-constexpr int kOsdHeight = 1280;
 constexpr int16_t kForwardVelocity = 200;
 
 constexpr int kClassPerson   = 0;
@@ -42,6 +43,18 @@ ChassisController* g_chassis = nullptr;
 bool g_chassis_ready = false;
 std::string g_last_cli_action = "stop";
 
+struct LatestYoloSnapshot {
+    bool valid = false;
+    uint64_t frame_index = 0;
+    DetectionResult detections;
+};
+
+std::mutex g_latest_yolo_mutex;
+std::condition_variable g_latest_yolo_cv;
+LatestYoloSnapshot g_latest_yolo_snapshot;
+volatile sig_atomic_t g_yolo_tensor_dump_requested = 0;
+uint64_t g_yolo_tensor_dump_completed_frame = 0;
+
 std::string base64_encode(const uint8_t* data, size_t len) {
     static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string out;
@@ -60,6 +73,21 @@ std::string base64_encode(const uint8_t* data, size_t len) {
         out.push_back(i + 2 < len ? table[value & 0x3f] : '=');
     }
     return out;
+}
+
+std::string json_escape(const std::string& value) {
+    std::ostringstream out;
+    for (char ch : value) {
+        switch (ch) {
+            case '\\': out << "\\\\"; break;
+            case '"': out << "\\\""; break;
+            case '\n': out << "\\n"; break;
+            case '\r': out << "\\r"; break;
+            case '\t': out << "\\t"; break;
+            default: out << ch; break;
+        }
+    }
+    return out.str();
 }
 
 const char* depth_bucket_name(float depth_score) {
@@ -91,12 +119,6 @@ float compute_box_depth_score(const std::array<float, 4>& box) {
     return 0.65f * std::sqrt(area_ratio) + 0.35f * bottom_ratio;
 }
 
-std::array<float, 4> scale_box_to_osd(const std::array<float, 4>& box) {
-    constexpr float kXScale = static_cast<float>(kOsdWidth) / static_cast<float>(kCameraWidth);
-    constexpr float kYScale = static_cast<float>(kOsdHeight) / static_cast<float>(kCameraHeight);
-    return {box[0] * kXScale, box[1] * kYScale, box[2] * kXScale, box[3] * kYScale};
-}
-
 void print_detection_summary(uint64_t frame_index, const DetectionResult& det_result) {
     printf("[YOLOV8] frame=%llu det_count=%zu\n",
            static_cast<unsigned long long>(frame_index), det_result.boxes.size());
@@ -110,6 +132,74 @@ void print_detection_summary(uint64_t frame_index, const DetectionResult& det_re
     printf("[YOLOV8] frame=%llu first_cls=%s score=%.3f box=[%.1f,%.1f,%.1f,%.1f]\n",
            static_cast<unsigned long long>(frame_index), name, score,
            box[0], box[1], box[2], box[3]);
+}
+
+void update_latest_yolo_snapshot(uint64_t frame_index, const DetectionResult& det_result) {
+    {
+        std::lock_guard<std::mutex> lock(g_latest_yolo_mutex);
+        g_latest_yolo_snapshot.valid = true;
+        g_latest_yolo_snapshot.frame_index = frame_index;
+        g_latest_yolo_snapshot.detections = det_result;
+        if (det_result.tensor_dump_printed) {
+            g_yolo_tensor_dump_completed_frame = frame_index;
+        }
+    }
+    g_latest_yolo_cv.notify_all();
+}
+
+std::string build_yolo_snapshot_json() {
+    LatestYoloSnapshot snapshot;
+    {
+        std::lock_guard<std::mutex> lock(g_latest_yolo_mutex);
+        snapshot = g_latest_yolo_snapshot;
+    }
+
+    if (!snapshot.valid) {
+        return "\"message\":\"no detection snapshot yet\"";
+    }
+
+    const DetectionResult& det = snapshot.detections;
+    std::ostringstream body;
+    body << std::fixed << std::setprecision(3);
+    body << "\"frame\":" << snapshot.frame_index
+         << ",\"count\":" << det.boxes.size()
+         << ",\"camera_w\":" << kCameraWidth
+         << ",\"camera_h\":" << kCameraHeight
+         << ",\"threshold\":0.400"
+         << ",\"raw_candidates\":" << det.raw_candidates
+         << ",\"top_score\":" << det.top_score
+         << ",\"top_class_id\":" << det.top_class_id
+         << ",\"top_class\":\"" << json_escape(kClassNames.count(det.top_class_id) ? kClassNames.at(det.top_class_id) : "unknown") << "\""
+         << ",\"preprocess_ok\":" << (det.preprocess_ok ? "true" : "false")
+         << ",\"inference_ok\":" << (det.inference_ok ? "true" : "false")
+         << ",\"input_dtype\":" << det.input_dtype
+         << ",\"decoded_candidates\":" << det.decoded_candidates
+         << ",\"after_nms_count\":" << det.after_nms_count
+         << ",\"score_over_005\":" << det.score_over_005
+         << ",\"score_over_010\":" << det.score_over_010
+         << ",\"score_over_025\":" << det.score_over_025
+         << ",\"score_over_040\":" << det.score_over_040
+         << ",\"head_top_scores\":[" << det.head_top_scores[0] << "," << det.head_top_scores[1] << "," << det.head_top_scores[2] << "]"
+         << ",\"head_top_classes\":[" << det.head_top_classes[0] << "," << det.head_top_classes[1] << "," << det.head_top_classes[2] << "]"
+         << ",\"error_stage\":\"" << json_escape(det.error_stage) << "\""
+         << ",\"error_code\":" << det.error_code
+         << ",\"objects\":[";
+
+    for (size_t i = 0; i < det.boxes.size(); ++i) {
+        const int cls = i < det.class_ids.size() ? det.class_ids[i] : -1;
+        auto it = kClassNames.find(cls);
+        const std::string name = (it != kClassNames.end()) ? it->second : "unknown";
+        const float score = i < det.scores.size() ? det.scores[i] : 0.0f;
+        const auto& box = det.boxes[i];
+        if (i > 0) body << ",";
+        body << "{\"class_id\":" << cls
+             << ",\"class\":\"" << json_escape(name) << "\""
+             << ",\"score\":" << score
+             << ",\"box\":[" << box[0] << "," << box[1] << "," << box[2] << "," << box[3] << "]}";
+    }
+
+    body << "],\"message\":\"latest detection snapshot\"";
+    return body.str();
 }
 
 void emit_heuristic_depth_frame(uint64_t frame_index, const DetectionResult& det_result) {
@@ -209,12 +299,24 @@ void handle_a1_test_command(const std::string& line) {
         print_debug_response("ping", "\"message\":\"pong\",\"chassis_ok\":" + std::string(g_chassis_ready ? "true" : "false"));
         return;
     }
-    if (command == "debug_status" || command == "uart_status") {
-        print_debug_response(command, "\"chassis_ok\":" + std::string(g_chassis_ready ? "true" : "false") + ",\"last_action\":\"" + g_last_cli_action + "\"");
-        return;
-    }
-    if (command == "osd_status") {
-        print_debug_response("osd_status", "\"message\":\"background OSD active\",\"layers\":[2]");
+    if (command == "yolo_snapshot") {
+        uint64_t request_after_frame = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_latest_yolo_mutex);
+            request_after_frame = g_latest_yolo_snapshot.frame_index;
+            g_yolo_tensor_dump_requested = 1;
+        }
+        std::unique_lock<std::mutex> lock(g_latest_yolo_mutex);
+        const bool ready = g_latest_yolo_cv.wait_for(lock, std::chrono::seconds(3), [&] {
+            return g_latest_yolo_snapshot.valid &&
+                   g_yolo_tensor_dump_completed_frame > request_after_frame;
+        });
+        lock.unlock();
+        if (!ready) {
+            print_debug_response("yolo_snapshot", "\"message\":\"tensor dump timeout\"", false);
+            return;
+        }
+        print_debug_response("yolo_snapshot", build_yolo_snapshot_json(), true);
         return;
     }
     if (command == "chassis_test") {
@@ -248,7 +350,7 @@ void handle_a1_test_command(const std::string& line) {
 
 void keyboard_listener() {
     std::string input;
-    std::cout << "Input 'q' to exit or A1_TEST commands..." << std::endl;
+    std::cout << "Input 'q' to exit or A1_TEST ping/yolo_snapshot/chassis_test/move commands..." << std::endl;
     while (!g_exit_flag && std::getline(std::cin, input)) {
         if (input == "q" || input == "Q") {
             g_exit_flag = 1;
@@ -277,7 +379,6 @@ int main() {
     signal(SIGTERM, handle_signal);
 
     std::array<int, 2> camera_shape = {kCameraWidth, kCameraHeight};
-    std::array<int, 2> osd_shape = {kOsdWidth, kOsdHeight};
     std::array<int, 2> det_shape = {640, 640};
     std::string model_path = "/app_demo/app_assets/models/25d59a3b-fb19-4da2-8eb8-912bf18f05e6_best_head6.m1model";
 
@@ -301,14 +402,6 @@ int main() {
         return 1;
     }
 
-    VISUALIZER visualizer;
-    const bool osd_ready = visualizer.Initialize(osd_shape, "background_colorLUT.sscl");
-    if (!osd_ready) {
-        std::cout << "[YOLOV8_OSD] init failed, detection continues without OSD" << std::endl;
-    } else {
-        std::cout << "[YOLOV8_OSD] init ok, background bitmap disabled" << std::endl;
-    }
-
     ChassisController chassis;
     const bool chassis_ready = chassis.Init();
     g_chassis = &chassis;
@@ -323,7 +416,9 @@ int main() {
     DetectionResult det_result;
     std::string last_action = "stop";
     uint64_t frame_index = 0;
+    uint64_t last_summary_frame = 0;
     auto last_depth_log = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+    auto last_summary_log = std::chrono::steady_clock::now() - std::chrono::seconds(10);
 
     if (chassis_ready) {
         chassis.SendVelocity(0, 0, 0);
@@ -333,8 +428,32 @@ int main() {
         ++frame_index;
         processor.GetImage(&img_sensor);
 
-        detector.Predict(&img_sensor, &det_result, 0.4f);
-        print_detection_summary(frame_index, det_result);
+        const bool print_tensor_dump = g_yolo_tensor_dump_requested != 0;
+        g_yolo_tensor_dump_requested = 0;
+        detector.Predict(&img_sensor, &det_result, 0.4f, frame_index, print_tensor_dump);
+        update_latest_yolo_snapshot(frame_index, det_result);
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_summary_log >= std::chrono::seconds(10)) {
+            const uint64_t frames_since_summary = frame_index - last_summary_frame;
+            printf("[YOLOV8] summary frame=%llu frames_10s=%llu det_count=%zu raw=%d decoded=%d nms=%d top=%.3f cls=%d\n",
+                   static_cast<unsigned long long>(frame_index),
+                   static_cast<unsigned long long>(frames_since_summary),
+                   det_result.boxes.size(), det_result.raw_candidates,
+                   det_result.decoded_candidates, det_result.after_nms_count,
+                   det_result.top_score, det_result.top_class_id);
+            if (!det_result.boxes.empty()) {
+                const int cls = det_result.class_ids.empty() ? -1 : det_result.class_ids[0];
+                auto it = kClassNames.find(cls);
+                const char* name = (it != kClassNames.end()) ? it->second.c_str() : "?";
+                printf("[YOLOV8] summary first_cls=%s score=%.3f box=[%.1f,%.1f,%.1f,%.1f]\n",
+                       name, det_result.scores[0],
+                       det_result.boxes[0][0], det_result.boxes[0][1],
+                       det_result.boxes[0][2], det_result.boxes[0][3]);
+            }
+            last_summary_frame = frame_index;
+            last_summary_log = now;
+        }
 
         bool has_obstacle = false, has_person = false, has_stop = false, has_forward = false;
         for (size_t i = 0; i < det_result.class_ids.size(); ++i) {
@@ -353,46 +472,18 @@ int main() {
             vx = kForwardVelocity;
         }
         send_velocity_if_changed(chassis, chassis_ready, vx, last_action);
-
-        for (size_t i = 0; i < det_result.class_ids.size(); ++i) {
-            int cls = det_result.class_ids[i];
-            auto it = kClassNames.find(cls);
-            const char* name = (it != kClassNames.end()) ? it->second.c_str() : "?";
-            printf("[YOLOV8] class=%s score=%.3f box=[%.1f,%.1f,%.1f,%.1f]\n",
-                   name, det_result.scores[i],
-                   det_result.boxes[i][0], det_result.boxes[i][1],
-                   det_result.boxes[i][2], det_result.boxes[i][3]);
-        }
-
-        const auto now = std::chrono::steady_clock::now();
         if (now - last_depth_log >= std::chrono::seconds(1)) {
             emit_heuristic_depth_frame(frame_index, det_result);
             last_depth_log = now;
         }
 
-        if (osd_ready) {
-            std::vector<std::array<float, 4>> osd_boxes;
-            osd_boxes.reserve(det_result.boxes.size());
-            for (const auto& box : det_result.boxes) {
-                if (is_valid_box(box)) {
-                    osd_boxes.emplace_back(scale_box_to_osd(box));
-                }
-            }
-            printf("[YOLOV8] frame=%llu osd_draw_count=%zu\n",
-                   static_cast<unsigned long long>(frame_index), osd_boxes.size());
-            visualizer.Draw(osd_boxes);
-        }
-
-        usleep(100000);
+        usleep(10000);
     }
 
     if (chassis_ready) {
         chassis.SendVelocity(0, 0, 0);
     }
 
-    if (osd_ready) {
-        visualizer.Release();
-    }
     detector.Release();
     processor.Release();
     chassis.Release();

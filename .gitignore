@@ -18,6 +18,7 @@ build/
 .superpowers/
 .claude/
 .worktrees/
+tools/test_yolo/
 
 # Local SDK / datasets / caches
 data/

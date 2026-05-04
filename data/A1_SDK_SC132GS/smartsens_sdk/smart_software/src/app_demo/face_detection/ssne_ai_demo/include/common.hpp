@@ -11,6 +11,7 @@
 #include <vector>
 #include <array>
 #include <string>
+#include <cstdint>
 #include <math.h>
 #include "smartsoc/ssne_api.h"
 
@@ -47,7 +48,45 @@ struct DetectionResult {
     std::vector<std::array<float, 4>> boxes;
     std::vector<float> scores;
     std::vector<int> class_ids;
-    void Clear() { boxes.clear(); scores.clear(); class_ids.clear(); }
+    int raw_candidates = 0;
+    float top_score = 0.0f;
+    int top_class_id = -1;
+    bool preprocess_ok = false;
+    bool inference_ok = false;
+    int input_dtype = -1;
+    int decoded_candidates = 0;
+    int after_nms_count = 0;
+    int score_over_005 = 0;
+    int score_over_010 = 0;
+    int score_over_025 = 0;
+    int score_over_040 = 0;
+    std::array<float, 3> head_top_scores = {0.0f, 0.0f, 0.0f};
+    std::array<int, 3> head_top_classes = {-1, -1, -1};
+    std::string error_stage;
+    int error_code = 0;
+    bool tensor_dump_printed = false;
+    void Clear() {
+        boxes.clear();
+        scores.clear();
+        class_ids.clear();
+        raw_candidates = 0;
+        top_score = 0.0f;
+        top_class_id = -1;
+        preprocess_ok = false;
+        inference_ok = false;
+        input_dtype = -1;
+        decoded_candidates = 0;
+        after_nms_count = 0;
+        score_over_005 = 0;
+        score_over_010 = 0;
+        score_over_025 = 0;
+        score_over_040 = 0;
+        head_top_scores = {0.0f, 0.0f, 0.0f};
+        head_top_classes = {-1, -1, -1};
+        error_stage.clear();
+        error_code = 0;
+        tensor_dump_printed = false;
+    }
 };
 
 /**
@@ -62,7 +101,8 @@ class YOLOV8 {
                     std::array<int, 2>* in_det_shape);
 
     void Predict(ssne_tensor_t* img_in, DetectionResult* result,
-                 float conf_threshold = 0.4f);
+                 float conf_threshold = 0.4f, uint64_t frame_index = 0,
+                 bool print_tensor_dump = false);
 
     void Release();
 

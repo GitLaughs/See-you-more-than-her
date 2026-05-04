@@ -16,6 +16,52 @@ constexpr int kRegChannels = 64;
 constexpr std::array<int, 3> kStrides  = {8, 16, 32};
 constexpr std::array<int, 3> kHeights  = {80, 40, 20};
 constexpr std::array<int, 3> kWidths   = {80, 40, 20};
+int raw_candidate_count_current = 0;
+float top_score_current = 0.0f;
+int top_class_current = -1;
+int score_over_005_current = 0;
+int score_over_010_current = 0;
+int score_over_025_current = 0;
+int score_over_040_current = 0;
+std::array<float, 3> head_top_scores_current = {0.0f, 0.0f, 0.0f};
+std::array<int, 3> head_top_classes_current = {-1, -1, -1};
+constexpr int kOutputTensorCount = 6;
+constexpr int kOutputSampleCount = 5;
+
+struct OutputShape {
+    int n;
+    int h;
+    int w;
+    int c;
+};
+
+constexpr std::array<OutputShape, kOutputTensorCount> kOutputShapes = {{
+    {1, 80, 80, 4},
+    {1, 40, 40, 4},
+    {1, 20, 20, 4},
+    {1, 80, 80, 64},
+    {1, 40, 40, 64},
+    {1, 20, 20, 64},
+}};
+
+void PrintOutputTensorDebug(uint64_t frame_index, ssne_tensor_t* outputs) {
+    printf("[YOLOV8_TENSOR_OUTPUT_BEGIN] frame=%llu\n", static_cast<unsigned long long>(frame_index));
+    printf("Output tensor count: %d\n", kOutputTensorCount);
+    for (int i = 0; i < kOutputTensorCount; ++i) {
+        const auto& shape = kOutputShapes[i];
+        const int tensor_size = shape.n * shape.h * shape.w * shape.c;
+        const float* data = static_cast<const float*>(get_data(outputs[i]));
+        printf("Output[%d] shape: [%d, %d, %d, %d]\n", i, shape.n, shape.h, shape.w, shape.c);
+        printf("Output[%d] sdk_width=%u sdk_height=%u sdk_bytes=%zu sdk_dtype=%u\n",
+               i, get_width(outputs[i]), get_height(outputs[i]), get_mem_size(outputs[i]), get_data_type(outputs[i]));
+        printf("First 5 values: ");
+        for (int j = 0; j < kOutputSampleCount && j < tensor_size; ++j) {
+            printf("%f ", data ? data[j] : 0.0f);
+        }
+        printf("\n");
+    }
+    printf("[YOLOV8_TENSOR_OUTPUT_END] frame=%llu\n", static_cast<unsigned long long>(frame_index));
+}
 }
 
 float YOLOV8::Sigmoid(float x) {
@@ -80,10 +126,12 @@ void YOLOV8::DecodeHeadOutputs(const float* cls_head, const float* reg_head,
                                std::vector<float>& scores,
                                std::vector<int>& class_ids) {
     std::array<float, kRegBins> softmax_buf;
+    int head_index = 0;
+    if (stride == 16) head_index = 1;
+    else if (stride == 32) head_index = 2;
 
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-            // ── Classification: sigmoid + best class ──
             const int cls_offset = (y * width + x) * kNumClasses;
             int best_class = 0;
             float best_score = Sigmoid(cls_head[cls_offset]);
@@ -91,9 +139,21 @@ void YOLOV8::DecodeHeadOutputs(const float* cls_head, const float* reg_head,
                 float s = Sigmoid(cls_head[cls_offset + c]);
                 if (s > best_score) { best_score = s; best_class = c; }
             }
+            ++raw_candidate_count_current;
+            if (best_score > top_score_current) {
+                top_score_current = best_score;
+                top_class_current = best_class;
+            }
+            if (best_score > head_top_scores_current[head_index]) {
+                head_top_scores_current[head_index] = best_score;
+                head_top_classes_current[head_index] = best_class;
+            }
+            if (best_score >= 0.05f) ++score_over_005_current;
+            if (best_score >= 0.10f) ++score_over_010_current;
+            if (best_score >= 0.25f) ++score_over_025_current;
+            if (best_score >= 0.40f) ++score_over_040_current;
             if (best_score < conf_threshold) continue;
 
-            // ── Regression: DFL softmax decode (4 sides × 16 bins) ──
             const int reg_offset = (y * width + x) * kRegChannels;
             std::array<float, 4> dist;
             for (int side = 0; side < 4; ++side) {
@@ -112,7 +172,6 @@ void YOLOV8::DecodeHeadOutputs(const float* cls_head, const float* reg_head,
                 dist[side] = expect;
             }
 
-            // ── Bbox decode (anchor-free, center-point based) ──
             float cx = static_cast<float>(x) + 0.5f;
             float cy = static_cast<float>(y) + 0.5f;
             float x1 = (cx - dist[0]) * static_cast<float>(stride);
@@ -137,7 +196,12 @@ void YOLOV8::Postprocess(std::vector<std::array<float, 4>>* boxes,
                          std::vector<int>* class_ids,
                          DetectionResult* result) {
     const int n = static_cast<int>(boxes->size());
-    if (n == 0) { result->Clear(); return; }
+    if (n == 0) {
+        result->boxes.clear();
+        result->scores.clear();
+        result->class_ids.clear();
+        return;
+    }
 
     // sort by score descending
     std::vector<int> order(n);
@@ -162,8 +226,9 @@ void YOLOV8::Postprocess(std::vector<std::array<float, 4>>* boxes,
         if (static_cast<int>(keep.size()) >= keep_top_k) break;
     }
 
-    // scale to crop space, then offset to full image space
-    result->Clear();
+    result->boxes.clear();
+    result->scores.clear();
+    result->class_ids.clear();
     for (int idx : keep) {
         auto box = (*boxes)[idx];
         box[0] = std::max(0.0f, box[0] * w_scale + static_cast<float>(crop_x0));
@@ -176,26 +241,37 @@ void YOLOV8::Postprocess(std::vector<std::array<float, 4>>* boxes,
     }
 }
 
-void YOLOV8::Predict(ssne_tensor_t* img_in, DetectionResult* result, float conf_threshold) {
+void YOLOV8::Predict(ssne_tensor_t* img_in, DetectionResult* result, float conf_threshold, uint64_t frame_index, bool print_tensor_dump) {
+    result->Clear();
+
     int ret = RunAiPreprocessPipe(pipe_offline, *img_in, inputs[0]);
     if (ret != 0) {
         printf("[YOLOV8] RunAiPreprocessPipe failed: %d\n", ret);
-        result->Clear();
+        result->error_stage = "preprocess";
+        result->error_code = ret;
         return;
     }
+    result->preprocess_ok = true;
 
     int dtype = -1;
     ssne_get_model_input_dtype(model_id, &dtype);
+    result->input_dtype = dtype;
     set_data_type(inputs[0], dtype);
 
     ret = ssne_inference(model_id, 1, inputs);
     if (ret != 0) {
         printf("[YOLOV8] ssne_inference failed: %d\n", ret);
-        result->Clear();
+        result->error_stage = "inference";
+        result->error_code = ret;
         return;
     }
+    result->inference_ok = true;
 
     ssne_getoutput(model_id, 6, outputs);
+    if (print_tensor_dump) {
+        PrintOutputTensorDebug(frame_index, outputs);
+        result->tensor_dump_printed = true;
+    }
 
     const float* cls0 = static_cast<const float*>(get_data(outputs[0]));
     const float* cls1 = static_cast<const float*>(get_data(outputs[1]));
@@ -208,6 +284,16 @@ void YOLOV8::Predict(ssne_tensor_t* img_in, DetectionResult* result, float conf_
     std::vector<float> scores;
     std::vector<int> class_ids;
 
+    raw_candidate_count_current = 0;
+    top_score_current = 0.0f;
+    top_class_current = -1;
+    score_over_005_current = 0;
+    score_over_010_current = 0;
+    score_over_025_current = 0;
+    score_over_040_current = 0;
+    head_top_scores_current = {0.0f, 0.0f, 0.0f};
+    head_top_classes_current = {-1, -1, -1};
+
     DecodeHeadOutputs(cls0, reg0, kHeights[0], kWidths[0], kStrides[0],
                       conf_threshold, boxes, scores, class_ids);
     DecodeHeadOutputs(cls1, reg1, kHeights[1], kWidths[1], kStrides[1],
@@ -215,7 +301,19 @@ void YOLOV8::Predict(ssne_tensor_t* img_in, DetectionResult* result, float conf_
     DecodeHeadOutputs(cls2, reg2, kHeights[2], kWidths[2], kStrides[2],
                       conf_threshold, boxes, scores, class_ids);
 
+    const int decoded_candidates = static_cast<int>(boxes.size());
     Postprocess(&boxes, &scores, &class_ids, result);
+    result->raw_candidates = raw_candidate_count_current;
+    result->top_score = top_score_current;
+    result->top_class_id = top_class_current;
+    result->decoded_candidates = decoded_candidates;
+    result->after_nms_count = static_cast<int>(result->boxes.size());
+    result->score_over_005 = score_over_005_current;
+    result->score_over_010 = score_over_010_current;
+    result->score_over_025 = score_over_025_current;
+    result->score_over_040 = score_over_040_current;
+    result->head_top_scores = head_top_scores_current;
+    result->head_top_classes = head_top_classes_current;
 }
 
 void YOLOV8::Release() {
