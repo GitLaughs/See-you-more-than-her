@@ -23,7 +23,7 @@
 <main class="shell">
   <section class="stack">
     <div class="card preview-card">
-      <div class="head"><span>官方 OSD 横屏预览</span><div class="row" style="margin:0"><button class="btn" onclick="setStream('preview')">预览</button><button class="btn" onclick="setStream('detect')">YOLOv8</button></div></div>
+      <div class="head"><span>官方 OSD 横屏预览</span><div class="row" style="margin:0"><button class="btn" onclick="setStream('preview')">预览</button><button class="btn" onclick="setStream('detect')">RPS 分类</button></div></div>
       <div class="body">
         <div class="preview">
           <img id="stream" src="/video_feed" alt="camera">
@@ -79,12 +79,12 @@
       <div class="body">
         <div class="row"><label>摄像头</label><select id="cameraSelect"></select><button class="btn" onclick="loadCameraDevices(true)">扫描</button><button class="btn blue" onclick="switchCamera()">切换</button></div>
         <div class="row"><label>输入源</label><button class="btn" onclick="setCameraSource('windows')">Win</button><button class="btn" onclick="setCameraSource('a1')">A1</button><button class="btn" onclick="setCameraSource('auto')">Auto</button><span class="muted" id="cameraSourceHint">自动识别</span></div>
-        <div class="row"><label>模型</label><input id="modelSelect" list="modelOptions" placeholder="best_a1_640x480.onnx / best.pt"><datalist id="modelOptions"></datalist><button class="btn" onclick="loadDetectModels()">列表</button><button class="btn blue" onclick="switchDetectModel()">切换</button></div>
-        <div class="grid3"><button class="btn green" onclick="takeCapture('720x1280')">保存原图</button><button class="btn blue" onclick="takeCapture('640x480')">保存训练图</button><button class="btn warn" id="a1SnapshotBtn" onclick="takeA1YoloSnapshot()">A1 拍照检测</button></div>
+        <div class="row"><label>分类模型</label><input id="modelSelect" list="modelOptions" placeholder="model_rps.m1model" readonly><datalist id="modelOptions"></datalist><button class="btn" onclick="loadDetectModels()">刷新</button></div>
+        <div class="grid3"><button class="btn green" onclick="takeCapture('720x1280')">保存原图</button><button class="btn blue" onclick="takeCapture('640x480')">保存训练图</button><button class="btn warn" id="a1SnapshotBtn" onclick="takeA1RpsSnapshot()">A1 分类快照</button></div>
         <p class="muted" id="captureHint">保存目录：{{ output_dir }}</p>
         <div class="info-panel" id="a1SnapshotPanel" style="display:none">
-          <div class="panel-title">A1 拍照检测结果</div>
-          <div id="a1SnapshotMeta" class="muted">等待检测</div>
+          <div class="panel-title">A1 分类结果</div>
+          <div id="a1SnapshotMeta" class="muted">等待分类</div>
           <img id="a1SnapshotImage" alt="A1 snapshot" style="width:100%;max-height:420px;object-fit:contain;border:1px solid var(--line);border-radius:10px;margin-top:8px;background:#000">
           <div class="pre" id="a1SnapshotObjects" style="margin-top:8px"></div>
           <div class="panel-title" style="margin-top:8px">A1_DEBUG 原始回包</div>
@@ -104,14 +104,14 @@
     </div>
 
     <div class="card">
-      <div class="head"><span>A1 识别状态</span><span id="a1GestureBadge" class="pill">等待 YOLO</span></div>
+      <div class="head"><span>A1 识别状态</span><span id="a1GestureBadge" class="pill">等待分类</span></div>
       <div class="body">
         <div class="status-grid" id="a1GestureSummary">
-          <div class="status-tile"><div class="status-label">目标数</div><div class="status-value">—</div></div>
-          <div class="status-tile"><div class="status-label">类别</div><div class="status-value">—</div></div>
+          <div class="status-tile"><div class="status-label">标签</div><div class="status-value">—</div></div>
+          <div class="status-tile"><div class="status-label">动作</div><div class="status-value">—</div></div>
           <div class="status-tile"><div class="status-label">置信度</div><div class="status-value">—</div></div>
         </div>
-        <p class="muted" id="a1GestureHint">收到 A1_DEPTH_OBJECT 后自动更新 YOLO 摘要。</p>
+        <p class="muted" id="a1GestureHint">收到 A1_DEBUG rps_snapshot 后自动更新分类摘要。</p>
       </div>
     </div>
 
@@ -169,10 +169,10 @@
     </div>
 
     <div class="card tensor-output-card">
-      <div class="head"><span>YOLO Tensor Output</span><button class="btn" type="button" onclick="copyTensorOutput()">复制</button></div>
+      <div class="head"><span>RPS Snapshot Payload</span><button class="btn" type="button" onclick="copySnapshotOutput()">复制</button></div>
       <div class="body">
-        <p class="muted">Frame 100 tensor shapes and first 5 float values from board serial logs.</p>
-        <textarea id="tensorOutputText" class="tensor-output-text" readonly placeholder="Click A1 拍照检测 to request [YOLOV8_TENSOR_OUTPUT_BEGIN] from board..."></textarea>
+        <p class="muted">A1_DEBUG rps_snapshot 原始分类结果，包含 label、confidence、scores、action 与 ROI。</p>
+        <textarea id="snapshotOutputText" class="tensor-output-text" readonly placeholder="点击 A1 分类快照获取板端分类结果..."></textarea>
       </div>
     </div>
   </section>
@@ -185,7 +185,7 @@ function apiJson(url,options={}){if(options.body&&!options.headers)options.heade
 function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.className='toast show';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3000)}
 function setDot(id,on){const el=document.getElementById(id);if(el)el.className='dot '+(on?'on':'')}
 function updateMotionPanel(status={}){const gesture=gestureName(status.gesture);const action=status.action==='forward'?'前进':'停止';const motion=status.action==='forward'?'FORWARD':'STOP';const chassisOk=!!status.chassis_ok||!!status.success;const serialText=document.getElementById('serialTermBadge')?.textContent||'未连接';const stateText=!status.visible?'等待识别':(status.held?'保持上一状态':'实时识别');const meta=`${stateText} · ${status.message||'等待板端动作回传'}`;const actionEl=document.getElementById('motionAction');const metaEl=document.getElementById('motionMeta');const chipAction=document.getElementById('motionChipAction');const chipGesture=document.getElementById('motionChipGesture');const chipChassis=document.getElementById('motionChipChassis');const chipSerial=document.getElementById('motionChipSerial');if(actionEl)actionEl.textContent=action;if(metaEl)metaEl.textContent=meta;if(chipAction)chipAction.textContent=motion;if(chipGesture)chipGesture.textContent=gesture;if(chipChassis)chipChassis.textContent=chassisOk?'已就绪':'未就绪';if(chipSerial)chipSerial.textContent=serialText.includes('已连接')?'已连接':'等待连接'}
-function setStream(kind){const img=document.getElementById('stream');img.src=(kind==='detect'?'/detect_feed':'/video_feed')+'?t='+Date.now();document.getElementById('streamInfo').textContent=kind==='detect'?'YOLOv8 检测流 · 左侧 720x1280':'720x1280 摄像头 · 左侧预览'}
+function setStream(kind){const img=document.getElementById('stream');img.src=(kind==='detect'?'/detect_feed':'/video_feed')+'?t='+Date.now();document.getElementById('streamInfo').textContent=kind==='detect'?'RPS 分类流 · 固定 ROI':'720x1280 摄像头 · 左侧预览'}
 function loadStatus(){fetch('/status').then(r=>r.json()).then(d=>{const bridge=d.qt_bridge||{};const on=!!(d.connected||bridge.connected);setDot('camDot',on);const source=d.source_label||d.source||'camera';const device=d.device??'—';document.getElementById('camStatus').textContent=on?`${source} #${device} 在线`:'摄像头离线';document.getElementById('fpsChip').textContent=d.fps!=null?d.fps.toFixed(1)+' fps':'— fps';if(d.source)document.getElementById('cameraSourceHint').textContent=`当前源：${source} · 设备 ${device}`;if(d.model_name)document.getElementById('modelSelect').value=d.model_name;if(d.output_dir)document.getElementById('captureHint').textContent='保存目录：'+d.output_dir}).catch(()=>{})}
 function loadCameraDevices(showToast=false){const url='/camera_devices'+(showToast?'?refresh=1':'');return apiJson(url).then(d=>{const sel=document.getElementById('cameraSelect');const devices=d.devices||[];sel.innerHTML=devices.map(x=>{const id=x.id??x.index??0;return `<option value="${id}">${id} · ${x.name||x.label||'Camera'}</option>`}).join('')||'<option value="0">0 · 默认摄像头</option>';const current=String(d.current_device??'');if([...sel.options].some(o=>o.value===current))sel.value=current;document.getElementById('cameraSourceHint').textContent=d.bootstrapping?'正在扫描摄像头…':`当前源：${d.current_source||'auto'} · 设备 ${d.current_device??'—'}`;if(showToast)toast(d.bootstrapping?'正在扫描，列表稍后更新':'摄像头列表已刷新');if(d.bootstrapping)setTimeout(()=>loadCameraDevices(false),1200)}).catch(e=>toast('摄像头列表读取失败: '+e))}
 function switchCamera(){const raw=document.getElementById('cameraSelect').value||'0';const device=parseInt(raw,10);if(Number.isNaN(device))return toast('切换失败: 摄像头编号不是整数');return apiJson('/switch_camera',{method:'POST',body:JSON.stringify({device})}).then(d=>{if(!d.success)throw new Error(d.error||'切换失败');toast(`摄像头已切换: ${d.source||'auto'} #${d.device}`);loadStatus();loadCameraDevices()}).catch(e=>toast('切换失败: '+e))}
@@ -196,52 +196,53 @@ function safeExitAurora(){apiJson('/shutdown',{method:'POST'}).finally(()=>toast
 function loadDetectModels(){return apiJson('/detect_models').then(d=>{const models=Array.isArray(d)?d:(d.models||[]);document.getElementById('modelOptions').innerHTML=models.map(m=>`<option value="${m.name||m}"></option>`).join('');toast('模型列表已刷新')}).catch(e=>toast('模型列表读取失败: '+e))}
 function switchDetectModel(){const model=document.getElementById('modelSelect').value.trim();if(!model)return toast('请输入模型名');return apiJson('/switch_detect_model',{method:'POST',body:JSON.stringify({model})}).then(d=>{if(!d.success)throw new Error(d.error||'模型切换失败');toast('模型已切换');loadStatus()}).catch(e=>toast('模型切换失败: '+e))}
 function takeCapture(format){return apiJson('/capture',{method:'POST',body:JSON.stringify({format})}).then(d=>{if(!d.success)throw new Error(d.error||'拍照失败');toast('已保存 '+d.filename);loadRecentCaptures()}).catch(e=>toast('拍照失败: '+e))}
-function renderA1SnapshotObjects(items=[]){
-  if(!items.length)return '无目标';
-  return items.map((x,i)=>{
-    const box=Array.isArray(x.box)?x.box.map(v=>Number(v).toFixed(1)).join(', '):'—';
-    const score=Number(x.score||0).toFixed(3);
-    return `${i+1}. ${x.class||x.class_name||('cls'+(x.class_id??'?' ))} score=${score} box=[${box}]`;
-  }).join('\n');
+function renderA1SnapshotResult(d={}){
+  const roi=d.roi||{};
+  const scores=Array.isArray(d.scores)?d.scores.map(v=>Number(v||0).toFixed(3)).join(' / '):'—';
+  return [
+    `label=${d.label||'NoTarget'} (${d.label_name||'none'})`,
+    `confidence=${Number(d.confidence||0).toFixed(3)}`,
+    `scores[P/R/S]=${scores}`,
+    `action=${d.action||'stop'}`,
+    `roi=x:${roi.x??'—'} y:${roi.y??'—'} w:${roi.w??'—'} h:${roi.h??'—'}`
+  ].join('\n');
 }
-function renderA1SnapshotDiagnostics(d={}){
-  const diag=d.diagnostics||{};
-  const topScore=Number(diag.top_score||0).toFixed(3);
-  const headScores=Array.isArray(diag.head_top_scores)?diag.head_top_scores.map(v=>Number(v||0).toFixed(3)).join('/'):'—';
-  const headClasses=Array.isArray(diag.head_top_classes)?diag.head_top_classes.join('/'):'—';
-  const err=diag.error_stage?` · error=${diag.error_stage}:${diag.error_code??0}`:'';
-  return `threshold=${diag.threshold??'—'} · raw=${diag.raw_candidates??0} · top=${diag.top_class||'unknown'} ${topScore} · pre=${diag.preprocess_ok?'ok':'fail'} · infer=${diag.inference_ok?'ok':'fail'} · dtype=${diag.input_dtype??'—'} · score>${0.05}=${diag.score_over_005??0}/${0.10}=${diag.score_over_010??0}/${0.25}=${diag.score_over_025??0}/${0.40}=${diag.score_over_040??0} · decoded=${diag.decoded_candidates??0} · nms=${diag.after_nms_count??0} · heads=${headScores} cls=${headClasses}${err}`;
+function renderA1SnapshotSummary(d={}){
+  const roi=d.roi||{};
+  return `label=${d.label||'NoTarget'} · conf=${Number(d.confidence||0).toFixed(3)} · action=${d.action||'stop'} · ROI ${roi.x??'—'},${roi.y??'—'},${roi.w??'—'},${roi.h??'—'}`;
 }
-function takeA1YoloSnapshot(){
+function takeA1RpsSnapshot(){
   const btn=document.getElementById('a1SnapshotBtn');
   if(btn)btn.disabled=true;
-  return apiJson('/api/a1/yolo_snapshot',{method:'POST'})
+  return apiJson('/api/a1/rps_snapshot',{method:'POST'})
     .then(d=>{
-      if(!d.success)throw new Error(d.error||'A1 拍照检测失败');
+      if(!d.success)throw new Error(d.error||'A1 分类快照失败');
       const panel=document.getElementById('a1SnapshotPanel');
       const meta=document.getElementById('a1SnapshotMeta');
       const img=document.getElementById('a1SnapshotImage');
       const objects=document.getElementById('a1SnapshotObjects');
       const raw=document.getElementById('a1SnapshotRaw');
       panel.style.display='block';
-      meta.textContent=`A1 frame=${d.frame??'—'} · 目标 ${d.count??0} · ${renderA1SnapshotDiagnostics(d)} · ${d.warning||'预览帧与板端检测帧为近似同步，不保证像素级同帧'}`;
+      meta.textContent=`A1 frame=${d.frame??'—'} · ${renderA1SnapshotSummary(d)} · ${d.warning||'预览帧与板端分类帧为近似同步，不保证像素级同帧'}`;
       img.src='data:image/jpeg;base64,'+(d.image_b64||'');
-      objects.textContent=renderA1SnapshotObjects(d.objects||[]);
+      objects.textContent=renderA1SnapshotResult(d);
       raw.textContent=d.raw_line||'未收到 A1_DEBUG 原始回包';
-      if(d.tensor_dump){const tensor=document.getElementById('tensorOutputText');if(tensor)tensor.value=d.tensor_dump;latestTensorOutputText=d.tensor_dump;}
-      toast('A1 拍照检测完成');
+      const snapshotText=JSON.stringify({label:d.label,label_name:d.label_name,confidence:d.confidence,scores:d.scores,action:d.action,roi:d.roi,frame:d.frame,request:d.request},null,2);
+      const snapshot=document.getElementById('snapshotOutputText');
+      if(snapshot)snapshot.value=snapshotText;
+      latestSnapshotOutputText=snapshotText;
+      toast('A1 分类快照完成');
       loadRecentCaptures();
     })
-    .catch(e=>toast('A1 拍照检测失败: '+e.message))
+    .catch(e=>toast('A1 分类快照失败: '+e.message))
     .finally(()=>{if(btn)btn.disabled=false;});
 }
 function loadRecentCaptures(){return apiJson('/recent_captures').then(items=>{const list=Array.isArray(items)?items:[];document.getElementById('captureGallery').innerHTML=list.map(x=>`<div><img src="data:image/jpeg;base64,${x.thumb||''}" alt="${x.filename||'capture'}"><div class="muted">${x.filename||''}</div></div>`).join('')||'<p class="muted">还没有拍摄记录</p>'}).catch(()=>{})}
 function renderSerialTermLines(lines=[]){const area=document.getElementById('serialTermRxArea');if(!lines.length){area.textContent='暂无串口输出';return}area.textContent=lines.slice(0,60).map(x=>`${x.ts||'--:--:--'} ${x.text||x.hex||''}${x.partial?' · partial':''}`).join('\n')}
-let latestTensorOutputText='';
+let latestSnapshotOutputText='';
 function normalizeSerialLine(line){if(typeof line==='string')return line;if(line&&typeof line.text==='string')return line.text;if(line&&typeof line.message==='string')return line.message;return String(line??'')}
-function extractTensorOutput(lines){const normalized=(lines||[]).map(normalizeSerialLine);let beginIndex=-1;for(let i=normalized.length-1;i>=0;i-=1){if(normalized[i].includes('[YOLOV8_TENSOR_OUTPUT_BEGIN]')){beginIndex=i;break}}if(beginIndex<0)return'';const captured=[];for(let i=beginIndex;i<normalized.length;i+=1){captured.push(normalized[i]);if(normalized[i].includes('[YOLOV8_TENSOR_OUTPUT_END]'))break}const hasEnd=captured.some(line=>line.includes('[YOLOV8_TENSOR_OUTPUT_END]'));return hasEnd?captured.join('\n'):''}
-function updateTensorOutput(lines){const text=extractTensorOutput(lines);if(!text)return;latestTensorOutputText=text;const textarea=document.getElementById('tensorOutputText');if(textarea)textarea.value=text}
-async function copyTensorOutput(){const textarea=document.getElementById('tensorOutputText');const text=textarea?textarea.value:latestTensorOutputText;if(!text)return toast('暂无 YOLO tensor 输出');await navigator.clipboard.writeText(text);toast('YOLO tensor 输出已复制')}
+function updateSnapshotOutput(lines){const normalized=(lines||[]).map(normalizeSerialLine);for(let i=normalized.length-1;i>=0;i-=1){const line=normalized[i];if(line.includes('A1_DEBUG')&&line.includes('rps_snapshot')){latestSnapshotOutputText=line;const textarea=document.getElementById('snapshotOutputText');if(textarea)textarea.value=line;return;}}}
+async function copySnapshotOutput(){const textarea=document.getElementById('snapshotOutputText');const text=textarea?textarea.value:latestSnapshotOutputText;if(!text)return toast('暂无 RPS snapshot 输出');await navigator.clipboard.writeText(text);toast('RPS snapshot 输出已复制')}
 function escapeHtml(value){return String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 function prettyValue(value,fallback='—'){if(value===null||value===undefined||value==='')return fallback;if(typeof value==='boolean')return value?'是':'否';return String(value)}
 function boolText(value,trueText='正常',falseText='异常'){return value?trueText:falseText}
@@ -271,22 +272,21 @@ function renderGestureStatus(status={}){
   ].join('');
   hint.textContent=!visible?'收到 A1_DEBUG gesture/action 后自动更新；短暂丢失时保持上一状态。':(held?'识别短暂丢失，当前继续保持上一状态。':'正在显示最新识别结果。');
 }
-function renderYoloStatus(status={}){
-  const items=Array.isArray(status.items)?status.items:[];
+function renderClassificationStatus(snapshot={}){
   const badge=document.getElementById('a1GestureBadge');
   const summary=document.getElementById('a1GestureSummary');
   const hint=document.getElementById('a1GestureHint');
   if(!badge||!summary||!hint)return;
-  badge.textContent=items.length?`检测到 ${items.length} 个目标`:'0 个目标';
-  const classes=items.slice(0,3).map(x=>x.class||'unknown').join(' / ')||'—';
-  const first=items[0]||{};
-  const score=items.length?Number(first.score||0).toFixed(2):'—';
+  const label=snapshot.label||'NoTarget';
+  const confidence=Number(snapshot.confidence||0);
+  const action=snapshot.action||'stop';
+  badge.textContent=label==='NoTarget'?'无目标':`${label} / ${snapshot.label_name||label}`;
   summary.innerHTML=[
-    `<div class="status-tile"><div class="status-label">目标数</div><div class="status-value">${items.length}</div></div>`,
-    `<div class="status-tile"><div class="status-label">类别</div><div class="status-value">${escapeHtml(classes)}</div></div>`,
-    `<div class="status-tile"><div class="status-label">置信度</div><div class="status-value">${escapeHtml(score)}</div></div>`,
+    `<div class="status-tile"><div class="status-label">标签</div><div class="status-value">${escapeHtml(label)}</div></div>`,
+    `<div class="status-tile"><div class="status-label">动作</div><div class="status-value">${escapeHtml(actionName(action))}</div></div>`,
+    `<div class="status-tile"><div class="status-label">置信度</div><div class="status-value">${confidence.toFixed(3)}</div></div>`,
   ].join('');
-  hint.textContent=items.length?'YOLO 摘要来自最新 A1_DEPTH_OBJECT 回传。':'最新深度帧没有目标对象。';
+  hint.textContent='分类摘要来自最新 A1_DEBUG rps_snapshot 或本地分类快照。';
 }
 function formatA1DebugResult(d,mode='debug'){
   const structured=d.structured||{};
@@ -296,7 +296,7 @@ function formatA1DebugResult(d,mode='debug'){
   const responseReceived=!!d.response_received;
   const command=structured.command||d.command||d.key||'—';
   const message=structured.message||d.message||d.error||'';
-  const legacyDescription=(d.description?d.description+'\n':'');
+  const legacyDescription=(d.description?''+d.description+'\n':'');
   const diagnosis=success?'A1_DEBUG 已收到':(transportSuccess?(responseReceived?'A1_DEBUG 内容异常':'命令已发出，但未等到匹配回传'):'COM13 发送失败或未连接');
   const stage=success?'PC -> COM13 -> A1_TEST -> A1_DEBUG':(transportSuccess?'PC -> COM13 -> A1_TEST':'PC -> COM13');
   const topTitle=mode==='link'?'联通测试概览':'A1 调试概览';
@@ -329,7 +329,7 @@ function formatA1DebugResult(d,mode='debug'){
 }
 function renderErrorSummary(title,message,recentRx=[]){const text=String(message||'未知错误');const lower=text.toLowerCase();const serial=lower.includes('com')||lower.includes('serial')||lower.includes('串口');const timeout=lower.includes('timeout')||lower.includes('超时')||lower.includes('未收到');const severity=serial?'err':(timeout?'warn':'err');const mark=severity==='warn'?'!':'×';const tone=severity==='warn'?'warn':'';const reason=serial?'串口连接失败':(timeout?'等待回传超时':'命令执行失败');const hint=serial?'检查 COM13 是否被占用、线缆是否连接、波特率是否为 115200。':(timeout?'命令已发出，但没有匹配回传；确认板端 demo 正在运行且 A1_TEST 可用。':'查看状态色块和简短原因；原始回传已隐藏，避免刷屏。');const chips=(Array.isArray(recentRx)?recentRx:[]).slice(0,4).map(x=>String(x).slice(0,48)).filter(Boolean).map(x=>`<span class="rx-chip">${escapeHtml(x)}</span>`).join('');return `<div class="info-panel err-card ${tone}"><div class="err-title"><span class="err-mark ${tone}">${mark}</span>${escapeHtml(title)}</div><div class="kv-grid" style="margin-top:10px"><div class="kv"><b>类型</b><span class="${severity==='warn'?'badge-warn':'badge-err'}">${escapeHtml(reason)}</span></div><div class="kv"><b>摘要</b><span>${escapeHtml(text.slice(0,90))}</span></div></div><div class="err-hint">${escapeHtml(hint)}</div>${chips?`<div class="rx-chips">${chips}</div>`:''}</div>`}
 function renderErrorPanel(title,message,recentRx=[]){return renderErrorSummary(title,message,recentRx)}
-function updateSerialStatus(d){const on=!!d.connected;setDot('serialDot',on);document.getElementById('serialStatusTop').textContent=on?`${d.port||'COM13'} 已连接`:'COM13 未连接';const badge=document.getElementById('serialTermBadge');badge.textContent=on?`${d.port||'COM13'} 已连接`:'未连接';const lines=d.latest_lines||[];renderSerialTermLines(lines);updateTensorOutput(lines);updateMotionPanel(d.gesture_status||{})}
+function updateSerialStatus(d){const on=!!d.connected;setDot('serialDot',on);document.getElementById('serialStatusTop').textContent=on?`${d.port||'COM13'} 已连接`:'COM13 未连接';const badge=document.getElementById('serialTermBadge');badge.textContent=on?`${d.port||'COM13'} 已连接`:'未连接';const lines=d.latest_lines||[];renderSerialTermLines(lines);updateSnapshotOutput(lines);updateMotionPanel(d.gesture_status||{})}
 function loadSerialTermPorts(showToast=false){return apiJson('/api/serial_term/ports').then(d=>{const sel=document.getElementById('serialTermPortSelect');const current=sel.value||d.preferred||'COM13';const ports=d.ports&&d.ports.length?d.ports:[{port:current,desc:'手动端口'}];sel.innerHTML=ports.map(p=>`<option value="${p.port}">${p.port}${p.desc?' · '+p.desc:''}</option>`).join('');if([...sel.options].some(o=>o.value===current))sel.value=current;if(showToast)toast('串口列表已刷新')})}
 function loadSerialTermConfig(){return apiJson('/api/serial_term/config').then(d=>{if(d.port)document.getElementById('serialTermPortSelect').value=d.port;if(d.baud)document.getElementById('serialTermBaud').value=d.baud;if('append_newline'in d)document.getElementById('serialTermAppendNewline').checked=!!d.append_newline}).catch(()=>{})}
 function loadSerialTermStatus(){return apiJson('/api/serial_term/status').then(updateSerialStatus).catch(()=>updateSerialStatus({connected:false,latest_lines:[],gesture_status:{}}))}
@@ -390,8 +390,8 @@ function runA1LinkTest(){
 }
 function renderDepthObjects(objects=[]){const el=document.getElementById('depthObjects');if(!el)return;if(!Array.isArray(objects)||!objects.length){el.innerHTML='<span class="rx-chip">无目标深度</span>';return}el.innerHTML=objects.slice(0,8).map(o=>{const bucket=o.bucket||'far';const mark=bucket==='near'?'●':(bucket==='mid'?'◆':'·');const cls=o.class||'unknown';const depth=Number(o.depth||0).toFixed(2);const score=Number(o.score||0).toFixed(2);return `<span class="rx-chip">${mark} ${escapeHtml(cls)} ${escapeHtml(bucket)} d=${depth} s=${score}</span>`}).join('')}
 function depthToHeatColor(v){const t=v/255;if(t<0.25)return[0,Math.round(t*4*255),255];if(t<0.5)return[0,255,Math.round((1-(t-0.25)*4)*255)];if(t<0.75)return[Math.round((t-0.5)*4*255),255,0];return[255,Math.round((1-(t-0.75)*4)*255),0]}
-function loadDepthLatest(){return apiJson('/api/depth/latest').then(d=>{const badge=document.getElementById('depthBadge');const meta=document.getElementById('depthMeta');if(!d.success){badge.textContent='无帧';meta.textContent='等待 A1_DEPTH 帧...';renderDepthObjects([]);renderYoloStatus({items:[]});return}const w=parseInt(d.width||0,10),h=parseInt(d.height||0,10);if(!w||!h||!d.data){badge.textContent='无效帧';meta.textContent='深度帧元数据无效';renderDepthObjects([]);renderYoloStatus({items:[]});return}let raw;try{const bin=atob(d.data);raw=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)raw[i]=bin.charCodeAt(i)}catch(e){badge.textContent='解码失败';meta.textContent='base64 解码失败';renderDepthObjects([]);renderYoloStatus({items:[]});return}if(raw.length!==w*h){badge.textContent='尺寸错误';meta.textContent=`期望 ${w*h} bytes，收到 ${raw.length} bytes`;renderDepthObjects([]);renderYoloStatus({items:[]});return}const canvas=document.getElementById('depthCanvas');canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d');const img=ctx.createImageData(w,h);for(let i=0,j=0;i<raw.length;i++,j+=4){const v=raw[i];const c=depthToHeatColor(v);img.data[j]=c[0];img.data[j+1]=c[1];img.data[j+2]=c[2];img.data[j+3]=255}ctx.putImageData(img,0,0);const age=Number(d.age_sec||0);badge.textContent=age>3?`frame ${d.frame} · 超时`:`frame ${d.frame}`;meta.textContent=`${w}x${h} ${d.format||'u8'} · ${d.bytes||raw.length} bytes · chunks ${d.chunks||'-'} · age ${age.toFixed(1)}s`;renderDepthObjects(d.objects||[]);renderYoloStatus(d.yolo||{items:d.objects||[]})}).catch(()=>{const badge=document.getElementById('depthBadge');const meta=document.getElementById('depthMeta');badge.textContent='接口错误';meta.textContent='无法读取 /api/depth/latest';renderDepthObjects([]);renderYoloStatus({items:[]})})}
-function clearSerialTermLogs(){return apiJson('/api/serial_term/clear',{method:'POST'}).then(()=>{renderSerialTermLines([]);const textarea=document.getElementById('tensorOutputText');if(textarea)textarea.value='';latestTensorOutputText='';document.getElementById('serialTermTxHint').textContent=''})}
+function loadDepthLatest(){return apiJson('/api/depth/latest').then(d=>{const badge=document.getElementById('depthBadge');const meta=document.getElementById('depthMeta');if(!d.success){badge.textContent='无帧';meta.textContent='等待 A1_DEPTH 帧...';renderDepthObjects([]);return}const w=parseInt(d.width||0,10),h=parseInt(d.height||0,10);if(!w||!h||!d.data){badge.textContent='无效帧';meta.textContent='深度帧元数据无效';renderDepthObjects([]);return}let raw;try{const bin=atob(d.data);raw=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)raw[i]=bin.charCodeAt(i)}catch(e){badge.textContent='解码失败';meta.textContent='base64 解码失败';renderDepthObjects([]);return}if(raw.length!==w*h){badge.textContent='尺寸错误';meta.textContent=`期望 ${w*h} bytes，收到 ${raw.length} bytes`;renderDepthObjects([]);return}const canvas=document.getElementById('depthCanvas');canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d');const img=ctx.createImageData(w,h);for(let i=0,j=0;i<raw.length;i++,j+=4){const v=raw[i];const c=depthToHeatColor(v);img.data[j]=c[0];img.data[j+1]=c[1];img.data[j+2]=c[2];img.data[j+3]=255}ctx.putImageData(img,0,0);const age=Number(d.age_sec||0);badge.textContent=age>3?`frame ${d.frame} · 超时`:`frame ${d.frame}`;meta.textContent=`${w}x${h} ${d.format||'u8'} · ${d.bytes||raw.length} bytes · chunks ${d.chunks||'-'} · age ${age.toFixed(1)}s`;renderDepthObjects(d.objects||[])}).catch(()=>{const badge=document.getElementById('depthBadge');const meta=document.getElementById('depthMeta');badge.textContent='接口错误';meta.textContent='无法读取 /api/depth/latest';renderDepthObjects([])})}
+function clearSerialTermLogs(){return apiJson('/api/serial_term/clear',{method:'POST'}).then(()=>{renderSerialTermLines([]);const textarea=document.getElementById('snapshotOutputText');if(textarea)textarea.value='';latestSnapshotOutputText='';document.getElementById('serialTermTxHint').textContent=''})}
 document.getElementById('serialTermInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendSerialTerm()}})
 setInterval(loadStatus,2000);setInterval(loadSerialTermStatus,1200);setInterval(loadDepthLatest,1000);
 loadStatus();loadCameraDevices();loadDetectModels();loadRecentCaptures();loadSerialTermPorts();loadDepthLatest();loadSerialTermConfig().then(loadSerialTermStatus);

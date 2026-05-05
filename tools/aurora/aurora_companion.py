@@ -22,7 +22,9 @@ import json
 import os
 import subprocess
 import sys
+import re
 import threading
+import uuid
 import time
 from collections import deque
 from datetime import datetime
@@ -108,6 +110,12 @@ camera_connected = False
 _fail_streak = 0
 _consecutive_failures = 0
 _last_reconnect_time = 0.0
+_DETECT_MODEL_PATH = Path("/app_demo/app_assets/models/model_rps.m1model")
+_DETECT_MODEL_MODE = "classification"
+_SUPPORTED_DETECT_MODEL_SUFFIXES = {".onnx", ".pt"}
+_DETECT_CONF = 0.4
+_DETECT_NMS = 0.5
+_DETECT_TOP_K = 100
 
 MAX_DEVICE_SCAN = 5
 PREFERRED_DEVICE_FILE = Path(__file__).with_name(".a1_camera_device")
@@ -171,36 +179,27 @@ class LatestFrameCache:
                 self._condition.wait(remaining)
             return self._sequence, self._payload
 
-# ─── YOLOv8 检测器（PC 端 ONNX 推理）────────────────────────────────────────
-MODEL_ROOT = Path(__file__).parent.parent.parent / "models"
-_DETECT_MODEL_PATH = MODEL_ROOT / "best_a1_640x480.onnx"
-_DETECT_MODEL_MODE = "standard"
-_SUPPORTED_DETECT_MODEL_SUFFIXES = (".onnx", ".pt")
-_DETECT_MODEL_PREF_FILE = Path(__file__).with_name(".a1_detect_model")
-_DETECT_CONF = 0.4
-_DETECT_NMS = 0.45
-_DETECT_NUM_CLASSES = 4
-_DETECT_REG_BINS = 16
-_DETECT_TOP_K = 30
-_ort_session = None
-_pt_model = None
-_ort_session_lock = threading.Lock()
-_CLASS_NAMES = {0: "person", 1: "gesture1", 2: "gesture2", 3: "obstacle_box"}
-_CLASS_COLORS = [(0, 200, 80), (80, 140, 255), (255, 160, 50), (255, 80, 80)]
+# ─── RPS 分类结果（固定 ROI，本地显示 / 板端快照）──────────────────────────────
+_RPS_ROI = {"x": 210, "y": 270, "w": 540, "h": 540}
+_RPS_LABEL_NAMES = {"R": "rock", "P": "paper", "S": "scissors", "NoTarget": "none", "Error": "error"}
+_RPS_COLORS = {"R": (80, 140, 255), "P": (0, 200, 80), "S": (255, 160, 50), "NoTarget": (160, 160, 160), "Error": (255, 80, 80)}
 _detect_state_lock = threading.Lock()
 _last_detect_snapshot: Dict[str, Any] = {
     "timestamp": 0.0,
-    "count": 0,
-    "class_counts": {},
-    "items": [],
-    "ros": None,
     "frame_width": CAMERA_WIDTH,
     "frame_height": CAMERA_HEIGHT,
+    "roi": dict(_RPS_ROI),
+    "label": "NoTarget",
+    "label_name": "none",
+    "confidence": 0.0,
+    "scores": [0.0, 0.0, 0.0],
+    "action": "stop",
+    "message": "waiting for classification snapshot",
 }
 _detect_frame_cache = LatestFrameCache()
 _detect_worker_lock = threading.Lock()
 _detect_worker_thread: Optional[threading.Thread] = None
-_detect_worker_key: Optional[Tuple[int, str, str]] = None
+_detect_worker_key: Optional[Tuple[int, str]] = None
 _detect_target_fps = 10.0
 
 
@@ -1472,10 +1471,7 @@ def _initial_detect_model_path() -> Path:
     return _DETECT_MODEL_PATH
 
 
-try:
-    set_detect_model_path(_initial_detect_model_path(), persist=False)
-except Exception as exc:
-    print(f"[WARN] 初始检测模型不可用: {exc}")
+# RPS 分类模式不加载本地 YOLO 模型。
 
 
 def crop_center(img: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
@@ -1761,79 +1757,75 @@ def detect_on_frame(frame_gray: np.ndarray):
     return results
 
 
-def _summarize_detections(detections, frame_shape: Tuple[int, int]) -> Dict[str, Any]:
-    class_counts: Dict[str, int] = {}
-    items = []
-    for x1, y1, x2, y2, score, cls_id in detections:
-        name = _CLASS_NAMES.get(int(cls_id), f"cls{int(cls_id)}")
-        class_counts[name] = class_counts.get(name, 0) + 1
-        items.append({
-            "class_id": int(cls_id),
-            "class_name": name,
-            "score": round(float(score), 4),
-            "box": [round(float(x1), 1), round(float(y1), 1), round(float(x2), 1), round(float(y2), 1)],
-        })
+def _label_name(label: str) -> str:
+    return _RPS_LABEL_NAMES.get(str(label or "NoTarget"), str(label or "none"))
+
+
+def _action_for_label(label: str) -> str:
+    return "forward" if str(label or "") == "P" else "stop"
+
+
+def _rps_snapshot_payload(frame_shape: Tuple[int, int], label: str = "NoTarget", confidence: float = 0.0, scores: Optional[list] = None) -> Dict[str, Any]:
     frame_h, frame_w = frame_shape
+    label = str(label or "NoTarget")
     return {
         "timestamp": time.time(),
-        "count": len(items),
-        "class_counts": class_counts,
-        "items": items[:12],
         "frame_width": int(frame_w),
         "frame_height": int(frame_h),
+        "roi": dict(_RPS_ROI),
+        "label": label,
+        "label_name": _label_name(label),
+        "confidence": round(float(confidence or 0.0), 4),
+        "scores": [round(float(v or 0.0), 4) for v in (scores or [0.0, 0.0, 0.0])[:3]],
+        "action": _action_for_label(label),
+        "message": "latest classification snapshot",
     }
 
 
-def _update_detection_runtime(detections, frame_shape: Tuple[int, int]) -> Dict[str, Any]:
-    summary = _summarize_detections(detections, frame_shape)
+def _update_detection_runtime(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     with _detect_state_lock:
-        _last_detect_snapshot.update(summary)
+        _last_detect_snapshot.update(snapshot)
         return dict(_last_detect_snapshot)
 
 
-def _render_detect_frame(frame_gray: np.ndarray, detections) -> np.ndarray:
+def _render_detect_frame(frame_gray: np.ndarray, snapshot: Dict[str, Any]) -> np.ndarray:
     display = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2BGR)
-    for (x1, y1, x2, y2, score, cls_id) in detections:
-        color = _CLASS_COLORS[cls_id % len(_CLASS_COLORS)]
-        name = _CLASS_NAMES.get(cls_id, f"cls{cls_id}")
-        cv2.rectangle(display, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-        label = f"{name} {score:.2f}"
-        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-        ty = max(int(y1) - 4, th + 4)
-        cv2.rectangle(display, (int(x1), ty - th - 4), (int(x1) + tw + 4, ty), color, -1)
-        cv2.putText(display, label, (int(x1) + 2, ty - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-    cv2.putText(display, f"Det: {len(detections)}  conf>={_DETECT_CONF:.2f}", (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 80), 2)
+    roi = snapshot.get("roi") or _RPS_ROI
+    frame_h, frame_w = display.shape[:2]
+    camera_w = float(snapshot.get("camera_w") or snapshot.get("frame_width") or frame_w)
+    camera_h = float(snapshot.get("camera_h") or snapshot.get("frame_height") or frame_h)
+    x_scale = frame_w / max(1.0, camera_w)
+    y_scale = frame_h / max(1.0, camera_h)
+    x = int(float(roi.get("x", 0)) * x_scale)
+    y = int(float(roi.get("y", 0)) * y_scale)
+    w = int(float(roi.get("w", 0)) * x_scale)
+    h = int(float(roi.get("h", 0)) * y_scale)
+    label = str(snapshot.get("label") or "NoTarget")
+    color = _RPS_COLORS.get(label, _RPS_COLORS["NoTarget"])
+    cv2.rectangle(display, (x, y), (min(frame_w - 1, x + w), min(frame_h - 1, y + h)), color, 2)
+    text = f"RPS {label}/{_label_name(label)} conf={float(snapshot.get('confidence') or 0.0):.2f} action={snapshot.get('action') or 'stop'}"
+    cv2.putText(display, text, (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.62, color, 2)
     return display
 
 
-def _detect_worker(stream_key: Tuple[int, str, str]) -> None:
+def _detect_worker(stream_key: Tuple[int, str]) -> None:
     interval = 1.0 / max(1.0, _detect_target_fps)
     while True:
         with camera_lock:
             cap = camera
-            current_key = (device_id_global, camera_source_global, _DETECT_MODEL_PATH.name)
+            current_key = (device_id_global, camera_source_global)
         if current_key != stream_key or cap is None:
             return
         loop_start = time.time()
         frame = _read_gray(cap)
         if frame is not None:
-            infer_start = time.time()
-            detections = detect_on_frame(frame)
-            inference_ms = (time.time() - infer_start) * 1000.0
-            _update_detection_runtime(detections, frame.shape[:2])
-            display = _render_detect_frame(frame, detections)
-            encode_start = time.time()
+            with _detect_state_lock:
+                snapshot = dict(_last_detect_snapshot)
+            snapshot.update({"frame_width": frame.shape[1], "frame_height": frame.shape[0], "roi": dict(_RPS_ROI)})
+            display = _render_detect_frame(frame, snapshot)
             ok, buf = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 75])
-            encode_ms = (time.time() - encode_start) * 1000.0
             if ok:
                 _detect_frame_cache.publish(buf.tobytes())
-                with _detect_state_lock:
-                    _last_detect_snapshot.update({
-                        "inference_ms": round(inference_ms, 1),
-                        "encode_ms": round(encode_ms, 1),
-                        "detect_fps": round(1.0 / max(0.001, time.time() - loop_start), 1),
-                        "source_frame_age_ms": 0.0,
-                    })
         elapsed = time.time() - loop_start
         if elapsed < interval:
             time.sleep(interval - elapsed)
@@ -1841,55 +1833,21 @@ def _detect_worker(stream_key: Tuple[int, str, str]) -> None:
 
 def _ensure_detect_worker() -> None:
     global _detect_worker_thread, _detect_worker_key
-    key = (device_id_global, camera_source_global, _DETECT_MODEL_PATH.name)
+    key = (device_id_global, camera_source_global)
     with _detect_worker_lock:
         if _detect_worker_thread is not None and _detect_worker_thread.is_alive() and _detect_worker_key == key:
             return
         _detect_worker_key = key
-        _detect_worker_thread = threading.Thread(target=_detect_worker, args=(key,), daemon=True, name="aurora-detect-worker")
+        _detect_worker_thread = threading.Thread(target=_detect_worker, args=(key,), daemon=True, name="aurora-rps-worker")
         _detect_worker_thread.start()
 
 
 def _judge_action_from_snapshot(snapshot: Dict[str, Any]) -> str:
-    counts = snapshot.get("class_counts") or {}
-    if counts.get("gesture2", 0) > 0:
-        return "stop"
-    if counts.get("obstacle_box", 0) > 0:
-        return "avoid"
-    if counts.get("gesture1", 0) > 0:
-        return "forward"
-    return "idle"
+    return str(snapshot.get("action") or _action_for_label(str(snapshot.get("label") or "NoTarget")))
 
 
 def _judge_risk_from_snapshot(snapshot: Dict[str, Any]) -> str:
-    items = snapshot.get("items") or []
-    frame_w = float(snapshot.get("frame_width") or CAMERA_WIDTH)
-    frame_h = float(snapshot.get("frame_height") or CAMERA_HEIGHT)
-    best_score = 0.0
-    best_area = 0.0
-    best_bottom = 0.0
-    for item in items:
-        if item.get("class_name") != "obstacle_box":
-            continue
-        box = item.get("box") or [0, 0, 0, 0]
-        if len(box) != 4:
-            continue
-        x1, y1, x2, y2 = [float(v) for v in box]
-        area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
-        area_ratio = area / max(1.0, frame_w * frame_h)
-        bottom_ratio = y2 / max(1.0, frame_h)
-        score = float(item.get("score") or 0.0)
-        if area_ratio + score * 0.05 > best_area + best_score * 0.05:
-            best_score = score
-            best_area = area_ratio
-            best_bottom = bottom_ratio
-    if best_area >= 0.20 or best_bottom >= 0.72:
-        return "high"
-    if best_area >= 0.10 or best_bottom >= 0.58:
-        return "medium"
-    if best_score > 0:
-        return "low"
-    return "clear"
+    return "low" if snapshot.get("label") == "S" else "clear"
 
 
 def _parse_a1_debug_json_line(text: str) -> Optional[Dict[str, Any]]:
@@ -1907,25 +1865,25 @@ def _parse_a1_debug_json_line(text: str) -> Optional[Dict[str, Any]]:
     return parsed if isinstance(parsed, dict) else None
 
 
-def _extract_yolo_snapshot_payload(serial_result: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str, list, str]:
+def _extract_rps_snapshot_payload(serial_result: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str, list, str]:
     recent_rx = serial_result.get("recent_rx") or []
     matched = serial_result.get("matched") or {}
     candidates = []
     if matched.get("text"):
         candidates.append(str(matched.get("text")))
-    candidates.extend(str(line) for line in recent_rx)
+    candidates.extend(str(line.get("text") if isinstance(line, dict) else line) for line in recent_rx)
 
     for line in candidates:
         payload = _parse_a1_debug_json_line(line)
-        if payload and payload.get("command") == "yolo_snapshot":
+        if payload and payload.get("command") == "rps_snapshot":
             return payload, "", recent_rx, line
 
-    message = str(serial_result.get("message") or serial_result.get("error") or "未收到有效 A1_DEBUG yolo_snapshot 回包")
+    message = str(serial_result.get("message") or serial_result.get("error") or "未收到有效 A1_DEBUG rps_snapshot 回包")
     return None, message, recent_rx, ""
 
 
 
-def _extract_tensor_dump_lines(serial_result: Dict[str, Any]) -> str:
+def _serial_result_lines(serial_result: Dict[str, Any]) -> list:
     lines = []
     for entry in serial_result.get("recent_rx") or []:
         if isinstance(entry, dict):
@@ -1939,23 +1897,30 @@ def _extract_tensor_dump_lines(serial_result: Dict[str, Any]) -> str:
     raw_line = str(serial_result.get("raw_line") or "")
     if raw_line:
         lines.append(raw_line)
+    return lines
 
+
+def _extract_tensor_dump_lines(serial_result: Dict[str, Any], request_id: str, frame: int) -> Tuple[str, str]:
+    lines = _serial_result_lines(serial_result)
+    begin_token = f"[YOLOV8_TENSOR_OUTPUT_BEGIN] request={request_id} frame={frame}"
+    end_token = f"[YOLOV8_TENSOR_OUTPUT_END] request={request_id} frame={frame}"
     begin = -1
     for idx, line in enumerate(lines):
-        if "[YOLOV8_TENSOR_OUTPUT_BEGIN]" in line:
+        if begin_token in line:
             begin = idx
             break
     if begin < 0:
-        return ""
+        return "", "missing matching tensor begin"
 
     captured = []
     for line in lines[begin:]:
         captured.append(line)
-        if "[YOLOV8_TENSOR_OUTPUT_END]" in line:
-            break
-    if not any("[YOLOV8_TENSOR_OUTPUT_END]" in line for line in captured):
-        return ""
-    return "\n".join(captured)
+        if end_token in line:
+            return "\n".join(captured), ""
+        if "[YOLOV8_TENSOR_OUTPUT_END]" in line and end_token not in line:
+            return "", "tensor dump frame mismatch"
+    return "", "missing matching tensor end"
+
 def _int_value(value: Any, default: int = 0) -> int:
     try:
         return int(value)
@@ -2014,40 +1979,18 @@ def _draw_a1_snapshot_overlay(frame: np.ndarray, snapshot: Dict[str, Any]) -> np
     elif display.shape[2] == 1:
         display = cv2.cvtColor(display[:, :, 0], cv2.COLOR_GRAY2BGR)
 
-    frame_h, frame_w = display.shape[:2]
-    camera_w = float(snapshot.get("camera_w") or frame_w)
-    camera_h = float(snapshot.get("camera_h") or frame_h)
-    x_scale = frame_w / max(1.0, camera_w)
-    y_scale = frame_h / max(1.0, camera_h)
-
-    for item in snapshot.get("objects") or []:
-        box = item.get("box") or []
-        if len(box) != 4:
-            continue
-        cls_id = int(item.get("class_id") or 0)
-        color = _CLASS_COLORS[cls_id % len(_CLASS_COLORS)]
-        x1 = int(max(0, min(frame_w - 1, float(box[0]) * x_scale)))
-        y1 = int(max(0, min(frame_h - 1, float(box[1]) * y_scale)))
-        x2 = int(max(0, min(frame_w - 1, float(box[2]) * x_scale)))
-        y2 = int(max(0, min(frame_h - 1, float(box[3]) * y_scale)))
-        cv2.rectangle(display, (x1, y1), (x2, y2), color, 2)
-        label_name = str(item.get("class") or item.get("class_name") or _CLASS_NAMES.get(cls_id, f"cls{cls_id}"))
-        score = float(item.get("score") or 0.0)
-        label = f"A1 {label_name} {score:.2f}"
-        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-        ty = max(y1 - 4, th + 4)
-        cv2.rectangle(display, (x1, ty - th - 4), (min(frame_w - 1, x1 + tw + 4), ty), color, -1)
-        cv2.putText(display, label, (x1 + 2, ty - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-
-    cv2.putText(display, f"A1 snapshot frame={snapshot.get('frame', '—')} count={snapshot.get('count', 0)}", (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 80), 2)
-    return display
+    rendered_snapshot = dict(snapshot)
+    rendered_snapshot.setdefault("frame_width", snapshot.get("camera_w") or display.shape[1])
+    rendered_snapshot.setdefault("frame_height", snapshot.get("camera_h") or display.shape[0])
+    rendered_snapshot.setdefault("roi", dict(_RPS_ROI))
+    return _render_detect_frame(_frame_to_gray(display), rendered_snapshot)
 
 
-def _save_a1_yolo_snapshot_image(display: np.ndarray, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+def _save_a1_rps_snapshot_image(display: np.ndarray, snapshot: Dict[str, Any]) -> Dict[str, Any]:
     global capture_count
     capture_count += 1
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    name = f"a1_yolo_snapshot_{ts}_{capture_count:04d}.jpg"
+    name = f"a1_rps_snapshot_{ts}_{capture_count:04d}.jpg"
     path = os.path.join(output_dir, name)
     os.makedirs(output_dir, exist_ok=True)
     cv2.imwrite(path, display, [cv2.IMWRITE_JPEG_QUALITY, 90])
@@ -2061,17 +2004,17 @@ def _save_a1_yolo_snapshot_image(display: np.ndarray, snapshot: Dict[str, Any]) 
     info = {
         "filename": name,
         "path": path,
-        "format": "a1_yolo_snapshot",
+        "format": "a1_rps_snapshot",
         "size": f"{display.shape[1]}×{display.shape[0]}",
         "thumb": thumb_b64,
         "image_b64": image_b64,
         "time": datetime.now().strftime("%H:%M:%S"),
         "index": capture_count,
         "frame": snapshot.get("frame"),
-        "count": int(snapshot.get("count") or len(snapshot.get("objects") or [])),
+        "label": snapshot.get("label"),
     }
     recent_captures.appendleft(info)
-    print(f"[A1_SNAPSHOT] {path} frame={info['frame']} count={info['count']}")
+    print(f"[A1_RPS_SNAPSHOT] {path} frame={info['frame']} label={info['label']}")
     return info
 
 
@@ -2195,14 +2138,14 @@ def generate_frames():
 
 
 def _generate_detect_frames():
-    """本地 YOLOv8 检测视频流；后台推理只保留最新帧。"""
+    """RPS 分类视频流；后台只保留最新帧。"""
     last_sequence = 0
     while True:
         _ensure_detect_worker()
         item = _detect_frame_cache.wait_for_next(last_sequence=last_sequence, timeout=1.0)
         if item is None:
             blk = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH, 3), dtype=np.uint8)
-            cv2.putText(blk, "Waiting for detect frame", (CAMERA_WIDTH // 2 - 160, CAMERA_HEIGHT // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (60, 60, 60), 2)
+            cv2.putText(blk, "Waiting for classification frame", (CAMERA_WIDTH // 2 - 220, CAMERA_HEIGHT // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (60, 60, 60), 2)
             _, buf = cv2.imencode(".jpg", blk, [cv2.IMWRITE_JPEG_QUALITY, 50])
             yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n")
             continue
@@ -2228,11 +2171,7 @@ def video_feed():
     return Response(
         generate_frames(),
         mimetype="multipart/x-mixed-replace; boundary=frame",
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -2241,42 +2180,38 @@ def detect_feed():
     return Response(
         _generate_detect_frames(),
         mimetype="multipart/x-mixed-replace; boundary=frame",
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
 @app.route("/detect_status")
 def detect_status():
-    model_exists = _DETECT_MODEL_PATH.exists()
-    backend = _detect_model_backend_from_path(_DETECT_MODEL_PATH)
-    model_loaded = _pt_model is not None if backend == "pt" else _ort_session is not None
+    with _detect_state_lock:
+        snapshot = dict(_last_detect_snapshot)
     return jsonify({
-        "ort_available": _ORT_AVAILABLE,
-        "ultralytics_available": _ULTRALYTICS_AVAILABLE,
-        "model_exists": model_exists,
-        "model_path": str(_DETECT_MODEL_PATH),
-        "model_loaded": model_loaded,
-        "num_classes": _DETECT_NUM_CLASSES,
-        "conf_threshold": _DETECT_CONF,
-        "model_name": _DETECT_MODEL_PATH.name,
-        "model_mode": _DETECT_MODEL_MODE,
-        "model_backend": backend,
-        "models": _list_detect_models(),
+        "model_exists": True,
+        "model_path": "/app_demo/app_assets/models/model_rps.m1model",
+        "model_loaded": True,
+        "model_name": "model_rps.m1model",
+        "model_mode": "classification",
+        "model_backend": "ssne",
+        "models": [{"name": "model_rps.m1model", "label": "model_rps.m1model", "path": "/app_demo/app_assets/models/model_rps.m1model", "mode": "classification", "backend": "ssne", "selected": True}],
+        "label": snapshot.get("label"),
+        "label_name": snapshot.get("label_name"),
+        "confidence": snapshot.get("confidence"),
+        "action": snapshot.get("action"),
+        "roi": snapshot.get("roi"),
     })
 
 
 @app.route("/detect_models")
 def detect_models():
     return jsonify({
-        "current_model": _DETECT_MODEL_PATH.name,
-        "current_path": str(_DETECT_MODEL_PATH),
-        "current_mode": _DETECT_MODEL_MODE,
-        "current_backend": _detect_model_backend_from_path(_DETECT_MODEL_PATH),
-        "models": _list_detect_models(),
+        "current_model": "model_rps.m1model",
+        "current_path": "/app_demo/app_assets/models/model_rps.m1model",
+        "current_mode": "classification",
+        "current_backend": "ssne",
+        "models": [{"name": "model_rps.m1model", "label": "model_rps.m1model", "path": "/app_demo/app_assets/models/model_rps.m1model", "mode": "classification", "backend": "ssne", "selected": True}],
     })
 
 
@@ -2284,11 +2219,6 @@ def detect_models():
 def detect_latest():
     with _detect_state_lock:
         snapshot = dict(_last_detect_snapshot)
-    snapshot["model_name"] = _DETECT_MODEL_PATH.name
-    snapshot["model_mode"] = _DETECT_MODEL_MODE
-    snapshot["model_backend"] = _detect_model_backend_from_path(_DETECT_MODEL_PATH)
-    snapshot["judge_action"] = _judge_action_from_snapshot(snapshot)
-    snapshot["judge_risk"] = _judge_risk_from_snapshot(snapshot)
     return jsonify(snapshot)
 
 
@@ -2304,85 +2234,80 @@ def detect_snapshot():
     frame_gray = _read_gray(cap) if cap else None
     if frame_gray is None:
         return jsonify({"success": False, "error": "无法获取摄像头画面"})
-
-    detections = detect_on_frame(frame_gray)
-    snapshot = _update_detection_runtime(detections, frame_gray.shape[:2])
-    return jsonify({
-        "success": True,
-        "model_name": _DETECT_MODEL_PATH.name,
-        "model_mode": _DETECT_MODEL_MODE,
-        "model_backend": _detect_model_backend_from_path(_DETECT_MODEL_PATH),
-        "judge_action": _judge_action_from_snapshot(snapshot),
-        "judge_risk": _judge_risk_from_snapshot(snapshot),
-        **snapshot,
-    })
+    with _detect_state_lock:
+        snapshot = dict(_last_detect_snapshot)
+    snapshot.update({"frame_width": frame_gray.shape[1], "frame_height": frame_gray.shape[0], "roi": dict(_RPS_ROI)})
+    display = _draw_a1_snapshot_overlay(frame_gray, snapshot)
+    image_info = _save_a1_rps_snapshot_image(display, snapshot)
+    return jsonify({"success": True, **snapshot, **image_info})
 
 
-@app.route("/api/a1/yolo_snapshot", methods=["POST"])
-def a1_yolo_snapshot():
+@app.route("/api/a1/rps_snapshot", methods=["POST"])
+def a1_rps_snapshot():
     if serial_terminal is None:
         return jsonify({"success": False, "error": "serial_terminal unavailable"})
-
     with camera_lock:
         cap = camera
     frame = _read_display_frame(cap) if cap else None
     if frame is None:
         return jsonify({"success": False, "error": "无法获取摄像头画面"})
 
+    request_id = uuid.uuid4().hex[:12]
     serial_result = serial_terminal.send_text_line(
-        "A1_TEST yolo_snapshot",
-        wait_tokens=["A1_DEBUG", '"command":"yolo_snapshot"'],
+        f"A1_TEST rps_snapshot {request_id}",
+        wait_tokens=["A1_DEBUG", '"command":"rps_snapshot"', f'"request":"{request_id}"'],
         timeout_sec=4.0,
     )
     if not serial_result.get("success"):
-        return jsonify({
-            "success": False,
-            "error": str(serial_result.get("message") or serial_result.get("error") or "A1 yolo_snapshot 回包超时"),
-            "serial": serial_result,
-            "recent_rx": serial_result.get("recent_rx", []),
-        })
+        return jsonify({"success": False, "error": str(serial_result.get("message") or serial_result.get("error") or "A1 rps_snapshot 回包超时"), "serial": serial_result, "recent_rx": serial_result.get("recent_rx", [])})
 
-    snapshot, error, recent_rx, raw_line = _extract_yolo_snapshot_payload(serial_result)
-    tensor_dump = _extract_tensor_dump_lines(serial_result)
+    snapshot, error, recent_rx, raw_line = _extract_rps_snapshot_payload(serial_result)
     if not snapshot:
-        return jsonify({"success": False, "error": f"未解析到有效 A1_DEBUG yolo_snapshot 回包: {error}", "recent_rx": recent_rx})
-    if not snapshot.get("success"):
-        return jsonify({"success": False, "error": str(snapshot.get("message") or "A1 尚无检测快照"), "snapshot": snapshot})
+        return jsonify({"success": False, "error": f"未解析到有效 A1_DEBUG rps_snapshot 回包: {error}", "recent_rx": recent_rx})
+    if str(snapshot.get("request") or "") != request_id:
+        return jsonify({"success": False, "error": "A1 rps_snapshot request mismatch", "snapshot": snapshot, "recent_rx": recent_rx})
 
     display = _draw_a1_snapshot_overlay(frame, snapshot)
-    image_info = _save_a1_yolo_snapshot_image(display, snapshot)
-    objects = snapshot.get("objects") or []
+    image_info = _save_a1_rps_snapshot_image(display, snapshot)
+    with _detect_state_lock:
+        _last_detect_snapshot.update({
+            "timestamp": time.time(),
+            "frame_width": int(snapshot.get("camera_w") or frame.shape[1]),
+            "frame_height": int(snapshot.get("camera_h") or frame.shape[0]),
+            "roi": snapshot.get("roi") or dict(_RPS_ROI),
+            "label": snapshot.get("label") or "NoTarget",
+            "label_name": snapshot.get("label_name") or _label_name(snapshot.get("label") or "NoTarget"),
+            "confidence": float(snapshot.get("confidence") or 0.0),
+            "scores": snapshot.get("scores") or [0.0, 0.0, 0.0, 0.0, 0.0],
+            "action": snapshot.get("action") or _action_for_label(snapshot.get("label") or "NoTarget"),
+            "message": snapshot.get("message") or "latest classification snapshot",
+        })
     return jsonify({
         "success": True,
-        "warning": "预览帧与板端检测帧为近似同步，不保证像素级同帧",
-        "objects": objects,
+        "warning": "预览帧与板端分类帧为近似同步，不保证像素级同帧",
+        "request": request_id,
         "raw_line": raw_line,
-        "tensor_dump": tensor_dump,
-        "diagnostics": _snapshot_diagnostics(snapshot),
+        "recent_rx": recent_rx,
         "frame": snapshot.get("frame"),
-        "count": int(snapshot.get("count") or len(objects)),
-        "camera_w": snapshot.get("camera_w"),
-        "camera_h": snapshot.get("camera_h"),
+        "label": snapshot.get("label"),
+        "label_name": snapshot.get("label_name"),
+        "confidence": snapshot.get("confidence"),
+        "action": snapshot.get("action"),
+        "scores": snapshot.get("scores"),
+        "roi": snapshot.get("roi"),
         **image_info,
     })
 
 
 @app.route("/switch_detect_model", methods=["POST"])
 def switch_detect_model():
-    data = request.get_json(silent=True) or {}
-    model_name = str(data.get("model_name") or data.get("model") or data.get("path") or "").strip()
-    if not model_name:
-        return jsonify({"success": False, "error": "缺少模型名称"})
-
-    resolved = _resolve_detect_model_path(model_name)
-    if resolved is None:
-        return jsonify({"success": False, "error": f"未找到模型: {model_name}"})
-
-    info = set_detect_model_path(resolved, persist=True)
     return jsonify({
         "success": True,
-        **info,
-        "models": _list_detect_models(),
+        "model_name": "model_rps.m1model",
+        "model_path": "/app_demo/app_assets/models/model_rps.m1model",
+        "model_mode": "classification",
+        "model_backend": "ssne",
+        "models": [{"name": "model_rps.m1model", "label": "model_rps.m1model", "path": "/app_demo/app_assets/models/model_rps.m1model", "mode": "classification", "backend": "ssne", "selected": True}],
     })
 
 
@@ -2572,9 +2497,9 @@ def status():
         "source": camera_source_global,
         "source_label": _source_label(camera_source_global),
         "qt_bridge": qt_status,
-        "model_name": _DETECT_MODEL_PATH.name,
-        "model_path": str(_DETECT_MODEL_PATH),
-        "model_mode": _DETECT_MODEL_MODE,
+        "model_name": "model_rps.m1model",
+        "model_path": "/app_demo/app_assets/models/model_rps.m1model",
+        "model_mode": "classification",
     })
 
 
