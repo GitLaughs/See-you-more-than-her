@@ -190,6 +190,7 @@ python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_termin
 - 后台训练 stdout 可能缓冲，日志文件短时间为空不代表卡死；优先看 TaskOutput、checkpoint 更新时间和 `nvidia-smi`。
 - 切换 `ssne_ai_demo` 模型时必须同时更新：`demo_rps_game.cpp` 模型路径、`scripts/run.sh` 模型存在性检查、`app_assets/models/` 实际文件；构建后用 `docker exec A1_Builder bash -lc "test -f /app/data/A1_SDK_SC132GS/smartsens_sdk/output/target/app_demo/app_assets/models/<model>.m1model"` 验证。
 - `.m1model` 可能被根目录 `models/` ignore 规则误伤；如果需要把板端模型提交进 `app_assets/models/`，先用 `git check-ignore -v <path>` 确认，必要时改 `.gitignore` 或 `git add -f`。
+- `ssne_loadmodel()` 返回的是 model_id，SSNE 文档说明 model_id 从 0 开始；不要把 `model_id == 0` 当成加载失败。曾因新 `.m1model` 加载到 id 0 被误判失败，日志显示 `classifier model load failed`；应改用 `ssne_get_model_input_num(model_id)` 等后续查询接口验证加载结果。
 - 5 类 A1 分类模型当前类别顺序为 `person / stop / forward / obstacle / NoTarget`；板端 `rps_classifier.cpp`、`demo_rps_game.cpp`、Aurora `rps_snapshot` 的 `scores` 长度必须同步为 5。
 
 ## 板端 OSD 交互指导

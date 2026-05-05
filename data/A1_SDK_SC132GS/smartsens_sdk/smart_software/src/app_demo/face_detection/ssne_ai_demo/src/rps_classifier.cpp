@@ -21,8 +21,10 @@ bool RPS_CLASSIFIER::Initialize(std::string& model_path, std::array<int, 2>* in_
 
     char* model_path_char = const_cast<char*>(model_path.c_str());
     model_id = ssne_loadmodel(model_path_char, SSNE_STATIC_ALLOC);
-    if (model_id == 0) {
-        printf("[ERROR] classifier model load failed: %s\n", model_path.c_str());
+    const int input_num = ssne_get_model_input_num(model_id);
+    if (input_num != 1) {
+        printf("[ERROR] classifier model load failed: %s model_id=%u input_num=%d\n",
+               model_path.c_str(), model_id, input_num);
         return false;
     }
 
