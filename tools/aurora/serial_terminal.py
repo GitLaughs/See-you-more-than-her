@@ -31,12 +31,12 @@ _A1_DEBUG_COMMANDS = {
     "ping": "ping",
     "chassis_stop": "chassis_test stop",
     "chassis_forward": "chassis_test forward",
-    "yolo_snapshot": "yolo_snapshot",
+    "rps_snapshot": "rps_snapshot",
 }
 _A1_DEBUG_DESCRIPTIONS = {
     "chassis_forward": "forward gesture -> forward",
     "chassis_stop": "stop/person/obstacle -> stop",
-    "yolo_snapshot": "latest board YOLO boxes + tensor dump -> overlay on PC preview",
+    "rps_snapshot": "latest board classification snapshot -> overlay on PC preview",
 }
 _A1_DEBUG_MESSAGE_PREFIX = "A1_DEBUG "
 
