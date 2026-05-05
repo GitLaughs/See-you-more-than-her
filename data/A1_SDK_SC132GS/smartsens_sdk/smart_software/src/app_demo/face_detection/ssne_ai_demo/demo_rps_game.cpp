@@ -22,9 +22,9 @@ constexpr int kCameraWidth = 720;
 constexpr int kCameraHeight = 1280;
 constexpr int kClassifierInputWidth = 320;
 constexpr int kClassifierInputHeight = 320;
-constexpr int kClassCount = 3;
+constexpr int kClassCount = 5;
 constexpr int16_t kForwardVelocity = 200;
-constexpr const char* kLabels[kClassCount] = {"P", "R", "S"};
+constexpr const char* kLabels[kClassCount] = {"person", "stop", "forward", "obstacle", "NoTarget"};
 
 volatile sig_atomic_t g_exit_flag = 0;
 ChassisController* g_chassis = nullptr;
@@ -37,7 +37,7 @@ struct LatestRpsSnapshot {
     std::string request_id;
     std::string label = "NoTarget";
     float confidence = 0.0f;
-    float scores[kClassCount] = {0.0f, 0.0f, 0.0f};
+    float scores[kClassCount] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     std::string action = "stop";
 };
 
@@ -61,7 +61,7 @@ std::string json_escape(const std::string& value) {
 }
 
 std::string action_for_label(const std::string& label) {
-    return label == "P" ? "forward" : "stop";
+    return label == "forward" ? "forward" : "stop";
 }
 
 int16_t vx_for_action(const std::string& action) {
@@ -111,7 +111,7 @@ std::string build_rps_snapshot_json() {
          << ",\"roi\":{\"x\":200,\"y\":480,\"w\":320,\"h\":320}"
          << ",\"label\":\"" << json_escape(snapshot.label) << "\""
          << ",\"confidence\":" << snapshot.confidence
-         << ",\"scores\":[" << snapshot.scores[0] << "," << snapshot.scores[1] << "," << snapshot.scores[2] << "]"
+         << ",\"scores\":[" << snapshot.scores[0] << "," << snapshot.scores[1] << "," << snapshot.scores[2] << "," << snapshot.scores[3] << "," << snapshot.scores[4] << "]"
          << ",\"action\":\"" << json_escape(snapshot.action) << "\""
          << ",\"message\":\"latest classification snapshot\"";
     return body.str();
@@ -227,7 +227,7 @@ int main() {
 
     std::array<int, 2> camera_shape = {kCameraWidth, kCameraHeight};
     std::array<int, 2> cls_shape = {kClassifierInputWidth, kClassifierInputHeight};
-    std::string model_path = "/app_demo/app_assets/models/model_rps.m1model";
+    std::string model_path = "/app_demo/app_assets/models/1cfd4504-c065-4698-9554-9e114f5bfd47_best.m1model";
 
     if (ssne_initial()) {
         fprintf(stderr, "SSNE initialization failed!\n");
@@ -275,7 +275,7 @@ int main() {
 
         std::string label;
         float confidence = 0.0f;
-        float scores[kClassCount] = {0.0f, 0.0f, 0.0f};
+        float scores[kClassCount] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
         classifier.Predict(&img_sensor, label, confidence, scores);
         const std::string action = action_for_label(label);
 
@@ -285,11 +285,11 @@ int main() {
         const auto now = std::chrono::steady_clock::now();
         if (now - last_summary_log >= std::chrono::seconds(2)) {
             const uint64_t frames_since_summary = frame_index - last_summary_frame;
-            printf("[RPS] frame=%llu frames_2s=%llu label=%s conf=%.3f scores=[%.3f,%.3f,%.3f] action=%s\n",
+            printf("[RPS] frame=%llu frames_2s=%llu label=%s conf=%.3f scores=[%.3f,%.3f,%.3f,%.3f,%.3f] action=%s\n",
                    static_cast<unsigned long long>(frame_index),
                    static_cast<unsigned long long>(frames_since_summary),
                    label.c_str(), confidence,
-                   scores[0], scores[1], scores[2], action.c_str());
+                   scores[0], scores[1], scores[2], scores[3], scores[4], action.c_str());
             last_summary_frame = frame_index;
             last_summary_log = now;
         }

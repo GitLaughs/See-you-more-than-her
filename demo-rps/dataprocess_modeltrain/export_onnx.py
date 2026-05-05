@@ -8,6 +8,9 @@ import torch
 from torch import nn
 
 MODEL_IMAGE_SIZE = 320
+CLASS_NAMES = ["person", "stop", "forward", "obstacle", "NoTarget"]
+NUM_CLASSES = len(CLASS_NAMES)
+INPUT_CHANNELS = 1
 
 
 class RPSClassifier(nn.Module):
@@ -18,38 +21,31 @@ class RPSClassifier(nn.Module):
             pretrained=False,
             num_classes=0,
             global_pool="",
+            in_chans=INPUT_CHANNELS,
         )
-        feature_channels, feature_height, feature_width = self._infer_feature_shape(
-            image_size
-        )
+        feature_channels = self._infer_feature_channels(image_size)
         self.head = nn.Sequential(
             nn.Conv2d(feature_channels, head_hidden_dim, kernel_size=1, bias=False),
             nn.BatchNorm2d(head_hidden_dim),
             nn.ReLU(inplace=True),
-            nn.Dropout2d(p=dropout),
-            nn.Conv2d(
-                head_hidden_dim,
-                3,
-                kernel_size=(feature_height, feature_width),
-                bias=True,
-            ),
+            nn.Dropout(p=dropout),
+            nn.AdaptiveAvgPool2d(1),
             nn.Flatten(1),
+            nn.Linear(head_hidden_dim, NUM_CLASSES),
         )
 
-    def _infer_feature_shape(self, image_size: int):
+    def _infer_feature_channels(self, image_size: int):
         was_training = self.backbone.training
         self.backbone.eval()
         with torch.no_grad():
-            dummy = torch.zeros(1, 3, image_size, image_size)
+            dummy = torch.zeros(1, INPUT_CHANNELS, image_size, image_size)
             features = self.backbone(dummy)
         if was_training:
             self.backbone.train()
-        return features.shape[1], features.shape[2], features.shape[3]
+        return features.shape[1]
 
     def forward(self, x):
-        features = self.backbone(x)
-        logits = self.head(features)
-        return logits
+        return self.head(self.backbone(x))
 
 
 class RPSOnnxWrapper(nn.Module):
@@ -58,8 +54,7 @@ class RPSOnnxWrapper(nn.Module):
         self.model = model
 
     def forward(self, x):
-        logits = self.model(x)
-        return torch.sigmoid(logits)
+        return self.model(x)
 
 
 def parse_args():
@@ -144,7 +139,7 @@ def main():
 
     export_model = RPSOnnxWrapper(model).eval()
     dummy_input = torch.randn(
-        1, 3, MODEL_IMAGE_SIZE, MODEL_IMAGE_SIZE, dtype=torch.float32
+        1, INPUT_CHANNELS, MODEL_IMAGE_SIZE, MODEL_IMAGE_SIZE, dtype=torch.float32
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -154,7 +149,7 @@ def main():
             dummy_input,
             str(output_path),
             input_names=["input"],
-            output_names=["confidence"],
+            output_names=["logits"],
             opset_version=args.opset,
             external_data=False,
             do_constant_folding=True,
@@ -164,7 +159,8 @@ def main():
     merge_external_data_if_needed(output_path)
 
     print(f"Checkpoint : {checkpoint_path}")
-    print(f"Image size : 1x3x{MODEL_IMAGE_SIZE}x{MODEL_IMAGE_SIZE}")
+    print(f"Image size : 1x{INPUT_CHANNELS}x{MODEL_IMAGE_SIZE}x{MODEL_IMAGE_SIZE}")
+    print(f"Classes    : {CLASS_NAMES}")
     print(f"Head dim   : {head_hidden_dim}")
     print(f"Dropout    : {dropout}")
     print(f"Output     : {output_path}")

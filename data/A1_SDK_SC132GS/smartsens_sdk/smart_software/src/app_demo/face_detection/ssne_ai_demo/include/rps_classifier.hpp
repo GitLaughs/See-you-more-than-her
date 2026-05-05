@@ -1,6 +1,6 @@
 /*
  * @Filename: rps_classifier.hpp
- * @Description: RPS classifier wrapper
+ * @Description: 5-class single-label classifier wrapper
  */
 #pragma once
 
@@ -14,7 +14,7 @@ class RPS_CLASSIFIER {
                     std::array<int, 2>* in_cls_shape);
 
     void Predict(ssne_tensor_t* img_in, std::string& out_label, float& out_score,
-                 float out_scores[3] = nullptr);
+                 float out_scores[5] = nullptr);
 
     void Release();
 

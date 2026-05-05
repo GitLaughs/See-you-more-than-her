@@ -17,8 +17,8 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 DEFAULT_CALIBRATE_COUNT = 20
 DEFAULT_EVALUATE_COUNT = 10
 DEFAULT_SEED = 42
-DEFAULT_MEAN = [0, 0, 0]
-DEFAULT_STD = [1, 1, 1]
+DEFAULT_MEAN = [0]
+DEFAULT_STD = [1]
 
 
 @dataclass(frozen=True)
@@ -42,20 +42,20 @@ def load_single_input_spec(model_path: Path) -> InputSpec:
 
     if len(dims) != 4:
         raise ValueError("Expected 4D NCHW input")
-    if dims[1] != 3:
-        raise ValueError("Only 3-channel inputs are supported")
+    if dims[1] not in {1, 3}:
+        raise ValueError("Only 1-channel or 3-channel inputs are supported")
 
     return InputSpec(input_name=tensor.name, input_shape=tuple(dims))
 
 
 def collect_dataset_images(dataset_root: Path) -> list[Path]:
-    images_dir = dataset_root / "images"
-    if not images_dir.exists():
-        raise FileNotFoundError(f"Missing dataset images dir: {images_dir}")
+    search_root = dataset_root / "images" if (dataset_root / "images").exists() else dataset_root
+    if not any((search_root / split).exists() for split in ("train", "val", "test")):
+        raise FileNotFoundError(f"Missing dataset split dirs under: {search_root}")
 
     paths: list[Path] = []
     for split in ("train", "val", "test"):
-        split_dir = images_dir / split
+        split_dir = search_root / split
         if not split_dir.exists():
             continue
         for path in sorted(split_dir.rglob("*")):
@@ -66,19 +66,26 @@ def collect_dataset_images(dataset_root: Path) -> list[Path]:
 
 def preprocess_image(image_path: Path, input_shape: tuple[int, int, int, int]) -> np.ndarray:
     _, channels, height, width = input_shape
-    if channels != 3:
-        raise ValueError("Only 3-channel inputs are supported")
-
-    image_bgr = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
-    if image_bgr is None:
-        raise RuntimeError(f"Failed to read image: {image_path}")
-
-    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    image_rgb = cv2.resize(image_rgb, (width, height), interpolation=cv2.INTER_LINEAR)
-    tensor = image_rgb.astype(np.float32) / 255.0
-    tensor = np.transpose(tensor, (2, 0, 1))
-    tensor = np.expand_dims(tensor, axis=0)
-    return tensor.astype(np.float32)
+    if channels == 1:
+        image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+        if image is None:
+            raise RuntimeError(f"Failed to read image: {image_path}")
+        image = cv2.resize(image, (width, height), interpolation=cv2.INTER_LINEAR)
+        tensor = image.astype(np.float32) / 255.0
+        tensor = np.expand_dims(tensor, axis=0)
+        tensor = np.expand_dims(tensor, axis=0)
+        return tensor.astype(np.float32)
+    if channels == 3:
+        image_bgr = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        if image_bgr is None:
+            raise RuntimeError(f"Failed to read image: {image_path}")
+        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        image_rgb = cv2.resize(image_rgb, (width, height), interpolation=cv2.INTER_LINEAR)
+        tensor = image_rgb.astype(np.float32) / 255.0
+        tensor = np.transpose(tensor, (2, 0, 1))
+        tensor = np.expand_dims(tensor, axis=0)
+        return tensor.astype(np.float32)
+    raise ValueError("Only 1-channel or 3-channel inputs are supported")
 
 
 def split_samples(paths: list[Path], calibrate_count: int, evaluate_count: int, seed: int) -> tuple[list[Path], list[Path]]:
@@ -100,7 +107,7 @@ def build_zip(zip_path: Path, dataset_dirs: Iterable[Path]) -> None:
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for dataset_dir in dataset_dirs:
             for npy_path in sorted(dataset_dir.rglob("*.npy")):
-                zf.write(npy_path, arcname=npy_path.name)
+                zf.write(npy_path, arcname=str(npy_path.relative_to(dataset_dir.parent)))
 
 
 def write_config(config_path: Path, input_name: str) -> None:
@@ -120,7 +127,11 @@ def write_config(config_path: Path, input_name: str) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate datasets.zip and config.toml for A1 conversion")
     parser.add_argument("--onnx", required=True, help="Path to best.onnx")
-    parser.add_argument("--dataset-root", required=True, help="Path to data/yolov8_dataset")
+    parser.add_argument(
+        "--dataset-root",
+        default="data/rps_dataset/processed_dataset_balanced",
+        help="Path to processed train/val/test dataset",
+    )
     parser.add_argument("--output-dir", required=True, help="Output directory")
     parser.add_argument("--calibrate-count", type=int, default=DEFAULT_CALIBRATE_COUNT)
     parser.add_argument("--evaluate-count", type=int, default=DEFAULT_EVALUATE_COUNT)

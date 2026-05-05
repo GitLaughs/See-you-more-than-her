@@ -9,8 +9,8 @@ if [ ! -x ./ssne_ai_demo ]; then
     chmod +x ./ssne_ai_demo || { echo "[APP] chmod ssne_ai_demo failed"; exit 1; }
 fi
 
-if [ ! -f ./app_assets/models/model_rps.m1model ]; then
-    echo "[APP] missing RPS model"
+if [ ! -f ./app_assets/models/1cfd4504-c065-4698-9554-9e114f5bfd47_best.m1model ]; then
+    echo "[APP] missing A1 5-class model"
     exit 1
 fi
 

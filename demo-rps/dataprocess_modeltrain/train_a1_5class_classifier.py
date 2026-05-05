@@ -77,13 +77,16 @@ def parse_args():
     parser.add_argument("--output_dir", default="outputs/a1_5class_mobilenetv1")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=30)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--weight_decay", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--weight_decay", type=float, default=1e-3)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--pretrained", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--head_hidden_dim", type=int, default=256)
-    parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--head_hidden_dim", type=int, default=128)
+    parser.add_argument("--dropout", type=float, default=0.4)
+    parser.add_argument("--label_smoothing", type=float, default=0.1)
+    parser.add_argument("--patience", type=int, default=5)
+    parser.add_argument("--min_delta", type=float, default=0.002)
     parser.add_argument("--export_onnx", action="store_true")
     parser.add_argument("--onnx_path", default=None)
     return parser.parse_args()
@@ -131,10 +134,16 @@ def verify_required_classes(split_name: str, samples_by_class):
 def build_transforms(image_size: int):
     train_transform = transforms.Compose(
         [
-            transforms.Resize((image_size + 16, image_size + 16)),
-            transforms.RandomResizedCrop(image_size, scale=(0.9, 1.0), ratio=(0.95, 1.05)),
+            transforms.Resize((image_size + 24, image_size + 24)),
+            transforms.RandomResizedCrop(image_size, scale=(0.8, 1.0), ratio=(0.9, 1.1)),
+            transforms.RandomApply(
+                [transforms.ColorJitter(brightness=0.2, contrast=0.2)],
+                p=0.5,
+            ),
+            transforms.RandomRotation(8, fill=0),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
+            transforms.RandomErasing(p=0.25, scale=(0.02, 0.15), ratio=(0.3, 3.3), value=0),
             transforms.Normalize(mean=MEAN, std=STD),
         ]
     )
@@ -222,6 +231,9 @@ def save_metadata(output_dir: Path, args, train_count: int, val_count: int, test
         "dataset_dir": args.dataset_dir,
         "head_hidden_dim": args.head_hidden_dim,
         "dropout": args.dropout,
+        "label_smoothing": args.label_smoothing,
+        "patience": args.patience,
+        "min_delta": args.min_delta,
         "train_count": train_count,
         "val_count": val_count,
         "test_count": test_count,
@@ -285,11 +297,12 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model(args.pretrained, MODEL_IMAGE_SIZE, args.head_hidden_dim, args.dropout).to(device)
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(args.epochs, 1))
 
     best_metric = -1.0
+    epochs_without_improvement = 0
     best_checkpoint_path = output_dir / "best.pt"
     last_checkpoint_path = output_dir / "last.pt"
     best_state_dict = None
@@ -316,10 +329,13 @@ def main():
             "dropout": args.dropout,
         }
         torch.save(checkpoint, last_checkpoint_path)
-        if val_metrics["top1"] > best_metric:
+        if val_metrics["top1"] > best_metric + args.min_delta:
             best_metric = val_metrics["top1"]
+            epochs_without_improvement = 0
             best_state_dict = copy.deepcopy(model.state_dict())
             torch.save(checkpoint, best_checkpoint_path)
+        else:
+            epochs_without_improvement += 1
 
         val_matrix = confusion_matrix(val_metrics["preds"], val_metrics["targets"], NUM_CLASSES)
         print(
@@ -329,6 +345,10 @@ def main():
             f"val_top1={val_metrics['top1']:.4f}"
         )
         print(format_confusion_matrix(val_matrix))
+
+        if epochs_without_improvement >= args.patience:
+            print(f"Early stopping at epoch {epoch:03d} after {epochs_without_improvement} stale epochs")
+            break
 
     if best_state_dict is not None:
         model.load_state_dict(best_state_dict)
