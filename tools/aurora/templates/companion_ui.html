@@ -15,7 +15,7 @@
   <div class="logo">Aurora Companion</div>
   <div class="pills">
     <div class="pill"><span class="dot" id="camDot"></span><span id="camStatus">摄像头...</span></div>
-    <div class="pill"><span class="dot" id="serialDot"></span><span id="serialStatusTop">COM13 已连接</span></div>
+    <div class="pill"><span class="dot" id="serialDot"></span><span id="serialStatusTop">COM13 未连接</span></div>
     <div class="pill" id="fpsChip">— fps</div>
   </div>
 </header>
@@ -39,9 +39,9 @@
                 <div class="rover-sub">左侧为 720×1280 实时视频流，右侧为项目主题背景与运动状态展示。</div>
                 <div class="motion-grid">
                   <div class="motion-chip"><b>当前动作</b><span id="motionChipAction">STOP</span></div>
-                  <div class="motion-chip"><b>手势来源</b><span id="motionChipGesture">stop</span></div>
-                  <div class="motion-chip"><b>底盘状态</b><span id="motionChipChassis">已就绪</span></div>
-                  <div class="motion-chip"><b>串口链路</b><span id="motionChipSerial">已连接</span></div>
+                  <div class="motion-chip"><b>手势来源</b><span id="motionChipGesture">—</span></div>
+                  <div class="motion-chip"><b>底盘状态</b><span id="motionChipChassis">未就绪</span></div>
+                  <div class="motion-chip"><b>串口链路</b><span id="motionChipSerial">等待连接</span></div>
                 </div>
               </div>
               <div class="rover-figure">
@@ -104,12 +104,12 @@
     </div>
 
     <div class="card">
-      <div class="head"><span>A1 识别状态</span><span id="a1GestureBadge" class="pill">stop</span></div>
+      <div class="head"><span>A1 识别状态</span><span id="a1GestureBadge" class="pill">等待分类</span></div>
       <div class="body">
         <div class="status-grid" id="a1GestureSummary">
-          <div class="status-tile"><div class="status-label">标签</div><div class="status-value">stop</div></div>
-          <div class="status-tile"><div class="status-label">动作</div><div class="status-value">停止</div></div>
-          <div class="status-tile"><div class="status-label">置信度</div><div class="status-value">0.000</div></div>
+          <div class="status-tile"><div class="status-label">标签</div><div class="status-value">—</div></div>
+          <div class="status-tile"><div class="status-label">动作</div><div class="status-value">—</div></div>
+          <div class="status-tile"><div class="status-label">置信度</div><div class="status-value">—</div></div>
         </div>
         <p class="muted" id="a1GestureHint">收到 A1_DEBUG rps_snapshot 后自动更新分类摘要。</p>
       </div>
@@ -148,7 +148,7 @@
     </div>
 
     <div class="card">
-      <div class="head"><span>A1 串口终端 / CLI</span><span id="serialTermBadge" class="pill">已连接</span></div>
+      <div class="head"><span>A1 串口终端 / CLI</span><span id="serialTermBadge" class="pill">未连接</span></div>
       <div class="body">
         <div class="row"><label>终端端口</label><select id="serialTermPortSelect"><option value="COM13">COM13</option></select><button class="btn" onclick="loadSerialTermPorts(true)">刷新</button></div>
         <div class="row"><label>波特率</label><input type="number" id="serialTermBaud" value="115200" min="1200" step="1"><button class="btn blue" onclick="autoConnectSerialTerm()">自动连接</button><button class="btn green" onclick="connectSerialTerm()">连接</button><button class="btn red" onclick="disconnectSerialTerm()">断开</button></div>
@@ -184,7 +184,7 @@ let toastTimer=null;
 function apiJson(url,options={}){if(options.body&&!options.headers)options.headers={'Content-Type':'application/json'};return fetch(url,options).then(r=>r.json())}
 function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.className='toast show';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3000)}
 function setDot(id,on){const el=document.getElementById(id);if(el)el.className='dot '+(on?'on':'')}
-function updateMotionPanel(status={}){const gesture=gestureName(status.gesture);const action=status.action==='forward'?'前进':'停止';const motion=status.action==='forward'?'FORWARD':'STOP';const chassisOk=status.chassis_ok===undefined?true:!!status.chassis_ok||!!status.success;const serialText=document.getElementById('serialTermBadge')?.textContent||'已连接';const stateText=!status.visible?'默认停止':(status.held?'保持上一状态':'实时识别');const meta=`${stateText} · ${status.message||'默认显示 stop 手势'}`;const actionEl=document.getElementById('motionAction');const metaEl=document.getElementById('motionMeta');const chipAction=document.getElementById('motionChipAction');const chipGesture=document.getElementById('motionChipGesture');const chipChassis=document.getElementById('motionChipChassis');const chipSerial=document.getElementById('motionChipSerial');if(actionEl)actionEl.textContent=action;if(metaEl)metaEl.textContent=meta;if(chipAction)chipAction.textContent=motion;if(chipGesture)chipGesture.textContent=gesture;if(chipChassis)chipChassis.textContent=chassisOk?'已就绪':'未就绪';if(chipSerial)chipSerial.textContent=serialText.includes('已连接')?'已连接':'等待连接'}
+function updateMotionPanel(status={}){const gesture=gestureName(status.gesture);const action=status.action==='forward'?'前进':'停止';const motion=status.action==='forward'?'FORWARD':'STOP';const chassisOk=!!status.chassis_ok||!!status.success;const serialText=document.getElementById('serialTermBadge')?.textContent||'未连接';const stateText=!status.visible?'等待识别':(status.held?'保持上一状态':'实时识别');const meta=`${stateText} · ${status.message||'等待板端动作回传'}`;const actionEl=document.getElementById('motionAction');const metaEl=document.getElementById('motionMeta');const chipAction=document.getElementById('motionChipAction');const chipGesture=document.getElementById('motionChipGesture');const chipChassis=document.getElementById('motionChipChassis');const chipSerial=document.getElementById('motionChipSerial');if(actionEl)actionEl.textContent=action;if(metaEl)metaEl.textContent=meta;if(chipAction)chipAction.textContent=motion;if(chipGesture)chipGesture.textContent=gesture;if(chipChassis)chipChassis.textContent=chassisOk?'已就绪':'未就绪';if(chipSerial)chipSerial.textContent=serialText.includes('已连接')?'已连接':'等待连接'}
 function setStream(kind){const img=document.getElementById('stream');img.src=(kind==='detect'?'/detect_feed':'/video_feed')+'?t='+Date.now();document.getElementById('streamInfo').textContent=kind==='detect'?'RPS 分类流 · 固定 ROI':'720x1280 摄像头 · 左侧预览'}
 function loadStatus(){fetch('/status').then(r=>r.json()).then(d=>{const bridge=d.qt_bridge||{};const on=!!(d.connected||bridge.connected);setDot('camDot',on);const source=d.source_label||d.source||'camera';const device=d.device??'—';document.getElementById('camStatus').textContent=on?`${source} #${device} 在线`:'摄像头离线';document.getElementById('fpsChip').textContent=d.fps!=null?d.fps.toFixed(1)+' fps':'— fps';if(d.source)document.getElementById('cameraSourceHint').textContent=`当前源：${source} · 设备 ${device}`;if(d.model_name)document.getElementById('modelSelect').value=d.model_name;if(d.output_dir)document.getElementById('captureHint').textContent='保存目录：'+d.output_dir}).catch(()=>{})}
 function loadCameraDevices(showToast=false){const url='/camera_devices'+(showToast?'?refresh=1':'');return apiJson(url).then(d=>{const sel=document.getElementById('cameraSelect');const devices=d.devices||[];sel.innerHTML=devices.map(x=>{const id=x.id??x.index??0;return `<option value="${id}">${id} · ${x.name||x.label||'Camera'}</option>`}).join('')||'<option value="0">0 · 默认摄像头</option>';const current=String(d.current_device??'');if([...sel.options].some(o=>o.value===current))sel.value=current;document.getElementById('cameraSourceHint').textContent=d.bootstrapping?'正在扫描摄像头…':`当前源：${d.current_source||'auto'} · 设备 ${d.current_device??'—'}`;if(showToast)toast(d.bootstrapping?'正在扫描，列表稍后更新':'摄像头列表已刷新');if(d.bootstrapping)setTimeout(()=>loadCameraDevices(false),1200)}).catch(e=>toast('摄像头列表读取失败: '+e))}
@@ -247,8 +247,8 @@ function escapeHtml(value){return String(value??'').replace(/&/g,'&amp;').replac
 function prettyValue(value,fallback='—'){if(value===null||value===undefined||value==='')return fallback;if(typeof value==='boolean')return value?'是':'否';return String(value)}
 function boolText(value,trueText='正常',falseText='异常'){return value?trueText:falseText}
 function statusTone(ok,warn=false){if(ok)return'badge-ok';if(warn)return'badge-warn';return'badge-err'}
-function gestureName(value){const raw=String(value||'').trim();if(!raw)return'stop';if(raw==='0'||raw==='person')return'person';if(raw==='1'||raw==='stop')return'stop';if(raw==='2'||raw==='forward')return'forward';if(raw==='3'||raw==='obstacle')return'obstacle';return raw}
-function actionName(value){const raw=String(value||'').trim();if(!raw)return'停止';if(raw==='forward')return'前进';if(raw==='stop')return'停止';return raw}
+function gestureName(value){const raw=String(value||'').trim();if(!raw)return'—';if(raw==='0'||raw==='person')return'person';if(raw==='1'||raw==='stop')return'stop';if(raw==='2'||raw==='forward')return'forward';if(raw==='3'||raw==='obstacle')return'obstacle';return raw}
+function actionName(value){const raw=String(value||'').trim();if(!raw)return'—';if(raw==='forward')return'前进';if(raw==='stop')return'停止';return raw}
 function renderKvPanel(title,items){const content=items.map(item=>`<div class="kv"><b>${escapeHtml(item.label)}</b><span class="${item.mono?'mono':''} ${item.tone||''}">${escapeHtml(prettyValue(item.value,item.fallback))}</span></div>`).join('');return `<div class="info-panel"><div class="panel-title">${escapeHtml(title)}</div><div class="kv-grid">${content}</div></div>`}
 function renderRawLine(title,text){if(!text)return'';return `<div class="info-panel"><div class="panel-title">${escapeHtml(title)}</div><div class="raw-line">${escapeHtml(text)}</div></div>`}
 function renderRecentRx(title,lines=[]){if(!Array.isArray(lines)||!lines.length)return'';return `<div class="info-panel"><div class="panel-title">${escapeHtml(title)}</div><div class="raw-line">${escapeHtml(lines.join('\n'))}</div></div>`}
@@ -261,16 +261,16 @@ function renderGestureStatus(status={}){
   const success=!!status.success;
   const gesture=gestureName(status.gesture);
   const action=actionName(status.action);
-  const stateText=!visible?'stop':(held?'保持态':'实时识别');
-  const stateTone=!visible?'badge-warn':(held?'badge-warn':'badge-ok');
-  const ageText=visible&&typeof status.age_sec==='number'?`${status.age_sec.toFixed(1)}s`:'0.0s';
+  const stateText=!visible?'未收到':(held?'保持态':'实时识别');
+  const stateTone=!visible?'badge-err':(held?'badge-warn':'badge-ok');
+  const ageText=visible&&typeof status.age_sec==='number'?`${status.age_sec.toFixed(1)}s`:'—';
   badge.textContent=stateText;
   summary.innerHTML=[
-    `<div class="status-tile"><div class="status-label">手势</div><div class="status-value">${escapeHtml(gesture)}</div><div class="status-sub">${escapeHtml(prettyValue(status.message,'默认显示 stop 手势'))}</div></div>`,
-    `<div class="status-tile"><div class="status-label">动作</div><div class="status-value">${escapeHtml(action)}</div><div class="status-sub">${escapeHtml(success?'A1_DEBUG 已确认':'默认停止')}</div></div>`,
+    `<div class="status-tile"><div class="status-label">手势</div><div class="status-value">${escapeHtml(gesture)}</div><div class="status-sub">${escapeHtml(prettyValue(status.message,''))}</div></div>`,
+    `<div class="status-tile"><div class="status-label">动作</div><div class="status-value">${escapeHtml(action)}</div><div class="status-sub">${escapeHtml(success?'A1_DEBUG 已确认':'等待有效回传')}</div></div>`,
     `<div class="status-tile"><div class="status-label">状态</div><div class="status-value ${stateTone}">${escapeHtml(stateText)}</div><div class="status-sub">可见时长 ${escapeHtml(ageText)}</div></div>`,
   ].join('');
-  hint.textContent=!visible?'暂未收到有效识别回传，前端默认显示 stop 手势。':(held?'识别短暂丢失，当前继续保持上一状态。':'正在显示最新识别结果。');
+  hint.textContent=!visible?'收到 A1_DEBUG gesture/action 后自动更新；短暂丢失时保持上一状态。':(held?'识别短暂丢失，当前继续保持上一状态。':'正在显示最新识别结果。');
 }
 function renderClassificationStatus(snapshot={}){
   const badge=document.getElementById('a1GestureBadge');
@@ -280,10 +280,9 @@ function renderClassificationStatus(snapshot={}){
   const label=snapshot.label||'NoTarget';
   const confidence=Number(snapshot.confidence||0);
   const action=snapshot.action||'stop';
-  const displayLabel=label==='NoTarget'?'stop':label;
-  badge.textContent=displayLabel;
+  badge.textContent=label==='NoTarget'?'无目标':`${label} / ${snapshot.label_name||label}`;
   summary.innerHTML=[
-    `<div class="status-tile"><div class="status-label">标签</div><div class="status-value">${escapeHtml(displayLabel)}</div></div>`,
+    `<div class="status-tile"><div class="status-label">标签</div><div class="status-value">${escapeHtml(label)}</div></div>`,
     `<div class="status-tile"><div class="status-label">动作</div><div class="status-value">${escapeHtml(actionName(action))}</div></div>`,
     `<div class="status-tile"><div class="status-label">置信度</div><div class="status-value">${confidence.toFixed(3)}</div></div>`,
   ].join('');
@@ -359,10 +358,10 @@ function renderErrorSummary(title,payload,recentRx=[]){
   return `<div class="info-panel err-card ${tone}"><div class="err-title"><span class="err-mark ${tone}">${mark}</span>${escapeHtml(title)}</div><div class="kv-grid" style="margin-top:10px"><div class="kv"><b>类型</b><span class="${severity==='warn'?'badge-warn':'badge-err'}">${escapeHtml(reason)}</span></div><div class="kv"><b>摘要</b><span>${escapeHtml(text.slice(0,90))}</span></div></div><div class="err-hint">${escapeHtml(hint)}</div>${chips?`<div class="rx-chips">${chips}</div>`:''}</div>`
 }
 function renderErrorPanel(title,payload,recentRx=[]){return renderErrorSummary(title,payload,recentRx)}
-function updateSerialStatus(d){const on=d.connected===undefined?true:!!d.connected;setDot('serialDot',on);document.getElementById('serialStatusTop').textContent=on?`${d.port||'COM13'} 已连接`:'COM13 未连接';const badge=document.getElementById('serialTermBadge');badge.textContent=on?`${d.port||'COM13'} 已连接`:'未连接';const lines=d.latest_lines||[];renderSerialTermLines(lines);updateSnapshotOutput(lines);updateMotionPanel(d.gesture_status||{})}
+function updateSerialStatus(d){const on=!!d.connected;setDot('serialDot',on);document.getElementById('serialStatusTop').textContent=on?`${d.port||'COM13'} 已连接`:'COM13 未连接';const badge=document.getElementById('serialTermBadge');badge.textContent=on?`${d.port||'COM13'} 已连接`:'未连接';const lines=d.latest_lines||[];renderSerialTermLines(lines);updateSnapshotOutput(lines);updateMotionPanel(d.gesture_status||{})}
 function loadSerialTermPorts(showToast=false){return apiJson('/api/serial_term/ports').then(d=>{const sel=document.getElementById('serialTermPortSelect');const current=sel.value||d.preferred||'COM13';const ports=d.ports&&d.ports.length?d.ports:[{port:current,desc:'手动端口'}];sel.innerHTML=ports.map(p=>`<option value="${p.port}">${p.port}${p.desc?' · '+p.desc:''}</option>`).join('');if([...sel.options].some(o=>o.value===current))sel.value=current;if(showToast)toast('串口列表已刷新')})}
 function loadSerialTermConfig(){return apiJson('/api/serial_term/config').then(d=>{if(d.port)document.getElementById('serialTermPortSelect').value=d.port;if(d.baud)document.getElementById('serialTermBaud').value=d.baud;if('append_newline'in d)document.getElementById('serialTermAppendNewline').checked=!!d.append_newline}).catch(()=>{})}
-function loadSerialTermStatus(){return apiJson('/api/serial_term/status').then(updateSerialStatus).catch(()=>updateSerialStatus({connected:true,latest_lines:[],gesture_status:{}}))}
+function loadSerialTermStatus(){return apiJson('/api/serial_term/status').then(updateSerialStatus).catch(()=>updateSerialStatus({connected:false,latest_lines:[],gesture_status:{}}))}
 function autoConnectSerialTerm(){const baud=parseInt(document.getElementById('serialTermBaud').value||'115200',10);document.getElementById('serialTermHint').textContent='正在自动连接 A1 终端…';return apiJson('/api/serial_term/auto_connect',{method:'POST',body:JSON.stringify({baud})}).then(d=>{if(!d.success)throw new Error(d.error||'自动连接失败');document.getElementById('serialTermHint').textContent=`已连接 ${d.port} @ ${d.baud}`;toast('A1 终端已连接');loadSerialTermStatus()}).catch(e=>toast('自动连接失败: '+e))}
 function connectSerialTerm(){const port=document.getElementById('serialTermPortSelect').value||'COM13';const baud=parseInt(document.getElementById('serialTermBaud').value||'115200',10);return apiJson('/api/serial_term/connect',{method:'POST',body:JSON.stringify({port,baud})}).then(d=>{if(!d.success)throw new Error(d.error||'连接失败');toast('A1 终端已连接');loadSerialTermStatus()}).catch(e=>toast('连接失败: '+e))}
 function disconnectSerialTerm(){return apiJson('/api/serial_term/disconnect',{method:'POST'}).then(()=>{toast('终端已断开');loadSerialTermStatus()})}
