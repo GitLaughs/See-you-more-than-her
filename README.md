@@ -57,6 +57,16 @@ pip install -r requirements.txt
 - PC 直连 STM32：`http://127.0.0.1:6202`
 - A1 中继控制：`http://127.0.0.1:6203`
 
+## 当前评委演示主线
+
+当前演示主线是 **demo-rps 风格的 RPS 分类测试**：
+
+- 板端模型路径：`/app_demo/app_assets/models/model_rps.m1model`
+- 输入尺寸：`320×320`
+- 语义标签：`P / R / S / NoTarget`
+- 动作映射：`P -> forward`，其他 -> `stop`
+- Aurora 通过 `/api/a1/rps_snapshot` 查看最新分类快照
+
 ## 仓库边界
 
 优先修改：
@@ -86,6 +96,7 @@ pip install -r requirements.txt
 - 板端主应用位于 `ssne_ai_demo/`
 - 通过 `cd /app_demo && ./scripts/run.sh` 做基础运行验证
 - A1_TEST、Link-Test、UART 底盘控制都在这条路径上
+- 当前默认分类测试命令是 `A1_TEST rps_snapshot <request_id>`
 
 ### Windows 工具
 - `tools/aurora/`：视频预览、拍照、COM13 终端、A1_TEST 手动测试
