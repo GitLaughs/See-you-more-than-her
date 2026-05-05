@@ -1,7 +1,11 @@
 /**
- * chassis_controller.hpp - STM32 chassis control interface (WHEELTEC C50X)
+ * chassis_controller.hpp — STM32 底盘控制接口（WHEELTEC C50X）
  *
- * Uses A1 UART TX0/RX0 (GPIO_PIN_0 / GPIO_PIN_2) to communicate with STM32.
+ * 使用 A1 UART TX0/RX0（GPIO_PIN_0 / GPIO_PIN_2）与 STM32 通信。
+ * 控制帧：11 字节（0x7B 帧头 ... 0x7D 帧尾，BCC 异或校验）
+ * 遥测帧：24 字节（STM32 → A1）
+ *
+ * Chassis control interface over A1 UART TX0/RX0 (GPIO_PIN_0 / GPIO_PIN_2).
  * Control frame: 11 bytes (0x7B ... 0x7D, BCC checksum)
  * Telemetry frame: 24 bytes from STM32 to A1
  */

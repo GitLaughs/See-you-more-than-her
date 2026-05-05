@@ -110,7 +110,7 @@ camera_connected = False
 _fail_streak = 0
 _consecutive_failures = 0
 _last_reconnect_time = 0.0
-_DETECT_MODEL_PATH = Path("/app_demo/app_assets/models/model_rps.m1model")
+_DETECT_MODEL_PATH = Path("/app_demo/app_assets/models/test.m1model")
 _DETECT_MODEL_MODE = "classification"
 _SUPPORTED_DETECT_MODEL_SUFFIXES = {".onnx", ".pt"}
 _DETECT_CONF = 0.4
@@ -1214,7 +1214,11 @@ def choose_camera_device(requested_device: int, requested_source: Optional[str] 
             ), reverse=True)
             return selected, candidates_sorted
 
-    candidates_sorted = sorted(candidates, key=lambda x: (x["score"], x["id"]), reverse=True)
+    source_candidates = [c for c in candidates if matches_requested_source(c)]
+    if source_candidates:
+        candidates_sorted = sorted(source_candidates, key=lambda x: (x["score"], x["id"]), reverse=True)
+    else:
+        candidates_sorted = sorted(candidates, key=lambda x: (x["score"], x["id"]), reverse=True)
     return candidates_sorted[0]["id"], candidates_sorted
 
 
@@ -2190,12 +2194,12 @@ def detect_status():
         snapshot = dict(_last_detect_snapshot)
     return jsonify({
         "model_exists": True,
-        "model_path": "/app_demo/app_assets/models/model_rps.m1model",
+        "model_path": "/app_demo/app_assets/models/test.m1model",
         "model_loaded": True,
-        "model_name": "model_rps.m1model",
+        "model_name": "test.m1model",
         "model_mode": "classification",
         "model_backend": "ssne",
-        "models": [{"name": "model_rps.m1model", "label": "model_rps.m1model", "path": "/app_demo/app_assets/models/model_rps.m1model", "mode": "classification", "backend": "ssne", "selected": True}],
+        "models": [{"name": "test.m1model", "label": "test.m1model", "path": "/app_demo/app_assets/models/test.m1model", "mode": "classification", "backend": "ssne", "selected": True}],
         "label": snapshot.get("label"),
         "label_name": snapshot.get("label_name"),
         "confidence": snapshot.get("confidence"),
@@ -2207,11 +2211,11 @@ def detect_status():
 @app.route("/detect_models")
 def detect_models():
     return jsonify({
-        "current_model": "model_rps.m1model",
-        "current_path": "/app_demo/app_assets/models/model_rps.m1model",
+        "current_model": "test.m1model",
+        "current_path": "/app_demo/app_assets/models/test.m1model",
         "current_mode": "classification",
         "current_backend": "ssne",
-        "models": [{"name": "model_rps.m1model", "label": "model_rps.m1model", "path": "/app_demo/app_assets/models/model_rps.m1model", "mode": "classification", "backend": "ssne", "selected": True}],
+        "models": [{"name": "test.m1model", "label": "test.m1model", "path": "/app_demo/app_assets/models/test.m1model", "mode": "classification", "backend": "ssne", "selected": True}],
     })
 
 
@@ -2303,11 +2307,11 @@ def a1_rps_snapshot():
 def switch_detect_model():
     return jsonify({
         "success": True,
-        "model_name": "model_rps.m1model",
-        "model_path": "/app_demo/app_assets/models/model_rps.m1model",
+        "model_name": "test.m1model",
+        "model_path": "/app_demo/app_assets/models/test.m1model",
         "model_mode": "classification",
         "model_backend": "ssne",
-        "models": [{"name": "model_rps.m1model", "label": "model_rps.m1model", "path": "/app_demo/app_assets/models/model_rps.m1model", "mode": "classification", "backend": "ssne", "selected": True}],
+        "models": [{"name": "test.m1model", "label": "test.m1model", "path": "/app_demo/app_assets/models/test.m1model", "mode": "classification", "backend": "ssne", "selected": True}],
     })
 
 
@@ -2497,8 +2501,8 @@ def status():
         "source": camera_source_global,
         "source_label": _source_label(camera_source_global),
         "qt_bridge": qt_status,
-        "model_name": "model_rps.m1model",
-        "model_path": "/app_demo/app_assets/models/model_rps.m1model",
+        "model_name": "test.m1model",
+        "model_path": "/app_demo/app_assets/models/test.m1model",
         "model_mode": "classification",
     })
 

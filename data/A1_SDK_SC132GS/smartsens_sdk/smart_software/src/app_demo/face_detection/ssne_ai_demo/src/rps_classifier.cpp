@@ -1,7 +1,18 @@
-/*
- * @Filename: rps_classifier.cpp
- * @Description: 5-class single-label classifier implementation
+/**
+ * rps_classifier.cpp — 5 分类视觉导航分类器实现
+ *
+ * 预处理管线：
+ *   1. 从 720×1280 摄像头帧中心裁剪 320×320 区域
+ *      crop_x0 = (720-320)/2 = 200, crop_y0 = (1280-320)/2 = 480
+ *   2. 调用模型内置归一化参数（SetNormalize）
+ *
+ * 推理流程：
+ *   1. RunAiPreprocessPipe — 裁剪 + 归一化
+ *   2. ssne_inference — SSNE NPU 推理
+ *   3. ssne_getoutput — 获取 5 个 float32 logits
+ *   4. argmax + 阈值比较（≥ 0.6 输出有效类别，否则 NoTarget）
  */
+
 #include "../include/rps_classifier.hpp"
 #include "../include/utils.hpp"
 
@@ -21,7 +32,9 @@ bool RPS_CLASSIFIER::Initialize(std::string& model_path, std::array<int, 2>* in_
 
     char* model_path_char = const_cast<char*>(model_path.c_str());
     model_id = ssne_loadmodel(model_path_char, SSNE_STATIC_ALLOC);
-    if (model_id == 0) {
+
+    const int input_num = ssne_get_model_input_num(model_id);
+    if (input_num <= 0) {
         printf("[ERROR] classifier model load failed: %s\n", model_path.c_str());
         return false;
     }
@@ -29,6 +42,22 @@ bool RPS_CLASSIFIER::Initialize(std::string& model_path, std::array<int, 2>* in_
     inputs[0] = create_tensor(static_cast<uint32_t>(cls_shape[0]),
                               static_cast<uint32_t>(cls_shape[1]),
                               SSNE_Y_8, SSNE_BUF_AI);
+    outputs[0] = create_tensor(static_cast<uint32_t>(kNumClasses),
+                               1,
+                               SSNE_FLOAT32, SSNE_BUF_AI);
+
+    if (inputs[0].data == nullptr || outputs[0].data == nullptr) {
+        printf("[ERROR] classifier tensor alloc failed: %s\n", model_path.c_str());
+        if (inputs[0].data != nullptr) {
+            release_tensor(inputs[0]);
+            inputs[0].data = nullptr;
+        }
+        if (outputs[0].data != nullptr) {
+            release_tensor(outputs[0]);
+            outputs[0].data = nullptr;
+        }
+        return false;
+    }
 
     const int crop_w = cls_shape[0];
     const int crop_h = cls_shape[1];
@@ -69,7 +98,16 @@ void RPS_CLASSIFIER::Predict(ssne_tensor_t* img, std::string& out_label, float& 
         return;
     }
 
-    ssne_getoutput(model_id, 1, outputs);
+    if (ssne_getoutput(model_id, 1, outputs)) {
+        fprintf(stderr, "[ERROR] classifier output fetch failed\n");
+        out_label = "NoTarget";
+        out_score = 0.0f;
+        if (out_scores) {
+            for (int i = 0; i < kNumClasses; ++i) out_scores[i] = 0.0f;
+        }
+        return;
+    }
+
     float* data = static_cast<float*>(get_data(outputs[0]));
 
     float scores[kNumClasses] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
@@ -96,7 +134,13 @@ void RPS_CLASSIFIER::Predict(ssne_tensor_t* img, std::string& out_label, float& 
 }
 
 void RPS_CLASSIFIER::Release() {
-    release_tensor(inputs[0]);
-    release_tensor(outputs[0]);
+    if (inputs[0].data != nullptr) {
+        release_tensor(inputs[0]);
+        inputs[0].data = nullptr;
+    }
+    if (outputs[0].data != nullptr) {
+        release_tensor(outputs[0]);
+        outputs[0].data = nullptr;
+    }
     ReleaseAIPreprocessPipe(pipe_offline);
 }

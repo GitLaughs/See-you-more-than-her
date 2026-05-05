@@ -1,3 +1,12 @@
+"""
+A1 5 分类视觉导航分类器训练脚本
+
+架构：MobileNetV1（灰度输入 320×320，5 类 softmax 输出）
+类别：person / stop / forward / obstacle / NoTarget
+优化器：AdamW，支持类别权重平衡和 dropout 正则化
+输出：best.pt（最佳模型）+ metadata.json（训练元数据）
+"""
+
 import argparse
 import copy
 import csv

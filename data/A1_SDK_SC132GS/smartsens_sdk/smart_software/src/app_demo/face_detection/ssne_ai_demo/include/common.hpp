@@ -1,10 +1,9 @@
-/*
- * @Filename: common.hpp
- * @Author: Hongying He
- * @Email: hongying.he@smartsenstech.com
- * @Date: 2025-12-30 14-57-47
- * @Copyright (c) 2025 SmartSens
+/**
+ * common.hpp — 图像处理器（IMAGEPROCESSOR）
+ *
+ * 封装 SSNE Online Pipeline，从摄像头 Sensor 采集 Y8 灰度图像。
  */
+
 #pragma once
 
 #include <array>

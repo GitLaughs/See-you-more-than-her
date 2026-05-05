@@ -1,296 +1,251 @@
-# SSNE AI RPS 分类游戏演示项目
+# SSNE AI 5 分类视觉导航演示项目
 
 ## 项目概述
 
-本项目是基于 SmartSens SSNE (SmartSens Neural Engine) 的 AI 演示程序，实现了一个**石头剪刀布（Rock-Paper-Scissors, RPS）分类互动游戏**。项目使用 C++ 开发，集成了图像处理、AI 模型推理、OSD 可视化显示和键盘交互等功能。
+本项目是基于 SmartSens SSNE (SmartSens Neural Engine) 的板端 AI 演示程序，实现 **5 分类视觉导航分类器**，用于 A1 视觉机器人评委演示主线。
 
-玩家通过摄像头做出石头/剪刀/布的手势，系统通过 AI 模型实时识别手势，并与系统随机出的手势进行胜负判定，最终在 OSD 上显示游戏结果。
+系统通过摄像头采集 720×1280 Y8 灰度图像，中心裁剪至 320×320 后送入 MobileNet 分类模型推理，根据分类结果控制 STM32 底盘运动（forward 前进，其余类别停止），并通过 OSD 叠加层显示运行状态。
 
-## 重要说明
+## 当前模型信息
 
-> **图像格式配置注意事项：**
-> - **Online（图像采集）格式**: `SSNE_Y_8` (灰度 8 位)
-> - **Offline（模型输入）格式**: `SSNE_Y_8` (灰度 8 位)
-> - 如果模型输入需要其他格式，请同步修改训练导出与板端预处理
->
-> **模型输出格式注意事项：**
-> - 模型输出为 5 个 float 值，对应 [person, stop, forward, obstacle, NoTarget] 五个类别的置信度得分
+- **类别**：`person` / `stop` / `forward` / `obstacle` / `NoTarget`（5 类）
+- **模型文件**：`/app_demo/app_assets/models/test.m1model`
+- **输入**：320×320 Y8 灰度（从 720×1280 摄像头帧中心裁剪）
+- **输出**：5 个 float32 logits
+- **阈值**：argmax 置信度 ≥ 0.6 输出有效类别，否则归为 `NoTarget`
+- **底盘动作**：`forward` → 前进（vx=200 mm/s），其余 → 停止
 
 ## 文件结构
 
 ```
 ssne_ai_demo/
-├── demo_rps_game.cpp          # 主演示程序 - RPS分类游戏主循环
-├── include/                   # 头文件目录
-│   ├── common.hpp             # 公共数据结构定义（IMAGEPROCESSOR、RPS_CLASSIFIER类）
-│   ├── utils.hpp              # 工具函数声明、VISUALIZER可视化器类
-│   ├── osd-device.hpp         # OSD设备接口定义
-│   └── log.hpp                # 日志定义
-├── src/                       # 源代码目录
-│   ├── rps_classifier.cpp     # 5 类分类模型实现（灰度输入，5 类输出）
-│   ├── pipeline_image.cpp     # 图像处理管道实现（Online配置）
-│   ├── utils.cpp              # 工具函数与可视化实现
-│   └── osd-device.cpp         # OSD设备接口实现
-├── app_assets/               # 应用资源
+├── demo_rps_game.cpp          # 主程序：推理循环 + A1_TEST 命令处理 + 深度帧 + 底盘控制
+├── include/                   # 头文件
+│   ├── common.hpp             # IMAGEPROCESSOR 图像采集管线
+│   ├── rps_classifier.hpp     # RPS_CLASSIFIER 5 分类推理接口
+│   ├── chassis_controller.hpp # ChassisController STM32 UART 底盘控制
+│   ├── osd-device.hpp         # OsdDevice OSD 屏幕叠加层（5 图层）
+│   ├── utils.hpp              # VISUALIZER 可视化高级接口
+│   └── log.hpp                # 调试日志宏
+├── src/                       # 实现文件
+│   ├── rps_classifier.cpp     # 分类器：crop→normalize→inference→argmax+阈值
+│   ├── pipeline_image.cpp     # Online Pipeline 0 图像采集（Y8 灰度）
+│   ├── chassis_controller.cpp # UART 11 字节控制帧 / 24 字节遥测帧
+│   ├── osd-device.cpp         # 5 层 OSD：Layer0-1 Graphic，Layer2-4 RLE Image
+│   └── utils.cpp              # DrawFixedSquare / DrawBitmap / ClearLayer
+├── app_assets/                # 板端运行时资源
 │   ├── models/
-│   │   └── model_rps.m1model  # RPS分类AI模型（320×320输入）
-│   ├── background.ssbmp       # 背景位图
-│   ├── ready.ssbmp            # 准备阶段位图
-│   ├── 1.ssbmp / 2.ssbmp / 3.ssbmp  # 倒计时数字位图
-│   ├── r.ssbmp / p.ssbmp / s.ssbmp  # 石头剪刀布位图
-│   ├── win.ssbmp              # 胜利位图
-│   └── shared_colorLUT.sscl   # 颜色查找表
-├── cmake_config/            # CMake配置
-│   └── Paths.cmake          # 路径配置文件
-├── scripts/                 # 脚本文件
-│   └── run.sh              # 运行脚本
-├── CMakeLists.txt          # CMake构建配置文件
-└── README.md              # 项目说明文档
+│   │   └── test.m1model       # 5 分类 MobileNet 模型（320×320 Y8 输入）
+│   ├── background.ssbmp       # 背景位图（透明开窗 720×1280）
+│   └── background_colorLUT.sscl  # 共享颜色查找表
+├── cmake_config/
+│   └── Paths.cmake            # SDK 库 / 头文件路径
+├── scripts/
+│   └── run.sh                 # 板端启动脚本（检查模型 + OSD 资源）
+├── CMakeLists.txt             # CMake 构建配置
+└── README.md                  # 本文档
 ```
 
 ## 核心文件说明
 
-### 1. 主程序文件
-- **demo_rps_game.cpp**: RPS分类游戏主演示程序
-  - 初始化SSNE引擎
-  - 配置图像处理器和RPS分类模型
-  - 创建键盘监听线程（`a` 开始游戏，`q` 退出）
-  - 主循环：游戏状态机（准备 -> 倒计时 -> 比赛）
-  - 每帧执行模型推理，收集分类得分
-  - 5帧平均锁定最终分类结果，判定胜负
-  - OSD 位图绘制（背景、ready、倒计时、r/p/s、win）
-  - 资源释放
+### 1. demo_rps_game.cpp — 主程序
 
-### 2. 核心类定义
-- **common.hpp**: 定义核心数据结构
-  - `IMAGEPROCESSOR`: 图像处理器类，负责从传感器获取图像
-  - `RPS_CLASSIFIER`: 石头剪刀布分类器类，封装模型加载与推理
+程序入口，完成以下初始化与主循环：
 
-- **utils.hpp**: 工具函数与可视化声明
-  - `VISUALIZER`: 可视化器类，支持检测框绘制和位图贴图
-  - `DrawBitmap()`: 在OSD上绘制位图资源
-  - `ClearLayer()`: 清空指定OSD图层
+1. **SSNE 引擎初始化** — `ssne_initial()`
+2. **图像采集管线** — IMAGEPROCESSOR（Online Pipeline 0，Sensor 0，Y8 灰度，720×1280）
+3. **分类器初始化** — RPS_CLASSIFIER（加载 test.m1model，配置 320×320 crop + normalize）
+4. **底盘初始化** — ChassisController（UART TX0/RX0，115200 bps，GPIO_PIN_0/2）
+5. **键盘监听线程** — stdin 读取 A1_TEST 命令
+6. **主循环**（200ms 间隔）：
+   - 采集一帧 → 分类推理 → 更新最新快照 → 发送底盘速度命令
+   - 每 1s 自动发射模拟深度帧（A1_DEPTH）
+   - 每 2s 打印分类摘要日志
 
-### 3. 实现文件
-- **src/rps_classifier.cpp**: RPS分类模型实现
-  - 模型初始化和推理（灰度 8 位输入）
-  - 输入图像预处理：crop + resize 到 320×320
-  - 模型输出解析：5个float得分 [person, stop, forward, obstacle, NoTarget]
-  - 置信度阈值过滤（默认阈值 0.6）
-  - 返回分类标签：`person`、`stop`、`forward`、`obstacle`、`NoTarget`
+**常量定义**：
 
-- **src/pipeline_image.cpp**: 图像处理管道
-  - Online图像采集配置（YUV422_16格式）
-  - 图像裁剪配置（如需）
-  - Pipeline通道管理
+| 常量 | 值 | 说明 |
+|------|-----|------|
+| kCameraWidth | 720 | 摄像头图像宽度 |
+| kCameraHeight | 1280 | 摄像头图像高度 |
+| kClassifierInputWidth/Height | 320 | 分类器输入宽高 |
+| kClassCount | 5 | 分类类别数 |
+| kForwardVelocity | 200 | 前进速度（mm/s） |
+| kDepthWidth/Height | 80×60 | 模拟深度帧尺寸 |
+| kDepthAutoIntervalMs | 1000 | 深度帧发送间隔（ms） |
 
-- **src/utils.cpp**: 通用工具函数实现
-  - 可视化绘制功能（检测框、位图）
-  - OSD 图层管理
+### 2. RPS_CLASSIFIER — 分类器
 
-- **src/osd-device.cpp**: OSD设备接口
-  - 屏幕显示控制
-  - 图形绘制功能
+**预处理管线**：
+1. 从 720×1280 中心裁剪 320×320 区域（crop_x0=200, crop_y0=480）
+2. 调用模型内置归一化参数（SetNormalize）
 
-### 4. 配置文件
-- **CMakeLists.txt**: 构建配置文件
-  - 定义编译选项和依赖库
-  - 指定源文件和头文件路径
-  - 链接SSNE相关库
+**推理流程**：
+1. `RunAiPreprocessPipe` — 裁剪 + 归一化
+2. `ssne_inference` — NPU 推理
+3. `ssne_getoutput` — 获取 5 个 float32 logits
+4. argmax + 阈值比较（≥ 0.6 输出有效类别，否则 NoTarget）
 
-### 5. 资源文件
-- **app_assets/models/model_rps.m1model**: RPS分类AI模型
-  - 输入尺寸: 320×320
-  - 输入格式: 灰度 8 位
-  - 输出: 3个float值，对应 [P, R, S] 置信度
+**输出格式**：`label`（字符串）+ `confidence`（float）+ `scores[5]`（5 类得分）
 
-- **app_assets/<>.ssbmp**: OSD位图资源
-  - `background.ssbmp`: 游戏背景
-  - `ready.ssbmp`: 准备阶段提示
-  - `1/2/3.ssbmp`: 倒计时数字
-  - `r/p/s.ssbmp`: 系统随机出的手势
-  - `win.ssbmp`: 胜利标识
+### 3. ChassisController — 底盘控制
 
-## Demo 流程图
+使用 A1 UART TX0（GPIO_PIN_0）/ RX0（GPIO_PIN_2），115200 bps。
 
-```mermaid
-flowchart TD
-    A[开始] --> INIT[初始化配置]
-    INIT --> INIT1[参数配置<br/>图像尺寸1920×1080<br/>模型输入320×320]
-    INIT1 --> INIT2[SSNE初始化]
-    INIT2 --> INIT3[图像处理器初始化<br/>Online格式: YUV422_16]
-    INIT3 --> INIT4[RPS分类模型初始化<br/>Offline格式: RGB]
-    INIT4 --> INIT5[OSD可视化器初始化<br/>绘制背景位图]
-    INIT5 --> INIT6[创建键盘监听线程]
-    INIT6 --> B[等待键盘输入 'a']
+**控制帧**（11 字节，A1 → STM32）：
 
-    B -->|按下 'a'| C[进入倒计时阶段]
-    C --> C1[显示 1.ssbmp]
-    C1 --> C2[显示 2.ssbmp]
-    C2 --> C3[显示 3.ssbmp]
-    C3 --> D[进入比赛阶段]
+| 偏移 | 字段 | 说明 |
+|------|------|------|
+| [0] | 0x7B | 帧头 |
+| [1] | Cmd | 0x00 = 正常控制 |
+| [2] | 0x00 | 保留 |
+| [3-4] | Vx | X轴速度（mm/s，int16 BE） |
+| [5-6] | Vy | Y轴速度（AKM = 0） |
+| [7-8] | Vz | Z轴角速度（mrad/s） |
+| [9] | BCC | XOR(bytes[0..8]) |
+| [10] | 0x7D | 帧尾 |
 
-    D --> D1[系统随机出 r/p/s]
-    D1 --> D2[每帧执行模型推理]
-    D2 --> D3{前5帧?}
-    D3 -->|是| D4[累加分类得分<br/>P/R/S]
-    D3 -->|否| D5[已锁定最终标签]
-    D4 --> D6[显示对应 r/p/s 位图]
-    D5 --> D7[判定胜负]
-    D6 --> D7
-    D7 --> D8{is_win?}
-    D8 -->|是| D9[显示 win.ssbmp]
-    D8 -->|否| D10[不显示win]
-    D9 --> D11[持续80帧]
-    D10 --> D11
-    D11 --> E{继续?}
-    E -->|是| B
-    E -->|否| RELEASE[资源释放]
-    RELEASE --> K[结束]
+**遥测帧**（24 字节，STM32 → A1）：Vx/Vy/Vz、Ax/Ay/Az、Gx/Gy/Gz、Volt，BCC 校验。
+
+### 4. OsdDevice — OSD 屏幕叠加层
+
+**5 层布局**：
+
+| Layer | 类型 | 用途 |
+|-------|------|------|
+| 0 | TYPE_GRAPHIC（SS_TYPE_QUADRANGLE） | 检测框绘制 |
+| 1 | TYPE_GRAPHIC（SS_TYPE_QUADRANGLE） | 固定正方形 |
+| 2 | TYPE_IMAGE（SS_TYPE_RLE） | 背景位图（透明开窗 720×1280） |
+| 3 | TYPE_IMAGE（SS_TYPE_RLE） | 分类结果贴图（预留） |
+| 4 | TYPE_IMAGE（SS_TYPE_RLE） | 预留 |
+
+### 5. VISUALIZER — 可视化高级接口
+
+封装 OSD 操作：
+- `DrawFixedSquare(x_min, y_min, x_max, y_max, layer_id=1)` — 绘制固定正方形
+- `DrawBitmap(bitmap_path, lut_path, pos_x, pos_y, layer_id=2)` — 绘制 .ssbmp 位图
+- `ClearLayer(layer_id)` — 清空指定图层
+
+位图路径自动以 `/app_demo/app_assets/` 为前缀。
+
+### 6. IMAGEPROCESSOR — 图像采集
+
+封装 SSNE Online Pipeline 0，从摄像头 Sensor 0 采集 Y8 灰度图像（720×1280）。
+
+## A1_TEST 命令协议
+
+通过 stdin 接收命令，响应格式为 `A1_DEBUG {"command":"...","success":true/false,...}`：
+
+| 命令 | 说明 |
+|------|------|
+| `A1_TEST ping` | 连接测试，返回 chassis_ok 状态 |
+| `A1_TEST test_echo <msg>` | 回声测试 |
+| `A1_TEST depth_snapshot` | 发射一帧模拟深度数据（80×60 u8，Base64 分片） |
+| `A1_TEST rps_snapshot <id>` | 获取最新分类快照（等待最多 3s，返回 label/confidence/scores[5]/action） |
+| `A1_TEST chassis_test forward\|stop` | 底盘动作测试 |
+| `A1_TEST move <vx> <vy> <vz>` | 直接底盘速度控制 |
+| `A1_TEST stop` | 紧急停止 |
+
+## A1_DEPTH 深度帧协议
+
+模拟深度数据传输，用于 Aurora 联调验证：
+
+```
+A1_DEPTH_BEGIN frame=N w=80 h=60 fmt=u8 encoding=base64 chunks=C bytes=4800
+A1_DEPTH_CHUNK frame=N index=0 data=<base64>
+A1_DEPTH_CHUNK frame=N index=1 data=<base64>
+...
+A1_DEPTH_OBJECT frame=N cls=fake score=1.00 bucket=mid depth=1.20 box=0.35,0.35,0.30,0.30
+A1_DEPTH_END frame=N
 ```
 
-### 流程说明
+80×60 灰度值 Base64 编码（4800 bytes），分 5 片传输（每片 960 chars）。
 
-#### 1. 初始化配置 (`demo_rps_game.cpp`)
+## 构建与运行
 
-- **参数配置**
-  - 配置原图尺寸（1920×1080）
-  - 配置分类模型输入尺寸（320×320）
-  - 配置模型文件路径：`model_rps.m1model`
+### 构建
 
-- **SSNE初始化**
-  - 初始化SSNE引擎
+通过 SDK 构建系统交叉编译：
 
-- **图像处理器初始化**
-  - 初始化图像处理器，配置原始图像尺寸
-  - **Online格式**: `SSNE_YUV422_16`
-
-- **RPS分类模型初始化**
-  - 初始化 `RPS_CLASSIFIER` 分类器
-  - 加载模型文件，设置预处理管道（crop + resize 到 320×320）
-  - **Offline格式**: `SSNE_RGB`
-
-- **OSD可视化器初始化**
-  - 初始化可视化器，绘制背景位图（layer 2，一直存在）
-
-- **键盘监听线程**
-  - 独立线程监听键盘输入
-  - `'a'` / `'A'`：触发游戏开始
-  - `'q'` / `'Q'`：退出程序
-
-#### 2. 游戏状态机
-
-##### 阶段一：准备阶段 (`PHASE_READY`)
-- 显示 `ready.ssbmp`（layer 3）
-- 等待用户按下 `'a'` 键
-- 触发后进入倒计时阶段
-
-##### 阶段二：倒计时阶段 (`PHASE_COUNTDOWN`)
-- 每 20 帧切换一个数字：1 → 2 → 3
-- 使用 `1.ssbmp`、`2.ssbmp`、`3.ssbmp`
-- 共 60 帧（约 2 秒）后进入比赛阶段
-
-##### 阶段三：比赛阶段 (`PHASE_BATTLE`)
-- 系统随机出 `r/p/s`，显示对应位图
-- **前 5 帧**：每帧执行模型推理，累加 [P, R, S] 三个类别的得分
-- **第 5 帧**：计算 5 帧平均得分，确定 `final_label`
-  - 最大得分 > 0.6：标签为 `P` / `R` / `S`
-  - 否则：`NoTarget`
-- **胜负判定**：
-  - `P` 胜 `R`（布包石头）
-  - `R` 胜 `S`（石头砸剪刀）
-  - `S` 胜 `P`（剪刀剪布）
-- **绘制逻辑保护**：
-  - 只在 `final_label` 确定后（frame_counter >= 4）才绘制胜负图，避免闪烁/跳变
-  - 只有 `is_win == true` 时才绘制 `win.ssbmp`，输了不绘图
-- 持续 80 帧后自动回到准备阶段，清理 layer 3/4
-
-#### 3. 资源释放 (`demo_rps_game.cpp`)
-
-- 释放分类器资源
-- 释放图像处理器资源
-- 释放可视化器资源
-- SSNE引擎释放
-
-## 数据流说明
-
-### 1. 在线处理（Online Processing）- IMAGEPROCESSOR
-
-在线处理负责从传感器获取原始图像：
-
-```cpp
-// 初始化
-format_online = SSNE_YUV422_16;
-OpenOnlinePipeline(kPipeline0);
-
-// 获取图像
-GetImageData(img_sensor, kPipeline0, kSensor0, 0);
+```bash
+docker exec A1_Builder bash -lc "bash /app/scripts/build_complete_evb.sh"
 ```
 
-### 2. 离线处理（Offline Processing）- RPS_CLASSIFIER
+或增量构建应用：
 
-离线处理负责模型输入准备和推理：
-
-```cpp
-// 初始化
-inputs[0] = create_tensor(320, 320, SSNE_RGB, SSNE_BUF_AI);
-SetCrop(pipe_offline, 210, 270, 750, 810);  // crop 到感兴趣区域
-SetNormalize(pipe_offline, model_id);
-
-// 推理
-RunAiPreprocessPipe(pipe_offline, *img, inputs[0]);  // crop + resize + 归一化
-ssne_inference(model_id, 1, inputs);
-ssne_getoutput(model_id, 1, outputs);
-
-// 输出解析
-float* data = (float*)get_data(outputs[0]);
-// data[0] = P_score, data[1] = R_score, data[2] = S_score
+```bash
+docker exec A1_Builder bash -lc "bash /app/scripts/build_incremental.sh sdk ssne_ai_demo"
 ```
 
-### 3. 游戏数据流
+### 板端运行
 
-1. **图像采集**：从传感器获取 1920×1080 图像（YUV422_16）
-2. **预处理**：crop 到 560×540 区域，resize 到 320×320，转 RGB
-3. **AI推理**：NPU 执行分类推理，获取 3 类置信度
-4. **结果锁定**：前 5 帧平均得分，确定最终手势标签
-5. **胜负判定**：与用户手势比对，确定胜负
-6. **OSD显示**：在比赛阶段显示系统手势和胜利标识
+```bash
+ssh root@<A1_IP>
+cd /app_demo
+./scripts/run.sh
+```
+
+`run.sh` 会检查 `test.m1model` 和 OSD 资源是否存在，然后启动 `ssne_ai_demo`。
+
+### Windows 联调
+
+```powershell
+cd tools/aurora
+.\launch.ps1
+# 浏览器打开 http://127.0.0.1:6201
+# 使用 A1_TEST 终端发送命令
+```
+
+## 数据流
+
+```
+Camera Sensor 0 (720×1280 Y8)
+        │
+        ▼
+IMAGEPROCESSOR::GetImage()
+        │
+        ▼
+RPS_CLASSIFIER::Predict()
+  ├─ RunAiPreprocessPipe: 中心裁剪 320×320 + 归一化
+  ├─ ssne_inference: NPU 推理
+  └─ argmax + 阈值 0.6 → label / confidence / scores[5]
+        │
+        ├──▶ action_for_label(label): "forward" → vx=200, 其他 → vx=0
+        │         │
+        │         ▼
+        │    ChassisController::SendVelocity(vx, 0, 0)
+        │         │
+        │         ▼
+        │    UART TX0 → STM32 → 底盘电机
+        │
+        └──▶ stdout: [RPS] 每 2s 摘要日志
+        │    stdout: A1_DEPTH 每 1s 模拟深度帧
+        │    stdin: 响应 A1_TEST 命令
+```
 
 ## 技术特点
 
-1. **AI模型**: RPS 三分类模型，支持石头/剪刀/布手势识别
-2. **三通道输入**: RGB 三通道图像输入
-3. **图像格式**:
-   - Online: YUV422_16
-   - Offline: RGB（可根据模型需要修改为BGR）
-4. **分类稳定化**: 5帧平均得分策略，避免单帧抖动
-5. **图像处理**: 支持图像裁剪、缩放和格式转换
-6. **可视化**: OSD 位图贴图显示游戏画面元素
-7. **交互设计**: 键盘触发游戏，多线程安全处理
-8. **性能优化**: 使用SSNE硬件加速AI推理
+1. **5 分类视觉导航**：person / stop / forward / obstacle / NoTarget
+2. **灰度单通道**：Y8 格式，320×320 输入
+3. **NPU 硬件加速**：SSNE 引擎，ssne_inference 执行推理
+4. **预处理管线**：AiPreprocessPipe（crop + normalize）
+5. **底盘集成**：UART 11 字节控制帧，BCC 异或校验，24 字节遥测
+6. **A1_TEST CLI**：stdin 命令监听，JSON 响应，支持 Aurora 联调
+7. **深度模拟**：80×60 模拟深度帧，Base64 编码分片传输
+8. **OSD 叠加层**：5 层（2 Graphic + 3 RLE Image），独立控制
 
-## 使用说明
-
-项目通过CMake构建，支持交叉编译到目标嵌入式平台。
-
-### 按键说明
-
-| 按键 | 功能 |
-|------|------|
-| `a` / `A` | 开始游戏（仅在准备阶段有效） |
-| `q` / `Q` | 退出程序 |
-
-### 重要配置项
+## 配置项
 
 | 配置项 | 值 | 说明 |
 |-------|-----|------|
-| 原图尺寸 | 1920×1080 | 根据实际镜头修改 |
-| 模型输入 | 320×320 | RPS分类模型输入尺寸 |
-| Online格式 | SSNE_YUV422_16 | 图像采集格式 |
-| Offline格式 | SSNE_RGB | 模型输入格式（可改为BGR）|
-| 置信度阈值 | 0.6 | 低于此值判定为 NoTarget |
-| 倒计时帧数 | 60帧 | 每数字20帧 |
-| 比赛阶段帧数 | 80帧 | 显示结果后自动回到准备阶段 |
-| 平均帧数 | 5帧 | 锁定最终分类结果 |
-
-演示程序启动后显示背景图和 ready 提示，按下 `a` 开始游戏，倒计时结束后进入比赛阶段，系统将随机出手势并与玩家识别的手势判定胜负。
+| 摄像头分辨率 | 720×1280 | 宽×高，Y8 灰度 |
+| 模型输入 | 320×320 | 中心裁剪（crop_x0=200, crop_y0=480） |
+| Online 格式 | SSNE_Y_8 | 灰度 8 位 |
+| 类别数 | 5 | person/stop/forward/obstacle/NoTarget |
+| 置信度阈值 | 0.6 | 低于此值归为 NoTarget |
+| 前进速度 | 200 mm/s | forward 类别对应的线速度 |
+| 推理间隔 | 200 ms | 主循环 usleep(200000) |
+| 深度帧尺寸 | 80×60 | 模拟深度图 |
+| 深度间隔 | 1000 ms | 自动发射 |
+| 日志间隔 | 2000 ms | 分类摘要输出 |
+| UART 波特率 | 115200 | TX0/RX0 |

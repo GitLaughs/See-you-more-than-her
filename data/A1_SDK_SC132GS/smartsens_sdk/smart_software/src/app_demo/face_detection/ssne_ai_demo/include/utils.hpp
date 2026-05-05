@@ -1,10 +1,13 @@
-/*
- * @Filename: utils.hpp
- * @Author: Hongying He
- * @Email: hongying.he@smartsenstech.com
- * @Date: 2025-12-30 14-57-47
- * @Copyright (c) 2025 SmartSens
+/**
+ * utils.hpp — 可视化器（VISUALIZER）
+ *
+ * 封装 OSD 图层操作的高级接口，提供：
+ *   - DrawFixedSquare：绘制固定正方形（Layer 1）
+ *   - DrawBitmap：绘制位图纹理（Layer 2）
+ *   - ClearLayer：清除指定图层内容
+ * 位图路径自动以 /app_demo/app_assets/ 为前缀。
  */
+
 #pragma once
 
 #include "osd-device.hpp"

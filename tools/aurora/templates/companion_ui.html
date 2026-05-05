@@ -23,7 +23,7 @@
 <main class="shell">
   <section class="stack">
     <div class="card preview-card">
-      <div class="head"><span>官方 OSD 横屏预览</span><div class="row" style="margin:0"><button class="btn" onclick="setStream('preview')">预览</button><button class="btn" onclick="setStream('detect')">RPS 分类</button></div></div>
+      <div class="head"><span>视频预览</span><div class="row" style="margin:0"><button class="btn" onclick="setStream('preview')">预览</button><button class="btn" onclick="setStream('detect')">RPS 分类</button></div></div>
       <div class="body">
         <div class="preview">
           <img id="stream" src="/video_feed" alt="camera">
@@ -70,7 +70,7 @@
           </div>
           <div class="fps" id="streamInfo">720x1280 摄像头 · 左侧预览</div>
         </div>
-        <p class="muted">左侧显示 720×1280 实时视频，右侧显示项目主题背景与小车运动状态；底部不再保留额外白边。</p>
+        <p class="muted">左侧显示 720×1280 实时视频，右侧显示项目主题背景与小车运动状态。</p>
       </div>
     </div>
 
@@ -324,11 +324,40 @@ function formatA1DebugResult(d,mode='debug'){
     {label:'快捷说明',value:d.description||'—'},
     {label:'板端说明',value:structured.message||'—'},
   ]));
-  if(!success)panels.push(renderErrorSummary(mode==='link'?'联通错误报告':'调试错误报告',message||diagnosis,d.recent_rx||[]));
+  if(!success)panels.push(renderErrorSummary(mode==='link'?'联通错误报告':'调试错误报告',d));
   return panels.filter(Boolean).join('');
 }
-function renderErrorSummary(title,message,recentRx=[]){const text=String(message||'未知错误');const lower=text.toLowerCase();const serial=lower.includes('com')||lower.includes('serial')||lower.includes('串口');const timeout=lower.includes('timeout')||lower.includes('超时')||lower.includes('未收到');const severity=serial?'err':(timeout?'warn':'err');const mark=severity==='warn'?'!':'×';const tone=severity==='warn'?'warn':'';const reason=serial?'串口连接失败':(timeout?'等待回传超时':'命令执行失败');const hint=serial?'检查 COM13 是否被占用、线缆是否连接、波特率是否为 115200。':(timeout?'命令已发出，但没有匹配回传；确认板端 demo 正在运行且 A1_TEST 可用。':'查看状态色块和简短原因；原始回传已隐藏，避免刷屏。');const chips=(Array.isArray(recentRx)?recentRx:[]).slice(0,4).map(x=>String(x).slice(0,48)).filter(Boolean).map(x=>`<span class="rx-chip">${escapeHtml(x)}</span>`).join('');return `<div class="info-panel err-card ${tone}"><div class="err-title"><span class="err-mark ${tone}">${mark}</span>${escapeHtml(title)}</div><div class="kv-grid" style="margin-top:10px"><div class="kv"><b>类型</b><span class="${severity==='warn'?'badge-warn':'badge-err'}">${escapeHtml(reason)}</span></div><div class="kv"><b>摘要</b><span>${escapeHtml(text.slice(0,90))}</span></div></div><div class="err-hint">${escapeHtml(hint)}</div>${chips?`<div class="rx-chips">${chips}</div>`:''}</div>`}
-function renderErrorPanel(title,message,recentRx=[]){return renderErrorSummary(title,message,recentRx)}
+function renderErrorSummary(title,payload,recentRx=[]){
+  const info=(payload&&typeof payload==='object'&&!Array.isArray(payload))?payload:{message:payload,recent_rx:recentRx};
+  const text=String(info.message||info.error||'未知错误');
+  const rx=(Array.isArray(info.recent_rx)?info.recent_rx:recentRx||[]).map(x=>String(x||''));
+  const recentText=rx.join(' | ').toLowerCase();
+  const transportSuccess=!!info.transport_success;
+  const responseReceived=!!info.response_received;
+  const explicitSeverity=String(info.failure_severity||'').toLowerCase();
+  const timeout=text.toLowerCase().includes('timeout')||text.includes('超时')||text.includes('未收到')||text.includes('未等到');
+  let severity=explicitSeverity==='warning'?'warn':(explicitSeverity==='error'?'err':'');
+  let reason=String(info.failure_reason||'').trim();
+  let hint=String(info.failure_hint||'').trim();
+  if(!reason){
+    if(!transportSuccess)reason='串口连接失败';
+    else if(recentText.includes('a1_test: not found'))reason='A1_TEST CLI 不可用';
+    else if(!responseReceived||timeout)reason='等待回传超时';
+    else reason='命令执行失败';
+  }
+  if(!hint){
+    if(!transportSuccess)hint='检查 COM13 是否被占用、线缆是否连接、波特率是否为 115200。';
+    else if(recentText.includes('a1_test: not found'))hint='串口已经连接到了 Linux shell，但当前环境没有 `A1_TEST` 命令；确认板端 demo / 调试入口已启动。';
+    else if(!responseReceived||timeout)hint='命令已发出，但没有匹配回传；确认板端 demo 正在运行且 A1_TEST 可用。';
+    else hint='查看状态色块和简短原因；原始回传已隐藏，避免刷屏。';
+  }
+  if(!severity)severity=(!transportSuccess?'err':((!responseReceived||timeout||recentText.includes('a1_test: not found'))?'warn':'err'));
+  const mark=severity==='warn'?'!':'×';
+  const tone=severity==='warn'?'warn':'';
+  const chips=rx.slice(0,4).map(x=>x.slice(0,48)).filter(Boolean).map(x=>`<span class="rx-chip">${escapeHtml(x)}</span>`).join('');
+  return `<div class="info-panel err-card ${tone}"><div class="err-title"><span class="err-mark ${tone}">${mark}</span>${escapeHtml(title)}</div><div class="kv-grid" style="margin-top:10px"><div class="kv"><b>类型</b><span class="${severity==='warn'?'badge-warn':'badge-err'}">${escapeHtml(reason)}</span></div><div class="kv"><b>摘要</b><span>${escapeHtml(text.slice(0,90))}</span></div></div><div class="err-hint">${escapeHtml(hint)}</div>${chips?`<div class="rx-chips">${chips}</div>`:''}</div>`
+}
+function renderErrorPanel(title,payload,recentRx=[]){return renderErrorSummary(title,payload,recentRx)}
 function updateSerialStatus(d){const on=!!d.connected;setDot('serialDot',on);document.getElementById('serialStatusTop').textContent=on?`${d.port||'COM13'} 已连接`:'COM13 未连接';const badge=document.getElementById('serialTermBadge');badge.textContent=on?`${d.port||'COM13'} 已连接`:'未连接';const lines=d.latest_lines||[];renderSerialTermLines(lines);updateSnapshotOutput(lines);updateMotionPanel(d.gesture_status||{})}
 function loadSerialTermPorts(showToast=false){return apiJson('/api/serial_term/ports').then(d=>{const sel=document.getElementById('serialTermPortSelect');const current=sel.value||d.preferred||'COM13';const ports=d.ports&&d.ports.length?d.ports:[{port:current,desc:'手动端口'}];sel.innerHTML=ports.map(p=>`<option value="${p.port}">${p.port}${p.desc?' · '+p.desc:''}</option>`).join('');if([...sel.options].some(o=>o.value===current))sel.value=current;if(showToast)toast('串口列表已刷新')})}
 function loadSerialTermConfig(){return apiJson('/api/serial_term/config').then(d=>{if(d.port)document.getElementById('serialTermPortSelect').value=d.port;if(d.baud)document.getElementById('serialTermBaud').value=d.baud;if('append_newline'in d)document.getElementById('serialTermAppendNewline').checked=!!d.append_newline}).catch(()=>{})}
@@ -351,7 +380,7 @@ function sendA1Debug(command){
     loadSerialTermStatus();
     if(!d.success){
       badge.textContent='失败';
-      result.innerHTML=renderErrorPanel('A1 调试概览',d.message||d.error||'未收到 A1_DEBUG 回包',d.recent_rx||[]);
+      result.innerHTML=formatA1DebugResult(d,'debug');
       return;
     }
     badge.textContent='已响应';
@@ -375,7 +404,7 @@ function runA1LinkTest(){
     btn.disabled=false;
     if(!d.success){
       badge.textContent='未连通';
-      result.innerHTML=renderErrorPanel('联通测试概览',d.message||d.error||'未收到 A1_DEBUG ping 回传',d.recent_rx||[]);
+      result.innerHTML=formatA1DebugResult(d,'link');
       loadSerialTermStatus();
       return;
     }

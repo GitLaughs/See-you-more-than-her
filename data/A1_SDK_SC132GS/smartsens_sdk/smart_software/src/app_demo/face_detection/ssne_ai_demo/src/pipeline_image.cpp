@@ -1,10 +1,10 @@
-/*
- * @Filename: pipeline_image.cpp
- * @Author: Hongying He
- * @Email: hongying.he@smartsenstech.com
- * @Date: 2025-12-30 14-57-47
- * @Copyright (c) 2025 SmartSens
+/**
+ * pipeline_image.cpp — 图像采集管线
+ *
+ * 使用 SSNE Online Pipeline 0，从摄像头 Sensor 0 采集 Y8 灰度图像。
+ * 输出尺寸：720×1280（宽×高），灰度单通道。
  */
+
 #include "../include/common.hpp"
 
 bool IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)

@@ -1,3 +1,13 @@
+"""
+视频数据集预处理脚本
+
+从按类别分组的 MP4 视频中提取帧：
+1. 逐帧读取视频，BGR→灰度转换
+2. 中心裁剪 720×1280 → 320×320
+3. 按帧间隔抽样，train/val/test 比例拆分
+输出：processed_dataset/ 目录下的 .npy 张量文件
+"""
+
 import argparse
 from pathlib import Path
 

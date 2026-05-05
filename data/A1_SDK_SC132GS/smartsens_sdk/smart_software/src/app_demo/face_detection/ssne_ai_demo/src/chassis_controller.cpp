@@ -1,28 +1,40 @@
 /**
- * chassis_controller.cpp - STM32 chassis control implementation
+ * chassis_controller.cpp — STM32 底盘控制实现
+ *
+ * 控制帧（11 字节，A1 → STM32）：
+ *   [0]  0x7B          帧头
+ *   [1]  Cmd           0x00 = 正常控制
+ *   [2]  0x00          保留
+ *   [3]  Vx_H          X轴速度高字节（mm/s，int16）
+ *   [4]  Vx_L          X轴速度低字节
+ *   [5]  Vy_H          Y轴速度高字节（AKM = 0）
+ *   [6]  Vy_L          Y轴速度低字节
+ *   [7]  Vz_H          Z轴角速度/前轮转角高字节
+ *   [8]  Vz_L          Z轴角速度/前轮转角低字节
+ *   [9]  BCC           XOR(bytes[0..8])
+ *   [10] 0x7D          帧尾
+ *
+ * 遥测帧（24 字节，STM32 → A1）：
+ *   [0]  0x7B          帧头
+ *   [1]  0x00
+ *   [2..7]  Vx, Vy, Vz（int16 × 3）
+ *   [8..13] Ax, Ay, Az（int16 × 3，除以 1000 = m/s²）
+ *   [14..19] Gx, Gy, Gz（int16 × 3，除以 1000 = rad/s）
+ *   [20..21] Volt（uint16，除以 100 = V）
+ *   [22] BCC           异或校验（bytes[0..21]）
+ *   [23] 0x7D          帧尾
  *
  * Control frame (11 bytes, A1 to STM32):
  *   [0]  0x7B          frame header
  *   [1]  Cmd           0x00 = normal control
  *   [2]  0x00          reserved
- *   [3]  Vx_H          X-axis velocity high byte (mm/s, int16)
- *   [4]  Vx_L          X-axis velocity low byte
- *   [5]  Vy_H          Y-axis velocity high byte (AKM = 0)
- *   [6]  Vy_L          Y-axis velocity low byte
- *   [7]  Vz_H          Z-axis angular velocity/front wheel angle high byte
- *   [8]  Vz_L          Z-axis angular velocity/front wheel angle low byte
+ *   [3..8]  Vx, Vy, Vz (int16 big-endian)
  *   [9]  BCC           XOR(bytes[0..8])
  *   [10] 0x7D          frame tail
  *
  * Telemetry frame (24 bytes, STM32 to A1):
- *   [0]  0x7B
- *   [1]  0x00
- *   [2..7]  Vx, Vy, Vz (int16 x 3)
- *   [8..13] Ax, Ay, Az (int16 x 3, raw / 1000 = m/s^2)
- *   [14..19] Gx, Gy, Gz (int16 x 3, raw / 1000 = rad/s)
- *   [20..21] Volt (uint16, raw / 100 = V)
- *   [22] BCC
- *   [23] 0x7D
+ *   [0]  0x7B / [1] 0x00 / [2..7] Vx,Vy,Vz / [8..13] Ax,Ay,Az
+ *   [14..19] Gx,Gy,Gz / [20..21] Volt / [22] BCC / [23] 0x7D
  */
 
 #include "../include/chassis_controller.hpp"
