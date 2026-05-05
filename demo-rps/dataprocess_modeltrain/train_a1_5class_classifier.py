@@ -1,9 +1,13 @@
 import argparse
 import copy
+import csv
 import json
 import random
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import timm
 import torch
 from PIL import Image
@@ -32,15 +36,16 @@ class A1Classifier(nn.Module):
             global_pool="",
             in_chans=INPUT_CHANNELS,
         )
+        replace_relu6(self.backbone)
         feature_channels = self._infer_feature_channels(image_size)
         self.head = nn.Sequential(
             nn.Conv2d(feature_channels, head_hidden_dim, kernel_size=1, bias=False),
             nn.BatchNorm2d(head_hidden_dim),
             nn.ReLU(inplace=True),
             nn.Dropout(p=dropout),
+            nn.AvgPool2d(kernel_size=2, stride=2),
             nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(1),
-            nn.Linear(head_hidden_dim, NUM_CLASSES),
+            nn.Conv2d(head_hidden_dim, NUM_CLASSES, kernel_size=1, bias=True),
         )
 
     def _infer_feature_channels(self, image_size: int):
@@ -54,7 +59,15 @@ class A1Classifier(nn.Module):
         return features.shape[1]
 
     def forward(self, x):
-        return self.head(self.backbone(x))
+        return self.head(self.backbone(x)).flatten(1)
+
+
+def replace_relu6(module: nn.Module) -> None:
+    for name, child in module.named_children():
+        if isinstance(child, nn.ReLU6):
+            setattr(module, name, nn.ReLU(inplace=child.inplace))
+        else:
+            replace_relu6(child)
 
 
 class ClassImageDataset(Dataset):
@@ -221,6 +234,98 @@ def format_confusion_matrix(matrix: torch.Tensor):
     return "\n".join(rows)
 
 
+def compute_per_class_metrics(matrix: torch.Tensor, class_names: list[str]):
+    metrics = []
+    for idx, class_name in enumerate(class_names):
+        tp = float(matrix[idx, idx].item())
+        fp = float(matrix[:, idx].sum().item() - tp)
+        fn = float(matrix[idx, :].sum().item() - tp)
+        precision = tp / (tp + fp) if tp + fp else 0.0
+        recall = tp / (tp + fn) if tp + fn else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        metrics.append({
+            "class_name": class_name,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "support": int(matrix[idx, :].sum().item()),
+        })
+    return metrics
+
+
+def save_results_csv(output_dir: Path, history: list[dict]):
+    with (output_dir / "results.csv").open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["epoch", "train_loss", "val_loss", "train_top1", "val_top1"])
+        for row in history:
+            writer.writerow([row["epoch"], row["train_loss"], row["val_loss"], row["train_top1"], row["val_top1"]])
+
+
+def plot_training_curves(output_dir: Path, history: list[dict]):
+    epochs = [row["epoch"] for row in history]
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), dpi=150)
+
+    axes[0].plot(epochs, [row["train_loss"] for row in history], marker="o", label="train_loss")
+    axes[0].plot(epochs, [row["val_loss"] for row in history], marker="o", label="val_loss")
+    axes[0].set_xlabel("epoch")
+    axes[0].set_ylabel("loss")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend()
+
+    axes[1].plot(epochs, [row["train_top1"] for row in history], marker="o", label="train_top1")
+    axes[1].plot(epochs, [row["val_top1"] for row in history], marker="o", label="val_top1")
+    axes[1].set_xlabel("epoch")
+    axes[1].set_ylabel("top1")
+    axes[1].set_ylim(0.0, 1.0)
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend()
+
+    fig.tight_layout()
+    fig.savefig(output_dir / "accuracy_loss_curve.png", bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_confusion_matrix(output_path: Path, matrix: torch.Tensor, class_names: list[str], title: str):
+    matrix_cpu = matrix.detach().cpu()
+    fig, ax = plt.subplots(figsize=(1.4 * len(class_names) + 2, 1.1 * len(class_names) + 2), dpi=150)
+    image = ax.imshow(matrix_cpu.numpy(), cmap="Blues")
+    ax.set_title(title)
+    ax.set_xlabel("predicted")
+    ax.set_ylabel("true")
+    ax.set_xticks(range(len(class_names)))
+    ax.set_xticklabels(class_names, rotation=30, ha="right")
+    ax.set_yticks(range(len(class_names)))
+    ax.set_yticklabels(class_names)
+
+    max_value = int(matrix_cpu.max().item()) if matrix_cpu.numel() else 0
+    threshold = max_value * 0.5
+    for i in range(matrix_cpu.shape[0]):
+        for j in range(matrix_cpu.shape[1]):
+            value = int(matrix_cpu[i, j].item())
+            ax.text(j, i, str(value), ha="center", va="center", color="white" if value > threshold else "black", fontsize=9)
+
+    fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
+    fig.tight_layout()
+    fig.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
+
+
+def save_per_class_metrics(output_dir: Path, matrix: torch.Tensor, class_names: list[str]):
+    with (output_dir / "per_class_metrics.csv").open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["class_name", "precision", "recall", "f1", "support"])
+        for row in compute_per_class_metrics(matrix, class_names):
+            writer.writerow([row["class_name"], row["precision"], row["recall"], row["f1"], row["support"]])
+
+
+def save_training_reports(output_dir: Path, history: list[dict], val_matrix: torch.Tensor, test_matrix: torch.Tensor, class_names: list[str]):
+    save_results_csv(output_dir, history)
+    plot_training_curves(output_dir, history)
+    plot_confusion_matrix(output_dir / "confusion_matrix_val.png", val_matrix, class_names, "Validation Confusion Matrix")
+    plot_confusion_matrix(output_dir / "confusion_matrix_test.png", test_matrix, class_names, "Test Confusion Matrix")
+    save_per_class_metrics(output_dir, val_matrix, class_names)
+
+
 def save_metadata(output_dir: Path, args, train_count: int, val_count: int, test_count: int):
     metadata = {
         "model_name": "mobilenetv1_100",
@@ -306,6 +411,8 @@ def main():
     best_checkpoint_path = output_dir / "best.pt"
     last_checkpoint_path = output_dir / "last.pt"
     best_state_dict = None
+    best_val_metrics = None
+    history = []
     save_metadata(output_dir, args, len(train_samples), len(val_samples), len(test_samples))
 
     print(f"Device      : {device}")
@@ -333,9 +440,24 @@ def main():
             best_metric = val_metrics["top1"]
             epochs_without_improvement = 0
             best_state_dict = copy.deepcopy(model.state_dict())
+            best_val_metrics = {
+                "loss": val_metrics["loss"],
+                "top1": val_metrics["top1"],
+                "preds": val_metrics["preds"].clone(),
+                "targets": val_metrics["targets"].clone(),
+                "epoch": epoch,
+            }
             torch.save(checkpoint, best_checkpoint_path)
         else:
             epochs_without_improvement += 1
+
+        history.append({
+            "epoch": epoch,
+            "train_loss": train_metrics["loss"],
+            "val_loss": val_metrics["loss"],
+            "train_top1": train_metrics["top1"],
+            "val_top1": val_metrics["top1"],
+        })
 
         val_matrix = confusion_matrix(val_metrics["preds"], val_metrics["targets"], NUM_CLASSES)
         print(
@@ -352,11 +474,17 @@ def main():
 
     if best_state_dict is not None:
         model.load_state_dict(best_state_dict)
+    if best_val_metrics is None:
+        best_val_metrics = val_metrics
     if test_loader is not None:
         test_metrics = run_epoch(model, test_loader, criterion, None, device)
         test_matrix = confusion_matrix(test_metrics["preds"], test_metrics["targets"], NUM_CLASSES)
         print(f"Test top1    : {test_metrics['top1']:.4f}")
         print(format_confusion_matrix(test_matrix))
+    else:
+        test_matrix = torch.zeros((NUM_CLASSES, NUM_CLASSES), dtype=torch.int64)
+
+    save_training_reports(output_dir, history, confusion_matrix(best_val_metrics["preds"], best_val_metrics["targets"], NUM_CLASSES), test_matrix, CLASS_NAMES)
 
     if args.export_onnx:
         onnx_path = Path(args.onnx_path) if args.onnx_path else output_dir / "best.onnx"

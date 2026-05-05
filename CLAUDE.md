@@ -182,7 +182,7 @@ python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_termin
 - `tools/aurora/launch.ps1` 当前会在默认端口不可用时自动向后寻找可用端口，不再是“固定端口不可用就直接失败”的旧行为。
 - `tools/aurora/aurora_companion.py` 内仍保留少量历史端口常量，但实际默认启动端口以启动脚本和命令行参数为准，即 `6201`。
 - 使用 `demo-rps/dataprocess_modeltrain/export_onnx.py` 把 `data/rps_dataset/training_output_balanced/best.pt` 导出为 `data/rps_dataset/training_output_balanced/a1_convert/best.onnx`。
-- 使用 `tools/convert/generate_a1_datasets.py` 打包 A1 校准/评估数据时，默认数据集根是 `data/rps_dataset/processed_dataset_balanced`。
+- 使用 `tools/convert/generate_a1_datasets.py` 打包 A1 校准/评估数据时，默认数据集根是 `data/rps_dataset/processed_dataset_regularized`。
 - `datasets.zip` 必须保留 `calibrate_datasets/` 和 `evaluate_datasets/` 两级目录，不能把 `.npy` 平铺到 zip 根目录。
 - 当前 5 类 MobileNet 分类 ONNX 直接输出 `logits`，不是 YOLO head6；不要对它做 head6 裁剪。
 - `demo-rps/dataprocess_modeltrain/prepare_video_dataset.py` 按视频数切分 train/val/test；每类视频太少会让 val 或 train 缺类，尤其 `NoTarget` 单视频会导致训练失败。

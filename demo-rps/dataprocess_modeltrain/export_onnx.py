@@ -23,15 +23,16 @@ class RPSClassifier(nn.Module):
             global_pool="",
             in_chans=INPUT_CHANNELS,
         )
+        replace_relu6(self.backbone)
         feature_channels = self._infer_feature_channels(image_size)
         self.head = nn.Sequential(
             nn.Conv2d(feature_channels, head_hidden_dim, kernel_size=1, bias=False),
             nn.BatchNorm2d(head_hidden_dim),
             nn.ReLU(inplace=True),
             nn.Dropout(p=dropout),
+            nn.AvgPool2d(kernel_size=2, stride=2),
             nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(1),
-            nn.Linear(head_hidden_dim, NUM_CLASSES),
+            nn.Conv2d(head_hidden_dim, NUM_CLASSES, kernel_size=1, bias=True),
         )
 
     def _infer_feature_channels(self, image_size: int):
@@ -57,6 +58,53 @@ class RPSOnnxWrapper(nn.Module):
         return self.model(x)
 
 
+def replace_relu6(module: nn.Module) -> None:
+    for name, child in module.named_children():
+        if isinstance(child, nn.ReLU6):
+            setattr(module, name, nn.ReLU(inplace=child.inplace))
+        else:
+            replace_relu6(child)
+
+
+def convert_checkpoint_state_dict(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    converted = dict(state_dict)
+    weight = converted.get("head.6.weight")
+    if weight is not None and weight.ndim == 2:
+        converted["head.6.weight"] = weight[:, :, None, None]
+    return converted
+
+
+def remove_identity_nodes(model: onnx.ModelProto) -> onnx.ModelProto:
+    while True:
+        replacements: dict[str, str] = {}
+        kept_nodes = []
+        changed = False
+        for node in model.graph.node:
+            if node.op_type == "Identity" and len(node.input) == 1 and len(node.output) == 1:
+                replacements[node.output[0]] = node.input[0]
+                changed = True
+            else:
+                kept_nodes.append(node)
+
+        if not changed:
+            break
+
+        for node in kept_nodes:
+            for idx, input_name in enumerate(node.input):
+                while input_name in replacements:
+                    input_name = replacements[input_name]
+                node.input[idx] = input_name
+
+        for value_info in list(model.graph.output) + list(model.graph.value_info):
+            while value_info.name in replacements:
+                value_info.name = replacements[value_info.name]
+
+        model.graph.ClearField("node")
+        model.graph.node.extend(kept_nodes)
+
+    return model
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Export fixed-shape RPS classifier to ONNX"
@@ -76,7 +124,7 @@ def parse_args():
     parser.add_argument(
         "--opset",
         type=int,
-        default=18,
+        default=12,
         help="ONNX opset version",
     )
     return parser.parse_args()
@@ -134,7 +182,7 @@ def main():
         head_hidden_dim=head_hidden_dim,
         dropout=dropout,
     )
-    model.load_state_dict(checkpoint["model_state_dict"])
+    model.load_state_dict(convert_checkpoint_state_dict(checkpoint["model_state_dict"]))
     model.eval()
 
     export_model = RPSOnnxWrapper(model).eval()
@@ -156,6 +204,9 @@ def main():
             dynamic_axes=None,
         )
 
+    model_proto = onnx.load(str(output_path))
+    model_proto = remove_identity_nodes(model_proto)
+    onnx.save_model(model_proto, str(output_path), save_as_external_data=False)
     merge_external_data_if_needed(output_path)
 
     print(f"Checkpoint : {checkpoint_path}")

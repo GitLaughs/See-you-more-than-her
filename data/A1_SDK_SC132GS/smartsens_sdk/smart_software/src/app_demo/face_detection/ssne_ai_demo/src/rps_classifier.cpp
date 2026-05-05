@@ -28,7 +28,7 @@ bool RPS_CLASSIFIER::Initialize(std::string& model_path, std::array<int, 2>* in_
 
     inputs[0] = create_tensor(static_cast<uint32_t>(cls_shape[0]),
                               static_cast<uint32_t>(cls_shape[1]),
-                              SSNE_RGB, SSNE_BUF_AI);
+                              SSNE_Y_8, SSNE_BUF_AI);
 
     const int crop_w = cls_shape[0];
     const int crop_h = cls_shape[1];

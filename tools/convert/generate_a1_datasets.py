@@ -129,7 +129,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--onnx", required=True, help="Path to best.onnx")
     parser.add_argument(
         "--dataset-root",
-        default="data/rps_dataset/processed_dataset_balanced",
+        default="data/rps_dataset/processed_dataset_regularized",
         help="Path to processed train/val/test dataset",
     )
     parser.add_argument("--output-dir", required=True, help="Output directory")
