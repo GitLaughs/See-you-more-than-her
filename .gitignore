@@ -21,9 +21,28 @@ build/
 tools/test_yolo/
 
 # Local SDK / datasets / caches
-data/
+data/A1_SDK_SC132GS/*
+!data/A1_SDK_SC132GS/smartsens_sdk/
+data/A1_SDK_SC132GS/smartsens_sdk/*
+!data/A1_SDK_SC132GS/smartsens_sdk/smart_software/
+data/A1_SDK_SC132GS/smartsens_sdk/smart_software/*
+!data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/
+data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/*
+!data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/
+data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/*
+!data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/
+data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/*
+!data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/
+!data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/**
+data/data
+data/yolov8_dataset/
 x3_src_250401/
-demo-rps/
+demo-rps/dataprocess_modeltrain/__pycache__/
+demo-rps/dataprocess_modeltrain/outputs/
+demo-rps/dataprocess_modeltrain/runs/
+demo-rps/dataprocess_modeltrain/*.onnx
+demo-rps/dataprocess_modeltrain/*.pt
+demo-rps/dataprocess_modeltrain/*.json
 models/
 CLIProxyAPI_6.9.40_windows_amd64/
 

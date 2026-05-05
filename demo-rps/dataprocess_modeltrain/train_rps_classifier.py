@@ -2,6 +2,7 @@ import argparse
 import copy
 import json
 import random
+from collections import Counter
 from pathlib import Path
 
 import timm
@@ -17,20 +18,24 @@ CLASS_TO_INDEX = {name: idx for idx, name in enumerate(CLASS_NAMES)}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 MODEL_IMAGE_SIZE = 320
 NUM_CLASSES = len(CLASS_NAMES)
-INPUT_CHANNELS = 1
-MEAN = [0.5]
-STD = [0.5]
+MEAN = [0.485, 0.456, 0.406]
+STD = [0.229, 0.224, 0.225]
 
 
-class A1Classifier(nn.Module):
-    def __init__(self, pretrained: bool, image_size: int, head_hidden_dim: int, dropout: float):
+class RPSClassifier(nn.Module):
+    def __init__(
+        self,
+        pretrained: bool,
+        image_size: int,
+        head_hidden_dim: int,
+        dropout: float,
+    ):
         super().__init__()
         self.backbone = timm.create_model(
             "mobilenetv1_100",
             pretrained=pretrained,
             num_classes=0,
             global_pool="",
-            in_chans=INPUT_CHANNELS,
         )
         feature_channels = self._infer_feature_channels(image_size)
         self.head = nn.Sequential(
@@ -47,14 +52,16 @@ class A1Classifier(nn.Module):
         was_training = self.backbone.training
         self.backbone.eval()
         with torch.no_grad():
-            dummy = torch.zeros(1, INPUT_CHANNELS, image_size, image_size)
+            dummy = torch.zeros(1, 3, image_size, image_size)
             features = self.backbone(dummy)
         if was_training:
             self.backbone.train()
         return features.shape[1]
 
     def forward(self, x):
-        return self.head(self.backbone(x))
+        features = self.backbone(x)
+        logits = self.head(features)
+        return logits
 
 
 class ClassImageDataset(Dataset):
@@ -67,25 +74,62 @@ class ClassImageDataset(Dataset):
 
     def __getitem__(self, index):
         image_path, label = self.samples[index]
-        image = Image.open(image_path).convert("L")
-        return self.transform(image), label, str(image_path)
+        image = Image.open(image_path).convert("RGB")
+        image = self.transform(image)
+        return image, label, str(image_path)
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train A1 5-class single-label classifier")
-    parser.add_argument("--dataset_dir", required=True, help="Dataset root with train/val/test/<class> folders")
-    parser.add_argument("--output_dir", default="outputs/a1_5class_mobilenetv1")
-    parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--epochs", type=int, default=30)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--weight_decay", type=float, default=1e-4)
-    parser.add_argument("--num_workers", type=int, default=4)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--pretrained", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--head_hidden_dim", type=int, default=256)
-    parser.add_argument("--dropout", type=float, default=0.2)
-    parser.add_argument("--export_onnx", action="store_true")
-    parser.add_argument("--onnx_path", default=None)
+    parser = argparse.ArgumentParser(description="Train a 5-class single-label classifier")
+    parser.add_argument(
+        "--dataset_dir",
+        type=str,
+        default="/mnt/hdd16t0/dataset/rps_dataset/processed_dataset",
+        help="Dataset root dir with train/val/test/<class> subdirectories",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="outputs/rps_mobilenetv1_5class",
+        help="Directory to save checkpoints and metadata",
+    )
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
+    parser.add_argument("--epochs", type=int, default=30, help="Number of training epochs")
+    parser.add_argument("--lr", type=float, default=1e-3, help="Initial learning rate")
+    parser.add_argument(
+        "--weight_decay", type=float, default=1e-4, help="AdamW weight decay"
+    )
+    parser.add_argument("--num_workers", type=int, default=4, help="Dataloader worker count")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument(
+        "--pretrained",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Load pretrained MobileNetV1 weights from timm",
+    )
+    parser.add_argument(
+        "--head_hidden_dim",
+        type=int,
+        default=256,
+        help="Hidden dimension of the custom classification head",
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.2,
+        help="Dropout used in the custom classification head",
+    )
+    parser.add_argument(
+        "--export_onnx",
+        action="store_true",
+        help="Export best checkpoint to ONNX after training",
+    )
+    parser.add_argument(
+        "--onnx_path",
+        type=str,
+        default=None,
+        help="Output path for ONNX export; defaults to <output_dir>/best.onnx",
+    )
     return parser.parse_args()
 
 
@@ -134,6 +178,7 @@ def build_transforms(image_size: int):
             transforms.Resize((image_size + 16, image_size + 16)),
             transforms.RandomResizedCrop(image_size, scale=(0.9, 1.0), ratio=(0.95, 1.05)),
             transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ColorJitter(brightness=0.12, contrast=0.12, saturation=0.08, hue=0.03),
             transforms.ToTensor(),
             transforms.Normalize(mean=MEAN, std=STD),
         ]
@@ -149,7 +194,7 @@ def build_transforms(image_size: int):
 
 
 def build_model(pretrained: bool, image_size: int, head_hidden_dim: int, dropout: float):
-    return A1Classifier(
+    return RPSClassifier(
         pretrained=pretrained,
         image_size=image_size,
         head_hidden_dim=head_hidden_dim,
@@ -172,6 +217,7 @@ def accuracy_from_logits(logits: torch.Tensor, targets: torch.Tensor):
 def run_epoch(model, loader, criterion, optimizer, device):
     is_train = optimizer is not None
     model.train(is_train)
+
     total_loss = 0.0
     total_items = 0
     all_logits = []
@@ -180,6 +226,7 @@ def run_epoch(model, loader, criterion, optimizer, device):
     for images, targets, _ in loader:
         images = images.to(device, non_blocking=True)
         targets = targets.to(device, non_blocking=True)
+
         with torch.set_grad_enabled(is_train):
             logits = model(images)
             loss = criterion(logits, targets)
@@ -187,6 +234,7 @@ def run_epoch(model, loader, criterion, optimizer, device):
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 optimizer.step()
+
         batch_size = images.size(0)
         total_loss += loss.item() * batch_size
         total_items += batch_size
@@ -195,12 +243,13 @@ def run_epoch(model, loader, criterion, optimizer, device):
 
     logits = torch.cat(all_logits, dim=0) if all_logits else torch.empty(0, NUM_CLASSES)
     targets = torch.cat(all_targets, dim=0) if all_targets else torch.empty(0, dtype=torch.long)
-    return {
+    metrics = {
         "loss": total_loss / max(total_items, 1),
         "top1": accuracy_from_logits(logits, targets) if total_items else 0.0,
         "preds": logits.argmax(dim=1) if total_items else torch.empty(0, dtype=torch.long),
         "targets": targets,
     }
+    return metrics
 
 
 def format_confusion_matrix(matrix: torch.Tensor):
@@ -217,7 +266,6 @@ def save_metadata(output_dir: Path, args, train_count: int, val_count: int, test
         "model_name": "mobilenetv1_100",
         "class_names": CLASS_NAMES,
         "num_classes": NUM_CLASSES,
-        "input_channels": INPUT_CHANNELS,
         "image_size": MODEL_IMAGE_SIZE,
         "dataset_dir": args.dataset_dir,
         "head_hidden_dim": args.head_hidden_dim,
@@ -230,15 +278,26 @@ def save_metadata(output_dir: Path, args, train_count: int, val_count: int, test
         "batch_size": args.batch_size,
         "seed": args.seed,
     }
-    (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+    metadata_path = output_dir / "metadata.json"
+    metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def load_checkpoint_model(checkpoint_path: Path, pretrained: bool, image_size: int, head_hidden_dim: int, dropout: float):
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    model = build_model(
+        pretrained=pretrained,
+        image_size=image_size,
+        head_hidden_dim=head_hidden_dim,
+        dropout=dropout,
+    )
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
+    return model, checkpoint
 
 
 def export_onnx_model(checkpoint_path: Path, onnx_path: Path, pretrained: bool, image_size: int, head_hidden_dim: int, dropout: float):
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
-    model = build_model(pretrained, image_size, head_hidden_dim, dropout)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-    dummy_input = torch.randn(1, INPUT_CHANNELS, image_size, image_size)
+    model, checkpoint = load_checkpoint_model(checkpoint_path, pretrained, image_size, head_hidden_dim, dropout)
+    dummy_input = torch.randn(1, 3, image_size, image_size)
     onnx_path.parent.mkdir(parents=True, exist_ok=True)
     with torch.no_grad():
         torch.onnx.export(
@@ -249,13 +308,15 @@ def export_onnx_model(checkpoint_path: Path, onnx_path: Path, pretrained: bool, 
             output_names=["logits"],
             opset_version=12,
             do_constant_folding=True,
-            dynamic_axes=None,
+            dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
         )
+    return checkpoint
 
 
 def main():
     args = parse_args()
     seed_everything(args.seed)
+
     dataset_dir = Path(args.dataset_dir)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -270,6 +331,9 @@ def main():
 
     verify_required_classes("train", train_samples_by_class)
     verify_required_classes("val", val_samples_by_class)
+    if not any(test_samples_by_class.get(class_name) for class_name in CLASS_NAMES):
+        print("Warning: test split is empty or missing; final test evaluation will be skipped.")
+
     summarize_split("train", train_samples_by_class)
     summarize_split("val", val_samples_by_class)
     summarize_split("test", test_samples_by_class)
@@ -277,14 +341,45 @@ def main():
     train_samples = flatten_samples(train_samples_by_class)
     val_samples = flatten_samples(val_samples_by_class)
     test_samples = flatten_samples(test_samples_by_class)
-    train_transform, eval_transform = build_transforms(MODEL_IMAGE_SIZE)
 
-    train_loader = DataLoader(ClassImageDataset(train_samples, train_transform), batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
-    val_loader = DataLoader(ClassImageDataset(val_samples, eval_transform), batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
-    test_loader = DataLoader(ClassImageDataset(test_samples, eval_transform), batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True) if test_samples else None
+    train_transform, eval_transform = build_transforms(MODEL_IMAGE_SIZE)
+    train_dataset = ClassImageDataset(train_samples, train_transform)
+    val_dataset = ClassImageDataset(val_samples, eval_transform)
+    test_dataset = ClassImageDataset(test_samples, eval_transform) if test_samples else None
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    test_loader = (
+        DataLoader(
+            test_dataset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            pin_memory=True,
+        )
+        if test_dataset is not None
+        else None
+    )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = build_model(args.pretrained, MODEL_IMAGE_SIZE, args.head_hidden_dim, args.dropout).to(device)
+    model = build_model(
+        pretrained=args.pretrained,
+        image_size=MODEL_IMAGE_SIZE,
+        head_hidden_dim=args.head_hidden_dim,
+        dropout=args.dropout,
+    ).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(args.epochs, 1))
@@ -293,17 +388,31 @@ def main():
     best_checkpoint_path = output_dir / "best.pt"
     last_checkpoint_path = output_dir / "last.pt"
     best_state_dict = None
-    save_metadata(output_dir, args, len(train_samples), len(val_samples), len(test_samples))
+
+    save_metadata(output_dir, args, len(train_dataset), len(val_dataset), len(test_dataset) if test_dataset is not None else 0)
 
     print(f"Device      : {device}")
-    print(f"Classes     : {CLASS_NAMES}")
     print(f"Image size  : {MODEL_IMAGE_SIZE}")
-    print(f"Input chans : {INPUT_CHANNELS}")
+    print(f"Train count : {len(train_dataset)}")
+    print(f"Val count   : {len(val_dataset)}")
+    print(f"Test count  : {len(test_dataset) if test_dataset is not None else 0}")
     print(f"Output dir  : {output_dir}")
 
     for epoch in range(1, args.epochs + 1):
-        train_metrics = run_epoch(model, train_loader, criterion, optimizer, device)
-        val_metrics = run_epoch(model, val_loader, criterion, None, device)
+        train_metrics = run_epoch(
+            model=model,
+            loader=train_loader,
+            criterion=criterion,
+            optimizer=optimizer,
+            device=device,
+        )
+        val_metrics = run_epoch(
+            model=model,
+            loader=val_loader,
+            criterion=criterion,
+            optimizer=None,
+            device=device,
+        )
         scheduler.step()
 
         checkpoint = {
@@ -311,11 +420,11 @@ def main():
             "epoch": epoch,
             "image_size": MODEL_IMAGE_SIZE,
             "class_names": CLASS_NAMES,
-            "input_channels": INPUT_CHANNELS,
             "head_hidden_dim": args.head_hidden_dim,
             "dropout": args.dropout,
         }
         torch.save(checkpoint, last_checkpoint_path)
+
         if val_metrics["top1"] > best_metric:
             best_metric = val_metrics["top1"]
             best_state_dict = copy.deepcopy(model.state_dict())
@@ -330,21 +439,35 @@ def main():
         )
         print(format_confusion_matrix(val_matrix))
 
+    print(f"Best checkpoint: {best_checkpoint_path}")
+    print(f"Last checkpoint: {last_checkpoint_path}")
+
     if best_state_dict is not None:
         model.load_state_dict(best_state_dict)
+
     if test_loader is not None:
-        test_metrics = run_epoch(model, test_loader, criterion, None, device)
+        test_metrics = run_epoch(
+            model=model,
+            loader=test_loader,
+            criterion=criterion,
+            optimizer=None,
+            device=device,
+        )
         test_matrix = confusion_matrix(test_metrics["preds"], test_metrics["targets"], NUM_CLASSES)
         print(f"Test top1    : {test_metrics['top1']:.4f}")
         print(format_confusion_matrix(test_matrix))
 
     if args.export_onnx:
         onnx_path = Path(args.onnx_path) if args.onnx_path else output_dir / "best.onnx"
-        export_onnx_model(best_checkpoint_path, onnx_path, args.pretrained, MODEL_IMAGE_SIZE, args.head_hidden_dim, args.dropout)
+        export_onnx_model(
+            checkpoint_path=best_checkpoint_path,
+            onnx_path=onnx_path,
+            pretrained=args.pretrained,
+            image_size=MODEL_IMAGE_SIZE,
+            head_hidden_dim=args.head_hidden_dim,
+            dropout=args.dropout,
+        )
         print(f"ONNX export: {onnx_path}")
-
-    print(f"Best checkpoint: {best_checkpoint_path}")
-    print(f"Last checkpoint: {last_checkpoint_path}")
 
 
 if __name__ == "__main__":

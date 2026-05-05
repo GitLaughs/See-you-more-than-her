@@ -1,6 +1,6 @@
 /*
  * @Filename: rps_classifier.cpp
- * @Description: 5-class single-label classifier implementation
+ * @Description: RPS classifier implementation
  */
 #include "../include/rps_classifier.hpp"
 #include "../include/utils.hpp"
@@ -9,8 +9,9 @@
 #include <cstdio>
 
 namespace {
-constexpr const char* kLabels[] = {"person", "stop", "forward", "obstacle", "NoTarget"};
-constexpr int kNumClasses = 5;
+constexpr const char* kLabels[] = {"P", "R", "S"};
+constexpr int kNumClasses = 3;
+constexpr float kNoTargetThreshold = 0.6f;
 }
 
 bool RPS_CLASSIFIER::Initialize(std::string& model_path, std::array<int, 2>* in_img_shape,
@@ -42,11 +43,11 @@ bool RPS_CLASSIFIER::Initialize(std::string& model_path, std::array<int, 2>* in_
     return true;
 }
 
-void RPS_CLASSIFIER::Predict(ssne_tensor_t* img, std::string& out_label, float& out_score, float out_scores[5]) {
+void RPS_CLASSIFIER::Predict(ssne_tensor_t* img, std::string& out_label, float& out_score, float out_scores[3]) {
     const int preprocess_ret = RunAiPreprocessPipe(pipe_offline, *img, inputs[0]);
     if (preprocess_ret != 0) {
         printf("[ERROR] classifier preprocess failed ret=%d\n", preprocess_ret);
-        out_label = "Error";
+        out_label = "NoTarget";
         out_score = 0.0f;
         if (out_scores) {
             for (int i = 0; i < kNumClasses; ++i) out_scores[i] = 0.0f;
@@ -60,7 +61,7 @@ void RPS_CLASSIFIER::Predict(ssne_tensor_t* img, std::string& out_label, float& 
 
     if (ssne_inference(model_id, 1, inputs)) {
         fprintf(stderr, "[ERROR] classifier inference failed\n");
-        out_label = "Error";
+        out_label = "NoTarget";
         out_score = 0.0f;
         if (out_scores) {
             for (int i = 0; i < kNumClasses; ++i) out_scores[i] = 0.0f;
@@ -71,7 +72,7 @@ void RPS_CLASSIFIER::Predict(ssne_tensor_t* img, std::string& out_label, float& 
     ssne_getoutput(model_id, 1, outputs);
     float* data = static_cast<float*>(get_data(outputs[0]));
 
-    float scores[kNumClasses] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    float scores[kNumClasses] = {0.0f, 0.0f, 0.0f};
     for (int i = 0; i < kNumClasses; ++i) {
         scores[i] = data[i];
     }
@@ -91,7 +92,7 @@ void RPS_CLASSIFIER::Predict(ssne_tensor_t* img, std::string& out_label, float& 
     }
 
     out_score = max_score;
-    out_label = kLabels[max_idx];
+    out_label = max_score >= kNoTargetThreshold ? kLabels[max_idx] : "NoTarget";
 }
 
 void RPS_CLASSIFIER::Release() {
