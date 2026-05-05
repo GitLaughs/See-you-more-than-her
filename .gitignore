@@ -21,7 +21,6 @@ build/
 tools/test_yolo/
 
 # Local SDK / datasets / caches
-data/A1_SDK_SC132GS/
 data/A1_SDK_SC132GS/smartsens_sdk/output/
 data/data
 data/yolov8_dataset/
