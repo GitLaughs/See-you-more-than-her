@@ -1,6 +1,6 @@
 /*
  * @Filename: rps_classifier.cpp
- * @Description: RPS classifier implementation
+ * @Description: 5-class single-label classifier implementation
  */
 #include "../include/rps_classifier.hpp"
 #include "../include/utils.hpp"
@@ -9,8 +9,8 @@
 #include <cstdio>
 
 namespace {
-constexpr const char* kLabels[] = {"P", "R", "S"};
-constexpr int kNumClasses = 3;
+constexpr const char* kLabels[] = {"person", "stop", "forward", "obstacle", "NoTarget"};
+constexpr int kNumClasses = 5;
 constexpr float kNoTargetThreshold = 0.6f;
 }
 
@@ -28,7 +28,7 @@ bool RPS_CLASSIFIER::Initialize(std::string& model_path, std::array<int, 2>* in_
 
     inputs[0] = create_tensor(static_cast<uint32_t>(cls_shape[0]),
                               static_cast<uint32_t>(cls_shape[1]),
-                              SSNE_RGB, SSNE_BUF_AI);
+                              SSNE_Y_8, SSNE_BUF_AI);
 
     const int crop_w = cls_shape[0];
     const int crop_h = cls_shape[1];
@@ -43,7 +43,7 @@ bool RPS_CLASSIFIER::Initialize(std::string& model_path, std::array<int, 2>* in_
     return true;
 }
 
-void RPS_CLASSIFIER::Predict(ssne_tensor_t* img, std::string& out_label, float& out_score, float out_scores[3]) {
+void RPS_CLASSIFIER::Predict(ssne_tensor_t* img, std::string& out_label, float& out_score, float out_scores[5]) {
     const int preprocess_ret = RunAiPreprocessPipe(pipe_offline, *img, inputs[0]);
     if (preprocess_ret != 0) {
         printf("[ERROR] classifier preprocess failed ret=%d\n", preprocess_ret);
@@ -72,7 +72,7 @@ void RPS_CLASSIFIER::Predict(ssne_tensor_t* img, std::string& out_label, float& 
     ssne_getoutput(model_id, 1, outputs);
     float* data = static_cast<float*>(get_data(outputs[0]));
 
-    float scores[kNumClasses] = {0.0f, 0.0f, 0.0f};
+    float scores[kNumClasses] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     for (int i = 0; i < kNumClasses; ++i) {
         scores[i] = data[i];
     }

@@ -181,16 +181,26 @@ python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_termin
 - `scripts/build_complete_evb.sh --app-only` 在找不到嵌套 SDK 基线产物时应快速失败；先完整构建一次以建立缓存。
 - `tools/aurora/launch.ps1` 当前会在默认端口不可用时自动向后寻找可用端口，不再是“固定端口不可用就直接失败”的旧行为。
 - `tools/aurora/aurora_companion.py` 内仍保留少量历史端口常量，但实际默认启动端口以启动脚本和命令行参数为准，即 `6201`。
+- 使用 `demo-rps/dataprocess_modeltrain/export_onnx.py` 把 `data/rps_dataset/training_output_balanced/best.pt` 导出为 `data/rps_dataset/training_output_balanced/a1_convert/best.onnx`。
+- 使用 `tools/convert/generate_a1_datasets.py` 打包 A1 校准/评估数据时，默认数据集根是 `data/rps_dataset/processed_dataset_regularized`。
+- `datasets.zip` 必须保留 `calibrate_datasets/` 和 `evaluate_datasets/` 两级目录，不能把 `.npy` 平铺到 zip 根目录。
+- 当前 5 类 MobileNet 分类 ONNX 直接输出 `logits`，不是 YOLO head6；不要对它做 head6 裁剪。
+- `demo-rps/dataprocess_modeltrain/prepare_video_dataset.py` 按视频数切分 train/val/test；每类视频太少会让 val 或 train 缺类，尤其 `NoTarget` 单视频会导致训练失败。
+- `train_a1_5class_classifier.py` 训练前会强制检查 train/val 每类都有样本；正式训练可先用 `nvidia-smi` 确认 CUDA 进程与 GPU 利用率。
+- 后台训练 stdout 可能缓冲，日志文件短时间为空不代表卡死；优先看 TaskOutput、checkpoint 更新时间和 `nvidia-smi`。
+- 切换 `ssne_ai_demo` 模型时必须同时更新：`demo_rps_game.cpp` 模型路径、`scripts/run.sh` 模型存在性检查、`app_assets/models/` 实际文件；构建后用 `docker exec A1_Builder bash -lc "test -f /app/data/A1_SDK_SC132GS/smartsens_sdk/output/target/app_demo/app_assets/models/<model>.m1model"` 验证。
+- `.m1model` 可能被根目录 `models/` ignore 规则误伤；如果需要把板端模型提交进 `app_assets/models/`，先用 `git check-ignore -v <path>` 确认，必要时改 `.gitignore` 或 `git add -f`。
+- 5 类 A1 分类模型当前类别顺序为 `person / stop / forward / obstacle / NoTarget`；板端 `rps_classifier.cpp`、`demo_rps_game.cpp`、Aurora `rps_snapshot` 的 `scores` 长度必须同步为 5。
 
 ## 板端 OSD 交互指导
 
-- 当前模型：YOLOv8 head6 检测器（640×640 RGB 输入），4 类（person/stop/forward/obstacle）。
+- 当前模型：demo-rps 风格的 RPS 分类模型（`model_rps.m1model`，320×320 输入，P/R/S/NoTarget 输出）。
 - OSD 图层分布：
-  - Layer 0：检测框（TYPE_GRAPHIC），由 `VISUALIZER::Draw(boxes)` 绘制空心矩形
+  - Layer 0：分类状态文本 / 语义提示（TYPE_GRAPHIC 或文本位图）
   - Layer 1：预留固定正方形（TYPE_GRAPHIC）
   - Layer 2：背景位图（TYPE_IMAGE），透明开窗 720×1280 摄像头区域
-  - Layer 3/4：预留（TYPE_IMAGE）
-- 坐标管线：1920×1280 在线输出 → 居中 crop 1280×1280 → resize 640×640 → 推理 → DFL decode + NMS → 坐标还原到 1920×1280 → OSD 绘制
-- 底盘优先级：obstacle(3) > person(0) > stop(1) > forward(2)
+  - Layer 3/4：RPS 结果贴图 / 预留（TYPE_IMAGE）
+- 坐标管线：demo-rps 评委主线不再走 YOLO 检测框还原；当前主线是 `model_rps.m1model` 分类输出 + `P -> forward`、其他 -> stop 映射。
+- 底盘优先级：forward > stop；无单独 obstacle/person 检测优先级。
 - 仅使用 `background.ssbmp`（透明开窗）和 `background_colorLUT.sscl` 两个 OSD 资源
-- 训练/推理语义与 OSD 像素必须分离：YOLO 输入 640×640，OSD 检测框坐标按 1920×1280 显示层绝对坐标处理
+- 训练/推理语义与 OSD 像素必须分离：当前主线不再依赖 YOLO 输入 640×640 或检测框坐标还原。

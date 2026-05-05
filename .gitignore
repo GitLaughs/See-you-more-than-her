@@ -19,6 +19,9 @@ build/
 .claude/
 .worktrees/
 tools/test_yolo/
+_tmp_dataprocess_test
+demo-rps/ssne_ai_demo
+data/rps_dataset/
 
 # Local SDK / datasets / caches
 data/A1_SDK_SC132GS/*

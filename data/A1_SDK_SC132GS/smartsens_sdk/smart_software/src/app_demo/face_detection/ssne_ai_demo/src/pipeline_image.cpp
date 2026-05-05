@@ -13,7 +13,7 @@ bool IMAGEPROCESSOR::Initialize(std::array<int, 2>* in_img_shape)
 
     uint16_t img_width = static_cast<uint16_t>(img_shape[0]);
     uint16_t img_height = static_cast<uint16_t>(img_shape[1]);
-    format_online = SSNE_YUV422_16;
+    format_online = SSNE_Y_8;
 
     int output_ret = OnlineSetOutputImage(kPipeline0, format_online, img_width, img_height);
     if (output_ret != 0) {

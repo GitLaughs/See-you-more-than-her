@@ -8,6 +8,9 @@ import torch
 from torch import nn
 
 MODEL_IMAGE_SIZE = 320
+CLASS_NAMES = ["person", "stop", "forward", "obstacle", "NoTarget"]
+NUM_CLASSES = len(CLASS_NAMES)
+INPUT_CHANNELS = 1
 
 
 class RPSClassifier(nn.Module):
@@ -18,38 +21,32 @@ class RPSClassifier(nn.Module):
             pretrained=False,
             num_classes=0,
             global_pool="",
+            in_chans=INPUT_CHANNELS,
         )
-        feature_channels, feature_height, feature_width = self._infer_feature_shape(
-            image_size
-        )
+        replace_relu6(self.backbone)
+        feature_channels = self._infer_feature_channels(image_size)
         self.head = nn.Sequential(
             nn.Conv2d(feature_channels, head_hidden_dim, kernel_size=1, bias=False),
             nn.BatchNorm2d(head_hidden_dim),
             nn.ReLU(inplace=True),
-            nn.Dropout2d(p=dropout),
-            nn.Conv2d(
-                head_hidden_dim,
-                3,
-                kernel_size=(feature_height, feature_width),
-                bias=True,
-            ),
-            nn.Flatten(1),
+            nn.Dropout(p=dropout),
+            nn.AvgPool2d(kernel_size=2, stride=2),
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(head_hidden_dim, NUM_CLASSES, kernel_size=1, bias=True),
         )
 
-    def _infer_feature_shape(self, image_size: int):
+    def _infer_feature_channels(self, image_size: int):
         was_training = self.backbone.training
         self.backbone.eval()
         with torch.no_grad():
-            dummy = torch.zeros(1, 3, image_size, image_size)
+            dummy = torch.zeros(1, INPUT_CHANNELS, image_size, image_size)
             features = self.backbone(dummy)
         if was_training:
             self.backbone.train()
-        return features.shape[1], features.shape[2], features.shape[3]
+        return features.shape[1]
 
     def forward(self, x):
-        features = self.backbone(x)
-        logits = self.head(features)
-        return logits
+        return self.head(self.backbone(x))
 
 
 class RPSOnnxWrapper(nn.Module):
@@ -58,8 +55,54 @@ class RPSOnnxWrapper(nn.Module):
         self.model = model
 
     def forward(self, x):
-        logits = self.model(x)
-        return torch.sigmoid(logits)
+        return self.model(x)
+
+
+def replace_relu6(module: nn.Module) -> None:
+    for name, child in module.named_children():
+        if isinstance(child, nn.ReLU6):
+            setattr(module, name, nn.ReLU(inplace=child.inplace))
+        else:
+            replace_relu6(child)
+
+
+def convert_checkpoint_state_dict(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    converted = dict(state_dict)
+    weight = converted.get("head.6.weight")
+    if weight is not None and weight.ndim == 2:
+        converted["head.6.weight"] = weight[:, :, None, None]
+    return converted
+
+
+def remove_identity_nodes(model: onnx.ModelProto) -> onnx.ModelProto:
+    while True:
+        replacements: dict[str, str] = {}
+        kept_nodes = []
+        changed = False
+        for node in model.graph.node:
+            if node.op_type == "Identity" and len(node.input) == 1 and len(node.output) == 1:
+                replacements[node.output[0]] = node.input[0]
+                changed = True
+            else:
+                kept_nodes.append(node)
+
+        if not changed:
+            break
+
+        for node in kept_nodes:
+            for idx, input_name in enumerate(node.input):
+                while input_name in replacements:
+                    input_name = replacements[input_name]
+                node.input[idx] = input_name
+
+        for value_info in list(model.graph.output) + list(model.graph.value_info):
+            while value_info.name in replacements:
+                value_info.name = replacements[value_info.name]
+
+        model.graph.ClearField("node")
+        model.graph.node.extend(kept_nodes)
+
+    return model
 
 
 def parse_args():
@@ -81,7 +124,7 @@ def parse_args():
     parser.add_argument(
         "--opset",
         type=int,
-        default=18,
+        default=12,
         help="ONNX opset version",
     )
     return parser.parse_args()
@@ -139,12 +182,12 @@ def main():
         head_hidden_dim=head_hidden_dim,
         dropout=dropout,
     )
-    model.load_state_dict(checkpoint["model_state_dict"])
+    model.load_state_dict(convert_checkpoint_state_dict(checkpoint["model_state_dict"]))
     model.eval()
 
     export_model = RPSOnnxWrapper(model).eval()
     dummy_input = torch.randn(
-        1, 3, MODEL_IMAGE_SIZE, MODEL_IMAGE_SIZE, dtype=torch.float32
+        1, INPUT_CHANNELS, MODEL_IMAGE_SIZE, MODEL_IMAGE_SIZE, dtype=torch.float32
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -154,17 +197,21 @@ def main():
             dummy_input,
             str(output_path),
             input_names=["input"],
-            output_names=["confidence"],
+            output_names=["logits"],
             opset_version=args.opset,
             external_data=False,
             do_constant_folding=True,
             dynamic_axes=None,
         )
 
+    model_proto = onnx.load(str(output_path))
+    model_proto = remove_identity_nodes(model_proto)
+    onnx.save_model(model_proto, str(output_path), save_as_external_data=False)
     merge_external_data_if_needed(output_path)
 
     print(f"Checkpoint : {checkpoint_path}")
-    print(f"Image size : 1x3x{MODEL_IMAGE_SIZE}x{MODEL_IMAGE_SIZE}")
+    print(f"Image size : 1x{INPUT_CHANNELS}x{MODEL_IMAGE_SIZE}x{MODEL_IMAGE_SIZE}")
+    print(f"Classes    : {CLASS_NAMES}")
     print(f"Head dim   : {head_hidden_dim}")
     print(f"Dropout    : {dropout}")
     print(f"Output     : {output_path}")

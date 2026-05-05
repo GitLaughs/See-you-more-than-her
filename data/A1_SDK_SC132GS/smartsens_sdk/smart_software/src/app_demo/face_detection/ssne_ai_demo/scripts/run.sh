@@ -9,8 +9,8 @@ if [ ! -x ./ssne_ai_demo ]; then
     chmod +x ./ssne_ai_demo || { echo "[APP] chmod ssne_ai_demo failed"; exit 1; }
 fi
 
-if [ ! -f ./app_assets/models/25d59a3b-fb19-4da2-8eb8-912bf18f05e6_best_head6.m1model ]; then
-    echo "[APP] missing YOLOv8 model"
+if [ ! -f ./app_assets/models/1cfd4504-c065-4698-9554-9e114f5bfd47_best.m1model ]; then
+    echo "[APP] missing A1 5-class model"
     exit 1
 fi
 

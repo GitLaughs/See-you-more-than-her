@@ -9,6 +9,7 @@ Aurora 是 Windows 侧视频与 COM13 调试入口，用于相机预览、训练
 - 保存原始图和训练裁剪图
 - 通过 COM13 使用 A1_TEST 调试板端程序
 - 执行 A1_TEST debug_status / link_test 等手动联通测试
+- 查看板端 `rps_snapshot` 返回的最新分类状态
 
 ## 目录结构
 
@@ -74,6 +75,7 @@ pip install -r requirements.txt
 - `A1_TEST debug_frame`
 - `A1_TEST link_test on`
 - `A1_TEST link_test off`
+- `A1_TEST rps_snapshot <request_id>`
 
 ## 与其他工具的关系
 - `tools/aurora/`：视频、拍照、COM13 终端、A1_TEST 手动测试，默认 `6201`

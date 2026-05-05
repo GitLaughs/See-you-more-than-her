@@ -57,19 +57,24 @@ def to_grayscale(frame):
     return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
 
-def split_videos(videos: list[Path], train_ratio: float, val_ratio: float) -> dict[str, list[Path]]:
-    total = len(videos)
-    train_count = int(total * train_ratio)
-    val_count = int(total * val_ratio)
+def count_selected_frames(frame_count: int, frame_step: int) -> int:
+    return (frame_count + frame_step - 1) // frame_step
 
-    if train_count + val_count > total:
-        raise RuntimeError("train_ratio and val_ratio are too large for the number of videos")
 
-    return {
-        "train": videos[:train_count],
-        "val": videos[train_count : train_count + val_count],
-        "test": videos[train_count + val_count :],
-    }
+def split_by_frames(total_frames: int, train_ratio: float, val_ratio: float) -> tuple[int, int, int]:
+    train_count = int(total_frames * train_ratio)
+    val_count = int(total_frames * val_ratio)
+    if train_count + val_count > total_frames:
+        raise RuntimeError("train_ratio and val_ratio are too large for selected frames")
+    return train_count, val_count, total_frames - train_count - val_count
+
+
+def split_name_for_index(index: int, train_end: int, val_end: int) -> str:
+    if index < train_end:
+        return "train"
+    if index < val_end:
+        return "val"
+    return "test"
 
 
 def process_video(
@@ -78,18 +83,19 @@ def process_video(
     crop: tuple[int, int, int, int],
     image_ext: str,
     frame_step: int,
-    split_name: str,
     class_name: str,
-) -> int:
-    class_output_dir = output_dir / split_name / class_name
-    class_output_dir.mkdir(parents=True, exist_ok=True)
-
+    selected_offset: int,
+    train_end: int,
+    val_end: int,
+) -> tuple[dict[str, int], int]:
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
         raise RuntimeError(f"failed to open video: {video_path}")
 
     x1, y1, x2, y2 = crop
+    split_counts = {"train": 0, "val": 0, "test": 0}
     saved_count = 0
+    selected_index = selected_offset
     frame_index = 0
     read_any_frame = False
 
@@ -108,6 +114,10 @@ def process_video(
             )
 
         if frame_index % frame_step == 0:
+            split_name = split_name_for_index(selected_index, train_end, val_end)
+            class_output_dir = output_dir / split_name / class_name
+            class_output_dir.mkdir(parents=True, exist_ok=True)
+
             cropped = to_grayscale(center_cropped[y1:y2, x1:x2])
             output_name = f"{video_path.stem}_frame_{frame_index:06d}{image_ext}"
             output_path = class_output_dir / output_name
@@ -116,64 +126,26 @@ def process_video(
                 capture.release()
                 raise RuntimeError(f"failed to save frame: {output_path}")
 
+            split_counts[split_name] += 1
             saved_count += 1
+            selected_index += 1
         frame_index += 1
 
     capture.release()
     if not read_any_frame:
         raise RuntimeError(f"empty video: {video_path}")
-    return saved_count
+    return split_counts, saved_count
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Convert class-folder videos into train/val/test cropped image dataset"
-    )
-    parser.add_argument(
-        "--dataset_dir",
-        type=str,
-        default="/mnt/hdd16t0/dataset/rps_dataset/datasets",
-        help="Input dataset root directory containing class subdirectories",
-    )
-    parser.add_argument(
-        "--output_dir",
-        type=str,
-        default="/mnt/hdd16t0/dataset/rps_dataset/processed_dataset",
-        help="Output dataset root directory for cropped frames",
-    )
-    parser.add_argument(
-        "--crop",
-        nargs=4,
-        type=int,
-        default=DEFAULT_CROP,
-        metavar=("X1", "Y1", "X2", "Y2"),
-        help="Crop region in pixel coordinates on the 320x320 center-cropped frame: x1 y1 x2 y2",
-    )
-    parser.add_argument(
-        "--frame_step",
-        type=int,
-        default=3,
-        help="Save one frame every N frames. Use 1 to save every frame.",
-    )
-    parser.add_argument(
-        "--train_ratio",
-        type=float,
-        default=0.8,
-        help="Train split ratio by video count",
-    )
-    parser.add_argument(
-        "--val_ratio",
-        type=float,
-        default=0.1,
-        help="Validation split ratio by video count",
-    )
-    parser.add_argument(
-        "--image_ext",
-        type=str,
-        default=".png",
-        choices=[".png", ".jpg", ".jpeg", ".bmp"],
-        help="Image extension for saved frames",
-    )
+    parser = argparse.ArgumentParser(description="Convert class-folder videos into train/val/test cropped image dataset")
+    parser.add_argument("--dataset_dir", type=str, default="data/rps_dataset/datasets")
+    parser.add_argument("--output_dir", type=str, default="data/rps_dataset/processed_dataset")
+    parser.add_argument("--crop", nargs=4, type=int, default=DEFAULT_CROP, metavar=("X1", "Y1", "X2", "Y2"))
+    parser.add_argument("--frame_step", type=int, default=3)
+    parser.add_argument("--train_ratio", type=float, default=0.8)
+    parser.add_argument("--val_ratio", type=float, default=0.1)
+    parser.add_argument("--image_ext", type=str, default=".png", choices=[".png", ".jpg", ".jpeg", ".bmp"])
     args = parser.parse_args()
 
     dataset_dir = Path(args.dataset_dir)
@@ -200,25 +172,44 @@ def main() -> None:
 
     for class_name in CLASS_NAMES:
         videos = iter_video_files(dataset_dir, class_name)
-        splits = split_videos(videos, args.train_ratio, args.val_ratio)
-        total_videos += len(videos)
-        print(f"Class {class_name}: {len(videos)} videos -> train {len(splits['train'])}, val {len(splits['val'])}, test {len(splits['test'])}")
+        selected_counts = []
+        for video_path in videos:
+            capture = cv2.VideoCapture(str(video_path))
+            if not capture.isOpened():
+                raise RuntimeError(f"failed to open video: {video_path}")
+            frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+            capture.release()
+            if frame_count <= 0:
+                raise RuntimeError(f"failed to read frame count: {video_path}")
+            selected_counts.append(count_selected_frames(frame_count, args.frame_step))
 
-        for split_name in ("train", "val", "test"):
-            for index, video_path in enumerate(splits[split_name], start=1):
-                saved_count = process_video(
-                    video_path=video_path,
-                    output_dir=output_dir,
-                    crop=crop,
-                    image_ext=args.image_ext,
-                    frame_step=args.frame_step,
-                    split_name=split_name,
-                    class_name=class_name,
-                )
-                total_frames += saved_count
-                print(
-                    f"[{class_name} {split_name} {index}/{len(splits[split_name])}] {video_path.name}, saved {saved_count} frames"
-                )
+        total_selected_frames = sum(selected_counts)
+        train_end, val_count, test_count = split_by_frames(total_selected_frames, args.train_ratio, args.val_ratio)
+        val_end = train_end + val_count
+        total_videos += len(videos)
+        print(f"Class {class_name}: {len(videos)} videos, {total_selected_frames} selected frames -> train {train_end}, val {val_count}, test {test_count}")
+
+        class_split_counts = {"train": 0, "val": 0, "test": 0}
+        class_selected_offset = 0
+        for index, (video_path, selected_count) in enumerate(zip(videos, selected_counts), start=1):
+            split_counts, saved_count = process_video(
+                video_path=video_path,
+                output_dir=output_dir,
+                crop=crop,
+                image_ext=args.image_ext,
+                frame_step=args.frame_step,
+                class_name=class_name,
+                selected_offset=class_selected_offset,
+                train_end=train_end,
+                val_end=val_end,
+            )
+            class_selected_offset += selected_count
+            total_frames += saved_count
+            for split_name in class_split_counts:
+                class_split_counts[split_name] += split_counts[split_name]
+            print(f"[{class_name} {index}/{len(videos)}] {video_path.name}, saved {saved_count} frames")
+
+        print(f"Class {class_name} split frames: train={class_split_counts['train']} val={class_split_counts['val']} test={class_split_counts['test']}")
 
     print(f"Finished. Total videos: {total_videos}, total saved frames: {total_frames}")
 

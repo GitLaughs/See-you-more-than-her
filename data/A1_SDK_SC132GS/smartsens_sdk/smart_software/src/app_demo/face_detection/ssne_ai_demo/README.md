@@ -9,12 +9,12 @@
 ## 重要说明
 
 > **图像格式配置注意事项：**
-> - **Online（图像采集）格式**: `SSNE_YUV422_16` (YUV422 16位)
-> - **Offline（模型输入）格式**: `SSNE_RGB` (RGB三通道)
-> - 如果模型输入需要 BGR 格式，请将 offline 的格式修改为 `SSNE_BGR`
+> - **Online（图像采集）格式**: `SSNE_Y_8` (灰度 8 位)
+> - **Offline（模型输入）格式**: `SSNE_Y_8` (灰度 8 位)
+> - 如果模型输入需要其他格式，请同步修改训练导出与板端预处理
 >
 > **模型输出格式注意事项：**
-> - 模型输出为 3 个 float 值，对应 [P, R, S] 三个类别的置信度得分
+> - 模型输出为 5 个 float 值，对应 [person, stop, forward, obstacle, NoTarget] 五个类别的置信度得分
 
 ## 文件结构
 
@@ -27,7 +27,7 @@ ssne_ai_demo/
 │   ├── osd-device.hpp         # OSD设备接口定义
 │   └── log.hpp                # 日志定义
 ├── src/                       # 源代码目录
-│   ├── rps_classifier.cpp     # RPS分类模型实现（RGB输入，3类输出）
+│   ├── rps_classifier.cpp     # 5 类分类模型实现（灰度输入，5 类输出）
 │   ├── pipeline_image.cpp     # 图像处理管道实现（Online配置）
 │   ├── utils.cpp              # 工具函数与可视化实现
 │   └── osd-device.cpp         # OSD设备接口实现
@@ -73,11 +73,11 @@ ssne_ai_demo/
 
 ### 3. 实现文件
 - **src/rps_classifier.cpp**: RPS分类模型实现
-  - 模型初始化和推理（RGB三通道输入）
+  - 模型初始化和推理（灰度 8 位输入）
   - 输入图像预处理：crop + resize 到 320×320
-  - 模型输出解析：3个float得分 [P_score, R_score, S_score]
+  - 模型输出解析：5个float得分 [person, stop, forward, obstacle, NoTarget]
   - 置信度阈值过滤（默认阈值 0.6）
-  - 返回分类标签：`P`(布)、`R`(石头)、`S`(剪刀)、`NoTarget`
+  - 返回分类标签：`person`、`stop`、`forward`、`obstacle`、`NoTarget`
 
 - **src/pipeline_image.cpp**: 图像处理管道
   - Online图像采集配置（YUV422_16格式）
@@ -101,7 +101,7 @@ ssne_ai_demo/
 ### 5. 资源文件
 - **app_assets/models/model_rps.m1model**: RPS分类AI模型
   - 输入尺寸: 320×320
-  - 输入格式: RGB三通道
+  - 输入格式: 灰度 8 位
   - 输出: 3个float值，对应 [P, R, S] 置信度
 
 - **app_assets/<>.ssbmp**: OSD位图资源
