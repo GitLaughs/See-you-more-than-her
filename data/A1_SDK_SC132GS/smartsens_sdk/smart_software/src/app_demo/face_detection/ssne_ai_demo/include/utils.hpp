@@ -1,10 +1,3 @@
-/*
- * @Filename: utils.hpp
- * @Author: Hongying He
- * @Email: hongying.he@smartsenstech.com
- * @Date: 2025-12-30 14-57-47
- * @Copyright (c) 2025 SmartSens
- */
 #pragma once
 
 #include "osd-device.hpp"

@@ -1,7 +1,3 @@
-/*
- * @Filename: rps_classifier.hpp
- * @Description: 5-class single-label classifier wrapper
- */
 #pragma once
 
 #include "common.hpp"
@@ -20,8 +16,8 @@ class RPS_CLASSIFIER {
 
   private:
     uint16_t model_id = 0;
-    ssne_tensor_t inputs[1];
-    ssne_tensor_t outputs[1];
+    ssne_tensor_t inputs[1]{};
+    ssne_tensor_t outputs[1]{};
     AiPreprocessPipe pipe_offline = GetAIPreprocessPipe();
     std::array<int, 2> img_shape;
     std::array<int, 2> cls_shape;

@@ -1,10 +1,3 @@
-/*
- * @Author: Jingwen Bai
- * @Date: 2024-07-04 11:07:00
- * @Description: osd device
- * @Filename: osd-device.cpp
- */
-
 #include <iostream>
 #include <fstream>
 #include <cstring>

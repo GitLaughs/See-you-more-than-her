@@ -1,7 +1,3 @@
-/*
- * @Filename: rps_classifier.cpp
- * @Description: 5-class single-label classifier implementation
- */
 #include "../include/rps_classifier.hpp"
 #include "../include/utils.hpp"
 
@@ -21,16 +17,32 @@ bool RPS_CLASSIFIER::Initialize(std::string& model_path, std::array<int, 2>* in_
 
     char* model_path_char = const_cast<char*>(model_path.c_str());
     model_id = ssne_loadmodel(model_path_char, SSNE_STATIC_ALLOC);
+
     const int input_num = ssne_get_model_input_num(model_id);
-    if (input_num != 1) {
-        printf("[ERROR] classifier model load failed: %s model_id=%u input_num=%d\n",
-               model_path.c_str(), model_id, input_num);
+    if (input_num <= 0) {
+        printf("[ERROR] classifier model load failed: %s\n", model_path.c_str());
         return false;
     }
 
     inputs[0] = create_tensor(static_cast<uint32_t>(cls_shape[0]),
                               static_cast<uint32_t>(cls_shape[1]),
                               SSNE_Y_8, SSNE_BUF_AI);
+    outputs[0] = create_tensor(static_cast<uint32_t>(kNumClasses),
+                               1,
+                               SSNE_FLOAT32, SSNE_BUF_AI);
+
+    if (inputs[0].data == nullptr || outputs[0].data == nullptr) {
+        printf("[ERROR] classifier tensor alloc failed: %s\n", model_path.c_str());
+        if (inputs[0].data != nullptr) {
+            release_tensor(inputs[0]);
+            inputs[0].data = nullptr;
+        }
+        if (outputs[0].data != nullptr) {
+            release_tensor(outputs[0]);
+            outputs[0].data = nullptr;
+        }
+        return false;
+    }
 
     const int crop_w = cls_shape[0];
     const int crop_h = cls_shape[1];
@@ -71,7 +83,16 @@ void RPS_CLASSIFIER::Predict(ssne_tensor_t* img, std::string& out_label, float& 
         return;
     }
 
-    ssne_getoutput(model_id, 1, outputs);
+    if (ssne_getoutput(model_id, 1, outputs)) {
+        fprintf(stderr, "[ERROR] classifier output fetch failed\n");
+        out_label = "NoTarget";
+        out_score = 0.0f;
+        if (out_scores) {
+            for (int i = 0; i < kNumClasses; ++i) out_scores[i] = 0.0f;
+        }
+        return;
+    }
+
     float* data = static_cast<float*>(get_data(outputs[0]));
 
     float scores[kNumClasses] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
@@ -98,7 +119,13 @@ void RPS_CLASSIFIER::Predict(ssne_tensor_t* img, std::string& out_label, float& 
 }
 
 void RPS_CLASSIFIER::Release() {
-    release_tensor(inputs[0]);
-    release_tensor(outputs[0]);
+    if (inputs[0].data != nullptr) {
+        release_tensor(inputs[0]);
+        inputs[0].data = nullptr;
+    }
+    if (outputs[0].data != nullptr) {
+        release_tensor(outputs[0]);
+        outputs[0].data = nullptr;
+    }
     ReleaseAIPreprocessPipe(pipe_offline);
 }

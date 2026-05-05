@@ -29,14 +29,19 @@ _A1_DEBUG_PREFIX = "A1_TEST"
 _A1_DEBUG_WAIT_PREFIX = "A1_DEBUG"
 _A1_DEBUG_COMMANDS = {
     "ping": "ping",
+    "test_echo": "test_echo",
     "chassis_stop": "chassis_test stop",
     "chassis_forward": "chassis_test forward",
     "rps_snapshot": "rps_snapshot",
+    "depth_snapshot": "depth_snapshot",
 }
 _A1_DEBUG_DESCRIPTIONS = {
+    "ping": "PC -> COM13 -> A1_TEST -> A1_DEBUG link check",
+    "test_echo": "serial terminal smoke test",
     "chassis_forward": "forward gesture -> forward",
     "chassis_stop": "stop/person/obstacle -> stop",
     "rps_snapshot": "latest board classification snapshot -> overlay on PC preview",
+    "depth_snapshot": "emit one fake A1_DEPTH frame",
 }
 _A1_DEBUG_MESSAGE_PREFIX = "A1_DEBUG "
 
@@ -659,6 +664,38 @@ def _recent_rx_lines(limit: int = 8) -> List[str]:
     return [str(item.get("text") or item.get("hex") or "") for item in list(_latest_lines)[-limit:]]
 
 
+def _classify_a1_debug_failure(transport_success: bool, response_received: bool, recent_rx: List[str]) -> Dict[str, str]:
+    recent_text = " | ".join(str(line or "") for line in recent_rx)
+    lowered = recent_text.lower()
+    if not transport_success:
+        return {
+            "code": "serial_transport_error",
+            "reason": "串口连接失败",
+            "hint": "检查 COM13 是否被占用、线缆是否连接、波特率是否为 115200。",
+            "severity": "error",
+        }
+    if "a1_test: not found" in lowered:
+        return {
+            "code": "a1_test_unavailable",
+            "reason": "A1_TEST CLI 不可用",
+            "hint": "串口已经连通，但当前会话停在 Linux shell，`A1_TEST` 命令不可用；确认板端 demo / 调试入口已经启动。",
+            "severity": "warning",
+        }
+    if not response_received:
+        return {
+            "code": "a1_debug_timeout",
+            "reason": "等待回传超时",
+            "hint": "命令已发出，但没有匹配到预期 A1_DEBUG 回传；确认板端 demo 正在运行且 A1_TEST 可用。",
+            "severity": "warning",
+        }
+    return {
+        "code": "a1_debug_output_mismatch",
+        "reason": "回包内容异常",
+        "hint": "串口有输出，但格式不匹配预期 A1_DEBUG 内容；请检查板端调试输出。",
+        "severity": "error",
+    }
+
+
 def _parse_a1_debug_line(line: str) -> Optional[Dict[str, Any]]:
     text = str(line or "").strip()
     if not text.startswith(_A1_DEBUG_MESSAGE_PREFIX):
@@ -929,6 +966,8 @@ def a1_debug():
     waited = _wait_for_text(list(built["wait_tokens"]), timeout_sec=timeout_sec, after_seq=start_seq)
     response_received = bool(waited.get("success"))
     structured = _structured_a1_debug_payload(waited.get("matched")) if response_received else None
+    recent_rx = waited.get("recent_rx", _recent_rx_lines())
+    failure = _classify_a1_debug_failure(bool(result.get("success")), response_received, list(recent_rx))
     return jsonify({
         **result,
         "success": bool(result.get("success")) and response_received,
@@ -943,7 +982,11 @@ def a1_debug():
         "structured": structured,
         "gesture_status": _gesture_status_payload(),
         "message": waited.get("matched", {}).get("text", "") if response_received else waited.get("error", ""),
-        "recent_rx": waited.get("recent_rx", _recent_rx_lines()),
+        "recent_rx": recent_rx,
+        "failure_code": failure["code"],
+        "failure_reason": failure["reason"],
+        "failure_hint": failure["hint"],
+        "failure_severity": failure["severity"],
     })
 
 

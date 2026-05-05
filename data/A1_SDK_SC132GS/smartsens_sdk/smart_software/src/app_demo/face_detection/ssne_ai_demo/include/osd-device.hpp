@@ -1,9 +1,3 @@
-/*
- * @Author: Jingwen Bai
- * @Date: 2024-07-04 11:07:00
- * @Description: 
- * @Filename: osd-device.hpp
- */
 #ifndef SST_OSD_DEVICE_HPP_
 #define SST_OSD_DEVICE_HPP_
 

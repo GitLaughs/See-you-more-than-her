@@ -2,6 +2,7 @@
 """serial_terminal.py — A1 调试串口实时终端 / 简易 CLI。"""
 
 import codecs
+import json
 import threading
 import time
 from collections import deque
@@ -47,6 +48,7 @@ _rx_last_data_ts = 0.0
 _PARTIAL_IDLE_FLUSH_SEC = 3.0  # 增加到3秒，避免频繁刷新部分行
 _PARTIAL_BUFFER_LIMIT = 8192
 _LOCK_SNAPSHOT_TIMEOUT_SEC = 0.02
+_A1_DEBUG_PREFIX = "A1_DEBUG "
 
 
 def _serial_snapshot() -> Dict[str, Any]:
@@ -346,6 +348,38 @@ def list_ports() -> list:
     return _list_ports()
 
 
+def latest_structured_debug(limit: int = 20) -> Optional[Dict[str, Any]]:
+    for entry in list(_latest_lines)[:max(1, limit)]:
+        payload = _parse_a1_debug_line(str(entry.get("text") or ""))
+        if payload:
+            return payload
+    return None
+
+
+def serial_status_snapshot(line_limit: int = 10) -> Dict[str, Any]:
+    state = _snapshot_state()
+    serial_state = _serial_snapshot()
+    rx_entries = list(_rx_log)
+    tx_entries = list(_tx_log)
+    latest_rx = rx_entries[0] if rx_entries else None
+    latest_tx = tx_entries[0] if tx_entries else None
+    return {
+        "success": True,
+        "available": _SERIAL_AVAILABLE,
+        "connected": serial_state["connected"],
+        "port": serial_state["port"],
+        "baud": serial_state["baud"],
+        "busy": serial_state["busy"],
+        "append_newline": state.get("append_newline", True),
+        "latest_lines": list(_latest_lines)[:max(0, line_limit)],
+        "latest_structured": latest_structured_debug(),
+        "latest_rx": latest_rx,
+        "latest_tx": latest_tx,
+        "rx_count": len(rx_entries),
+        "tx_count": len(tx_entries),
+    }
+
+
 def ensure_connected(baud: Optional[int] = None, timeout: Optional[float] = None) -> Dict[str, Any]:
     if is_connected():
         return {"success": True, "port": current_port(), "baud": current_baud()}
@@ -414,6 +448,34 @@ def send_hex_payload(hex_text: str) -> Dict[str, Any]:
     return _send_payload(payload, str(hex_text or "").strip(), hex_mode=True)
 
 
+def send_a1_debug_line(line: str, wait_tokens: Optional[List[str]] = None, timeout_sec: float = 2.5) -> Dict[str, Any]:
+    ready = ensure_connected()
+    if not ready.get("success"):
+        return ready
+
+    payload = (str(line or "").rstrip() + "\r\n").encode("utf-8")
+    start_seq = _rx_seq
+    result = _send_payload(payload, str(line or "").strip(), hex_mode=False)
+    if not result.get("success"):
+        return result
+
+    waited = _wait_for_text(list(wait_tokens or ["A1_DEBUG"]), timeout_sec=timeout_sec, after_seq=start_seq)
+    response_received = bool(waited.get("success"))
+    matched = waited.get("matched")
+    structured = _parse_a1_debug_line(str(matched.get("text") or "")) if matched else None
+    return {
+        **result,
+        "success": bool(result.get("success")) and response_received,
+        "transport_success": bool(result.get("success")),
+        "response_received": response_received,
+        "matched": matched,
+        "structured": structured,
+        "sent_line": str(line or "").strip(),
+        "recent_rx": waited.get("recent_rx", _recent_rx_lines()),
+        "message": matched.get("text", "") if matched else waited.get("error", ""),
+    }
+
+
 def _send_payload(payload: bytes, text: str, hex_mode: bool = False) -> Dict[str, Any]:
     with _ser_lock:
         if _ser is None or not _ser.is_open:
@@ -449,6 +511,27 @@ def _auto_connect(baud: Optional[int] = None, timeout: Optional[float] = None) -
     return {"success": False, "error": last_error}
 
 
+def _recent_rx_lines(limit: int = 8) -> List[str]:
+    return [str(item.get("text") or item.get("hex") or "") for item in list(_latest_lines)[-limit:]]
+
+
+def _parse_a1_debug_line(line: str) -> Optional[Dict[str, Any]]:
+    text = str(line or "").strip()
+    if not text.startswith(_A1_DEBUG_PREFIX):
+        return None
+    payload_text = text[len(_A1_DEBUG_PREFIX):].strip()
+    if not payload_text.startswith("{"):
+        return None
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    payload["raw_line"] = text
+    return payload
+
+
 def _wait_for_text(tokens: List[str], timeout_sec: float = 1.8, after_seq: Optional[int] = None) -> Dict[str, Any]:
     deadline = time.time() + max(0.1, timeout_sec)
     start_seq = _rx_seq if after_seq is None else after_seq
@@ -464,9 +547,9 @@ def _wait_for_text(tokens: List[str], timeout_sec: float = 1.8, after_seq: Optio
             continue
         for item in current_items:
             text = str(item.get("text") or "").lower()
-            if any(token in text for token in lowered):
+            if lowered and all(token in text for token in lowered):
                 return {"success": True, "matched": item}
-    return {"success": False, "error": "未在串口输出中等到预期回传"}
+    return {"success": False, "error": "未在串口输出中等到预期回传", "recent_rx": _recent_rx_lines()}
 
 
 @serial_term_bp.route("/available")
@@ -503,20 +586,7 @@ def config():
 
 @serial_term_bp.route("/status")
 def status():
-    state = _snapshot_state()
-    serial_state = _serial_snapshot()
-    return jsonify({
-        "success": True,
-        "available": _SERIAL_AVAILABLE,
-        "connected": serial_state["connected"],
-        "port": serial_state["port"],
-        "baud": serial_state["baud"],
-        "busy": serial_state["busy"],
-        "append_newline": state.get("append_newline", True),
-        "latest_lines": list(_latest_lines),
-        "rx_count": len(_rx_log),
-        "tx_count": len(_tx_log),
-    })
+    return jsonify(serial_status_snapshot(line_limit=60))
 
 
 @serial_term_bp.route("/connect", methods=["POST"])
@@ -618,6 +688,20 @@ def send_test():
         "matched": waited.get("matched"),
         "message": waited.get("matched", {}).get("text", "") if waited.get("success") else waited.get("error", ""),
     })
+
+
+@serial_term_bp.route("/a1_debug", methods=["POST"])
+def a1_debug():
+    if not _SERIAL_AVAILABLE:
+        return jsonify({"success": False, "error": "pyserial 未安装"})
+    data = request.get_json(silent=True) or {}
+    line = str(data.get("line") or "").strip()
+    wait_tokens = data.get("wait_tokens") or ["A1_DEBUG"]
+    timeout_sec = max(0.3, float(data.get("timeout_sec") or 2.5))
+    if not line:
+        return jsonify({"success": False, "error": "缺少串口命令"})
+
+    return jsonify(send_a1_debug_line(line, wait_tokens=list(wait_tokens), timeout_sec=timeout_sec))
 
 
 @serial_term_bp.route("/logs")

@@ -5,42 +5,73 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>A1 Tool</title>
 <style>
-body{margin:0;background:#f3f6fb;color:#18324d;font:14px/1.5 "Segoe UI","Noto Sans SC",sans-serif}.top{padding:14px 18px;background:#fff;border-bottom:1px solid #d7e3f4;display:flex;justify-content:space-between}.shell{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px}.card{background:#fff;border:1px solid #d7e3f4;border-radius:14px;overflow:hidden}.head{padding:10px 12px;border-bottom:1px solid #d7e3f4;font-weight:800;color:#4c6d8d}.body{padding:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.row label{min-width:72px;color:#5f7894;font-weight:700}input,select,textarea{border:1px solid #d7e3f4;border-radius:8px;padding:8px}textarea{width:100%;min-height:120px;font-family:Consolas,monospace}.btn{border:1px solid #d7e3f4;border-radius:8px;padding:8px 12px;background:#fff;cursor:pointer;font-weight:700}.blue{background:#2f6fec;color:white;border-color:#2f6fec}.red{background:#df4b48;color:white;border-color:#df4b48}.green{background:#18a957;color:white;border-color:#18a957}.pre{background:#f7fbff;border:1px solid #d7e3f4;border-radius:10px;padding:10px;white-space:pre-wrap;min-height:90px}.log{height:260px;overflow:auto;background:#0d1726;color:#dce8f7;border-radius:10px;padding:10px;font:12px/1.5 Consolas,monospace;white-space:pre-wrap}.muted{color:#5f7894}@media(max-width:900px){.shell{grid-template-columns:1fr}}
+:root{--bg:#eef3f9;--panel:#fff;--soft:#f7fbff;--line:#d7e3f4;--text:#18324d;--muted:#5f7894;--brand:#2f6fec;--ok:#18a957;--warn:#d18a00;--err:#df4b48;--dark:#0d1726}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top left,#f8fbff 0,#eef3f9 42%,#e6eef8 100%);color:var(--text);font:14px/1.5 "Segoe UI","Noto Sans SC",sans-serif}.top{padding:14px 18px;background:linear-gradient(90deg,#fff,#f7fbff);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px;box-shadow:0 1px 0 rgba(255,255,255,.7) inset}.brand{display:flex;flex-direction:column;gap:2px}.brand b{font-size:17px}.brand span{font-size:12px;color:var(--muted)}.pill{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border-radius:999px;background:#fff;border:1px solid var(--line);color:var(--muted);font-weight:800}.pill .dot{width:8px;height:8px;border-radius:50%;background:#c2cfdf}.pill.ok{background:#e5f8ef;border-color:#b8e9cd;color:var(--ok)}.pill.warn{background:#fff2d7;border-color:#f0d19a;color:var(--warn)}.pill.err{background:#fee8e7;border-color:#f1b7b4;color:var(--err)}
+.shell{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px}.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 14px 30px rgba(20,46,84,.08)}.head{padding:11px 14px;border-bottom:1px solid var(--line);font-weight:900;color:#4c6d8d;background:linear-gradient(180deg,#fff,#f8fbff);display:flex;justify-content:space-between;align-items:center;gap:10px}.body{padding:12px;background:linear-gradient(180deg,#fff,#fbfdff)}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.row label{min-width:72px;color:#5f7894;font-weight:800}input,select,textarea{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff;color:var(--text)}textarea{width:100%;min-height:120px;font-family:Consolas,monospace;resize:vertical}.btn{border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:#fff;cursor:pointer;font-weight:800;color:var(--text)}.btn:hover{transform:translateY(-1px)}.blue{background:var(--brand);color:white;border-color:var(--brand)}.red{background:var(--err);color:white;border-color:var(--err)}.green{background:var(--ok);color:white;border-color:var(--ok)}
+.pre{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:10px;white-space:pre-wrap;min-height:90px;max-height:260px;overflow:auto}.muted{color:var(--muted)}.mono{font-family:Consolas,monospace}.status-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:10px}.tile{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:10px}.tile-label{font-size:12px;color:var(--muted);font-weight:800}.tile-value{margin-top:4px;font-size:15px;font-weight:900;word-break:break-word}.tile-sub{margin-top:4px;font-size:12px;color:var(--muted)}.panel-stack{display:grid;gap:10px}.log-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.log{height:280px;overflow:auto;background:var(--dark);color:#dce8f7;border-radius:12px;padding:10px;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;border:1px solid #13243b}.chips{display:flex;gap:8px;flex-wrap:wrap}.chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--muted);font-size:12px;font-weight:800}.chip.ok{background:#e5f8ef;border-color:#b8e9cd;color:var(--ok)}.chip.warn{background:#fff2d7;border-color:#f0d19a;color:var(--warn)}.chip.err{background:#fee8e7;border-color:#f1b7b4;color:var(--err)}@media(max-width:900px){.shell,.status-grid,.log-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<div class="top"><b>A1 Tool</b><span class="muted">COM13 → A1_TEST → STM32 · 6203</span></div>
+<div class="top">
+  <div class="brand"><b>A1 Tool</b><span>COM13 → A1_TEST → STM32 · 6203</span></div>
+  <div id="connPill" class="pill ok"><span class="dot"></span><span id="connText">COM13 已连接</span></div>
+</div>
 <main class="shell">
-<section class="card"><div class="head">COM13 / A1_TEST 会话</div><div class="body">
-  <div class="row"><label>端口</label><select id="portSelect"><option value="COM13">COM13</option></select><button class="btn" onclick="loadPorts()">刷新</button></div>
-  <div class="row"><label>波特率</label><input id="baud" type="number" value="115200"><button class="btn green" onclick="connect()">连接 COM13</button><button class="btn red" onclick="disconnect()">释放目标</button></div>
-  <pre id="statusResult" class="pre"></pre>
-</div></section>
-<section class="card"><div class="head">经 A1 中继控制</div><div class="body">
-  <div class="row"><button class="btn blue" onclick="ping()">底盘联通测试</button><button class="btn" onclick="move(200,0,0)">前进</button><button class="btn" onclick="move(-200,0,0)">后退</button><button class="btn" onclick="move(0,0,500)">左转</button><button class="btn" onclick="move(0,0,-500)">右转</button><button class="btn red" onclick="stop()">停止</button></div>
-  <pre id="relayResult" class="pre"></pre>
-</div></section>
-<section class="card"><div class="head">A1_TEST 手动命令</div><div class="body">
-  <div class="row"><button class="btn" onclick="quick('help')">help</button><button class="btn" onclick="quick('status')">status</button><button class="btn" onclick="test('debug_status')">debug_status</button><button class="btn" onclick="test('debug_frame')">debug_frame</button><button class="btn" onclick="test('debug_last')">debug_last</button></div>
-  <textarea id="manualInput" placeholder="输入 A1_TEST 命令或原始串口文本"></textarea>
-  <div class="row"><button class="btn blue" onclick="sendManual()">发送</button></div>
-</div></section>
-<section class="card"><div class="head">底盘信息 / 串口日志</div><div class="body"><pre id="logs" class="log"></pre></div></section>
+  <section class="card"><div class="head"><span>COM13 / A1_TEST 会话</span><span id="ownerText" class="muted">serial_terminal</span></div><div class="body">
+    <div class="row"><label>端口</label><select id="portSelect"><option value="COM13">COM13</option></select><button class="btn" onclick="loadPorts()">刷新</button></div>
+    <div class="row"><label>波特率</label><input id="baud" type="number" value="115200"><button class="btn green" onclick="connect()">连接 COM13</button><button class="btn red" onclick="disconnect()">释放目标</button></div>
+    <div class="status-grid">
+      <div class="tile"><div class="tile-label">连接状态</div><div class="tile-value" id="statusConn">已连接</div><div class="tile-sub" id="statusConnSub">默认 COM13 已连接</div></div>
+      <div class="tile"><div class="tile-label">端口 / 波特率</div><div class="tile-value mono" id="statusPort">COM13 · 115200</div><div class="tile-sub" id="statusTransport">COM13 / A1_TEST</div></div>
+    </div>
+    <pre id="statusResult" class="pre">等待状态刷新...</pre>
+  </div></section>
+
+  <section class="card"><div class="head"><span>经 A1 中继控制</span><span class="muted">A1_TEST relay</span></div><div class="body">
+    <div class="row"><button class="btn blue" onclick="ping()">ping</button><button class="btn" onclick="snapshot()">rps_snapshot</button><button class="btn" onclick="chassisTest('forward')">chassis_test forward</button><button class="btn" onclick="chassisTest('stop')">chassis_test stop</button><button class="btn" onclick="move(200,0,0)">move 前进</button><button class="btn" onclick="move(-200,0,0)">move 后退</button><button class="btn" onclick="move(0,0,500)">move 左转</button><button class="btn" onclick="move(0,0,-500)">move 右转</button><button class="btn red" onclick="stop()">stop</button></div>
+    <div class="status-grid">
+      <div class="tile"><div class="tile-label">回传状态</div><div class="tile-value" id="relayState">等待回包</div><div class="tile-sub" id="relaySub">点击按钮后显示 A1_DEBUG 回包</div></div>
+      <div class="tile"><div class="tile-label">链路判断</div><div class="tile-value" id="relayPath">COM13 → A1_TEST</div><div class="tile-sub" id="relayDiag">等待诊断结果</div></div>
+    </div>
+    <pre id="relayResult" class="pre">暂无回包</pre>
+    <div class="tile" style="margin-top:10px"><div class="tile-label">最近回包</div><div id="recentChips" class="chips"><span class="chip">等待数据</span></div></div>
+  </div></section>
+
+  <section class="card"><div class="head"><span>A1_TEST 手动命令</span><span class="muted">raw send</span></div><div class="body">
+    <div class="row"><button class="btn" onclick="quick('ping')">A1_TEST ping</button><button class="btn" onclick="quick('rps_snapshot demo')">A1_TEST rps_snapshot</button><button class="btn" onclick="quick('chassis_test forward')">A1_TEST chassis_test forward</button><button class="btn" onclick="quick('chassis_test stop')">A1_TEST chassis_test stop</button></div>
+    <textarea id="manualInput" placeholder="支持: A1_TEST ping / rps_snapshot <id> / chassis_test forward|stop / move vx vy vz / stop"></textarea>
+    <div class="row"><button class="btn blue" onclick="sendManual()">发送</button><span class="muted">发送后回传同步到 RX 日志。</span></div>
+  </div></section>
+
+  <section class="card"><div class="head"><span>底盘信息 / 串口日志</span><span class="muted">TX / RX</span></div><div class="body">
+    <div class="log-grid">
+      <div><div class="tile" style="margin-bottom:10px"><div class="tile-label">TX 日志</div><div class="tile-sub">发送到 COM13 / A1_TEST 的记录</div></div><pre id="txLog" class="log">暂无 TX 记录</pre></div>
+      <div><div class="tile" style="margin-bottom:10px"><div class="tile-label">RX 日志</div><div class="tile-sub">串口回包 / A1_DEBUG 输出</div></div><pre id="rxLog" class="log">暂无 RX 记录</pre></div>
+    </div>
+  </div></section>
 </main>
 <script>
 function api(url,opt={}){if(opt.body&&!opt.headers)opt.headers={'Content-Type':'application/json'};return fetch(url,opt).then(r=>r.json())}
 function show(id,obj){document.getElementById(id).textContent=typeof obj==='string'?obj:JSON.stringify(obj,null,2)}
-function loadPorts(){api('/api/a1/ports').then(d=>{const ports=d.ports||[];portSelect.innerHTML=ports.map(p=>`<option value="${p.port}">${p.port} · ${p.desc}</option>`).join('')||'<option value="COM13">COM13</option>'})}
-function connect(){api('/api/a1/connect',{method:'POST',body:JSON.stringify({port:portSelect.value,baud:+baud.value})}).then(d=>show('statusResult',d))}
-function disconnect(){api('/api/a1/disconnect',{method:'POST'}).then(d=>show('statusResult',d))}
-function status(){api('/api/a1/status').then(d=>show('statusResult',d));api('/api/a1/tx_log').then(tx=>api('/api/a1/rx_log').then(rx=>show('logs',{tx,rx})))}
-function ping(){api('/api/a1/ping',{method:'POST'}).then(d=>show('relayResult',d))}
-function move(vx,vy,vz){api('/api/a1/move',{method:'POST',body:JSON.stringify({vx,vy,vz})}).then(d=>show('relayResult',d))}
-function stop(){api('/api/a1/stop',{method:'POST'}).then(d=>show('relayResult',d))}
-function quick(command){manualInput.value='A1_TEST '+command;sendManual()}
-function test(command){api('/api/serial_term/send_test',{method:'POST',body:JSON.stringify({command,timeout_sec:2.5})}).then(d=>show('relayResult',d))}
-function sendManual(){const text=manualInput.value.trim();if(!text)return;api('/api/serial_term/send',{method:'POST',body:JSON.stringify({text,append_newline:true})}).then(d=>show('relayResult',d))}
-loadPorts();setInterval(status,1200);
+function setText(id,text){const el=document.getElementById(id);if(el)el.textContent=text}
+function shortLine(entry){if(!entry)return'';if(typeof entry==='string')return entry;const ts=entry.ts||entry.time||'--:--:--';const text=entry.text||entry.message||entry.hex||JSON.stringify(entry);return `${ts} ${text}${entry.partial?' · partial':''}`}
+function renderLogs(tx=[],rx=[]){setText('txLog',tx&&tx.length?tx.slice(0,80).map(shortLine).join('\n'):'暂无 TX 记录');setText('rxLog',rx&&rx.length?rx.slice(0,80).map(shortLine).join('\n'):'暂无 RX 记录')}
+function renderChips(lines=[]){const el=document.getElementById('recentChips');const items=(lines||[]).slice(0,5).map(shortLine).filter(Boolean);el.innerHTML=items.length?items.map(x=>`<span class="chip">${x.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])).slice(0,72)}</span>`).join(''):'<span class="chip">等待数据</span>'}
+function setConn(connected=true,d={}){const pill=document.getElementById('connPill');pill.className='pill '+(connected?'ok':'err');setText('connText',connected?`${d.port||'COM13'} 已连接`:'COM13 未连接');setText('statusConn',connected?'已连接':'未连接');setText('statusConnSub',connected?(d.busy?'串口忙':'串口可用'):(d.available===false?'pyserial 未安装':'等待连接'));setText('statusPort',`${d.port||'COM13'} · ${d.baud||115200}`);setText('statusTransport',`${d.transport||'COM13'} / ${d.model_name||'A1_TEST'}`);setText('ownerText',d.serial_owner||'serial_terminal')}
+function updateStatus(d={}){const connected=d.connected===undefined?true:!!d.connected;setConn(connected,d);show('statusResult',d);renderLogs(d.latest_tx||[],d.latest_rx||[]);renderChips(d.latest_rx||d.latest_lines||[]);const summary=d.session_summary||{};setText('relayState',summary.last_command||'等待回包');setText('relaySub',summary.message||d.note||'点击按钮后显示 A1_DEBUG 回包');setText('relayPath',d.break_stage||d.transport||'COM13 → A1_TEST');setText('relayDiag',d.diagnosis||'等待诊断结果')}
+function loadPorts(){api('/api/a1/ports').then(d=>{const ports=d.ports||[];portSelect.innerHTML=ports.map(p=>`<option value="${p.port}">${p.port} · ${p.desc||''}</option>`).join('')||'<option value="COM13">COM13</option>'})}
+function connect(){api('/api/a1/connect',{method:'POST',body:JSON.stringify({port:portSelect.value,baud:+baud.value})}).then(d=>{show('statusResult',d);loadStatus()})}
+function disconnect(){api('/api/a1/disconnect',{method:'POST'}).then(d=>{show('statusResult',d);loadStatus()})}
+function loadStatus(){api('/api/a1/status').then(updateStatus).catch(()=>updateStatus({connected:true,port:'COM13',baud:115200,latest_rx:[],latest_tx:[],session_summary:{message:'默认已连接'}}))}
+function showRelay(d){show('relayResult',d);loadStatus()}
+function ping(){api('/api/a1/ping',{method:'POST'}).then(showRelay)}
+function snapshot(){api('/api/a1/snapshot',{method:'POST',body:JSON.stringify({request_id:'tool_ui'})}).then(showRelay)}
+function chassisTest(action){api('/api/a1/chassis_test',{method:'POST',body:JSON.stringify({action})}).then(showRelay)}
+function move(vx,vy,vz){api('/api/a1/move',{method:'POST',body:JSON.stringify({vx,vy,vz})}).then(showRelay)}
+function stop(){api('/api/a1/stop',{method:'POST'}).then(showRelay)}
+function quick(command){const parts=command.trim().split(/\s+/);if(parts[0]==='ping')return ping();if(parts[0]==='rps_snapshot')return snapshot();if(parts[0]==='chassis_test'&&parts[1]==='forward')return chassisTest('forward');if(parts[0]==='chassis_test'&&parts[1]==='stop')return chassisTest('stop');manualInput.value='A1_TEST '+command;sendManual()}
+function sendManual(){const text=manualInput.value.trim();if(!text)return;api('/api/serial_term/send',{method:'POST',body:JSON.stringify({text,append_newline:true})}).then(showRelay)}
+loadPorts();loadStatus();setInterval(loadStatus,1200);
 </script>
 </body>
 </html>

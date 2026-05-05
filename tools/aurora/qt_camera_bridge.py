@@ -204,6 +204,9 @@ class CameraBridgeState:
         self.latest_image = None
         self.latest_color_jpeg: Optional[bytes] = None
         self.latest_gray_jpeg: Optional[bytes] = None
+        self.latest_color_jpeg_seq = 0
+        self.latest_gray_jpeg_seq = 0
+        self.frame_sequence = 0
         self.status_message = "Qt 相机桥未初始化"
 
         self.controller = BridgeController()
@@ -607,8 +610,14 @@ class CameraBridgeState:
                 print(f"[WARN] Qt frame encode failed: {exc}")
         with self.lock:
             self.latest_image = latest
+            self.frame_sequence += 1
+            frame_sequence = self.frame_sequence
             self.latest_color_jpeg = color_jpeg
             self.latest_gray_jpeg = gray_jpeg
+            if color_jpeg:
+                self.latest_color_jpeg_seq = frame_sequence
+            if gray_jpeg:
+                self.latest_gray_jpeg_seq = frame_sequence
             self.frame_width = _safe_int(latest.width(), self.frame_width)
             self.frame_height = _safe_int(latest.height(), self.frame_height)
             self.frame_count += 1
@@ -620,14 +629,24 @@ class CameraBridgeState:
     def frame_bytes(self, mode: str = "color") -> Optional[bytes]:
         with self.lock:
             cached = self.latest_gray_jpeg if mode == "gray" else self.latest_color_jpeg
+            cached_seq = self.latest_gray_jpeg_seq if mode == "gray" else self.latest_color_jpeg_seq
+            frame_seq = self.frame_sequence
             image = self.latest_image.copy() if self.latest_image is not None else None
-        if cached:
+        if cached and cached_seq == frame_seq:
             return cached
         if image is None or image.isNull():
             return None
         now = time.time()
         try:
-            return self._jpeg_bytes(image, grayscale=(mode == "gray"))
+            encoded = self._jpeg_bytes(image, grayscale=(mode == "gray"))
+            with self.lock:
+                if mode == "gray":
+                    self.latest_gray_jpeg = encoded
+                    self.latest_gray_jpeg_seq = self.frame_sequence
+                else:
+                    self.latest_color_jpeg = encoded
+                    self.latest_color_jpeg_seq = self.frame_sequence
+            return encoded
         except Exception as exc:
             if now - self.last_encode_error_ts >= 5.0:
                 self.last_encode_error_ts = now
@@ -714,6 +733,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
+        self.send_header("Last-Modified", "0")
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
         try:

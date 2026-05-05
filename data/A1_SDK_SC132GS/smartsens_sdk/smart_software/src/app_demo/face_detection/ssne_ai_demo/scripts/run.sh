@@ -9,10 +9,13 @@ if [ ! -x ./ssne_ai_demo ]; then
     chmod +x ./ssne_ai_demo || { echo "[APP] chmod ssne_ai_demo failed"; exit 1; }
 fi
 
-if [ ! -f ./app_assets/models/1cfd4504-c065-4698-9554-9e114f5bfd47_best.m1model ]; then
-    echo "[APP] missing A1 5-class model"
+MODEL_PATH="./app_assets/models/test.m1model"
+if [ ! -f "${MODEL_PATH}" ]; then
+    echo "[APP] missing A1 5-class model: expected ./app_assets/models/test.m1model"
     exit 1
 fi
+
+echo "[APP] model=${MODEL_PATH}"
 
 if [ ! -f ./app_assets/background.ssbmp ] || [ ! -f ./app_assets/background_colorLUT.sscl ]; then
     echo "[APP] missing OSD assets"
