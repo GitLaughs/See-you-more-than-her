@@ -7,8 +7,8 @@ import cv2
 
 
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".mpg", ".mpeg"}
-DEFAULT_SOURCE_DIR = "/mnt/hdd16t0/dataset/rps_dataset/datasets"
-DEFAULT_OUTPUT_DIR = "/mnt/hdd16t0/dataset/rps_dataset/processed_dataset/N"
+DEFAULT_SOURCE_DIR = "data/rps_dataset/datasets"
+DEFAULT_OUTPUT_DIR = "data/rps_dataset/processed_dataset/N"
 DEFAULT_TARGET_CROP = (210, 270, 750, 810)  # x1, y1, x2, y2
 
 

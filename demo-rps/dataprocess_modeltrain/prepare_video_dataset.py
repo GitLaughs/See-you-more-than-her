@@ -132,13 +132,13 @@ def main() -> None:
     parser.add_argument(
         "--dataset_dir",
         type=str,
-        default="/mnt/hdd16t0/dataset/rps_dataset/datasets",
+        default="data/rps_dataset/datasets",
         help="Input dataset root directory containing class subdirectories",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="/mnt/hdd16t0/dataset/rps_dataset/processed_dataset",
+        default="data/rps_dataset/processed_dataset",
         help="Output dataset root directory for cropped frames",
     )
     parser.add_argument(

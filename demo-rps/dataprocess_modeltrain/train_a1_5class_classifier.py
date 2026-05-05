@@ -73,7 +73,7 @@ class ClassImageDataset(Dataset):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train A1 5-class single-label classifier")
-    parser.add_argument("--dataset_dir", required=True, help="Dataset root with train/val/test/<class> folders")
+    parser.add_argument("--dataset_dir", default="data/rps_dataset/processed_dataset", help="Dataset root with train/val/test/<class> folders")
     parser.add_argument("--output_dir", default="outputs/a1_5class_mobilenetv1")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=30)
