@@ -1,3 +1,18 @@
+/**
+ * rps_classifier.cpp — 5 分类视觉导航分类器实现
+ *
+ * 预处理管线：
+ *   1. 从 720×1280 摄像头帧中心裁剪 320×320 区域
+ *      crop_x0 = (720-320)/2 = 200, crop_y0 = (1280-320)/2 = 480
+ *   2. 调用模型内置归一化参数（SetNormalize）
+ *
+ * 推理流程：
+ *   1. RunAiPreprocessPipe — 裁剪 + 归一化
+ *   2. ssne_inference — SSNE NPU 推理
+ *   3. ssne_getoutput — 获取 5 个 float32 logits
+ *   4. argmax + 阈值比较（≥ 0.6 输出有效类别，否则 NoTarget）
+ */
+
 #include "../include/rps_classifier.hpp"
 #include "../include/utils.hpp"
 

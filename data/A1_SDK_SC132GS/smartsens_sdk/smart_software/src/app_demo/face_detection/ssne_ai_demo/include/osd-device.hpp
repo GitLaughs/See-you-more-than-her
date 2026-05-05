@@ -1,3 +1,17 @@
+/**
+ * osd-device.hpp — OSD 屏幕叠加层设备接口
+ *
+ * 5 层 OSD 布局：
+ *   Layer 0：四边形图形层（TYPE_GRAPHIC）— 检测框
+ *   Layer 1：四边形图形层（TYPE_GRAPHIC）— 固定正方形
+ *   Layer 2：位图图层（TYPE_IMAGE）— 背景位图（透明开窗）
+ *   Layer 3：位图图层（TYPE_IMAGE）— 分类结果贴图
+ *   Layer 4：位图图层（TYPE_IMAGE）— 预留
+ *
+ * 图层 0-1：SS_TYPE_QUADRANGLE，支持四边形绘制（检测框等）
+ * 图层 2-4：SS_TYPE_RLE，支持 .ssbmp 位图纹理叠加
+ */
+
 #ifndef SST_OSD_DEVICE_HPP_
 #define SST_OSD_DEVICE_HPP_
 

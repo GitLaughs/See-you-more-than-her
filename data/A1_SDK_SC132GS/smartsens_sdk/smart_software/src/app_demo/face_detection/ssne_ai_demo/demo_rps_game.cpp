@@ -1,3 +1,20 @@
+/**
+ * demo_rps_game.cpp — A1 板端 5 分类视觉导航主程序
+ *
+ * 功能：
+ *   1. 初始化 SSNE 推理引擎，加载 5 分类 MobileNet 模型（test.m1model）
+ *   2. 通过 Online Pipeline 采集摄像头 720×1280 Y8 灰度图像
+ *   3. 中心裁剪至 320×320，送入分类器推理
+ *   4. 根据分类结果控制 STM32 底盘（forward 前进，其余停止）
+ *   5. 通过 stdin 监听 A1_TEST 命令（ping / rps_snapshot / depth_snapshot / chassis_test / move / stop）
+ *   6. 定时发送模拟深度帧（A1_DEPTH），用于 Aurora 联调
+ *
+ * 类别标签：person / stop / forward / obstacle / NoTarget（5 类）
+ * 推理阈值：置信度 ≥ 0.6 输出有效类别，否则归为 NoTarget
+ * 底盘动作：forward → 前进（vx=200），其余 → 停止
+ *
+ */
+
 #include <array>
 #include <chrono>
 #include <condition_variable>
@@ -19,16 +36,17 @@
 
 namespace {
 
-constexpr int kCameraWidth = 720;
-constexpr int kCameraHeight = 1280;
-constexpr int kClassifierInputWidth = 320;
-constexpr int kClassifierInputHeight = 320;
-constexpr int kClassCount = 5;
-constexpr int16_t kForwardVelocity = 200;
-constexpr int kDepthWidth = 80;
-constexpr int kDepthHeight = 60;
-constexpr int kDepthChunkChars = 960;
-constexpr int kDepthAutoIntervalMs = 1000;
+// ---- 常量定义 ----
+constexpr int kCameraWidth = 720;            // 摄像头图像宽度
+constexpr int kCameraHeight = 1280;          // 摄像头图像高度
+constexpr int kClassifierInputWidth = 320;   // 分类器输入宽度（中心裁剪后）
+constexpr int kClassifierInputHeight = 320;  // 分类器输入高度（中心裁剪后）
+constexpr int kClassCount = 5;               // 分类类别数
+constexpr int16_t kForwardVelocity = 200;    // 前进速度（mm/s）
+constexpr int kDepthWidth = 80;              // 深度帧宽度
+constexpr int kDepthHeight = 60;             // 深度帧高度
+constexpr int kDepthChunkChars = 960;        // 深度帧 Base64 分片字符数
+constexpr int kDepthAutoIntervalMs = 1000;   // 深度帧自动发送间隔（ms）
 constexpr const char* kLabels[kClassCount] = {"person", "stop", "forward", "obstacle", "NoTarget"};
 
 volatile sig_atomic_t g_exit_flag = 0;
@@ -51,6 +69,7 @@ std::mutex g_latest_rps_mutex;
 std::condition_variable g_latest_rps_cv;
 LatestRpsSnapshot g_latest_rps_snapshot;
 
+// ---- JSON 字符串转义 ----
 std::string json_escape(const std::string& value) {
     std::ostringstream out;
     for (char ch : value) {
@@ -66,6 +85,7 @@ std::string json_escape(const std::string& value) {
     return out.str();
 }
 
+// ---- Base64 编码（用于深度帧传输） ----
 std::string base64_encode(const uint8_t* data, size_t len) {
     static constexpr char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string out;
@@ -83,6 +103,8 @@ std::string base64_encode(const uint8_t* data, size_t len) {
     return out;
 }
 
+// ---- 深度帧构造（模拟数据，用于 Aurora 联调验证深度传输通道） ----
+// 生成 80×60 的模拟深度图，包含动态波纹和径向渐变，模拟真实深度传感器输出
 std::vector<uint8_t> build_fake_depth_frame(uint64_t frame_index) {
     std::vector<uint8_t> depth(kDepthWidth * kDepthHeight);
     const int cx = kDepthWidth / 2 + static_cast<int>((frame_index % 21) - 10);
@@ -123,6 +145,8 @@ void emit_depth_frame(uint64_t depth_frame_index) {
     std::cout << "A1_DEPTH_END frame=" << depth_frame_index << std::endl;
 }
 
+// ---- 分类标签 → 底盘动作映射 ----
+// 仅 "forward" 映射为前进，其余所有类别映射为停止
 std::string action_for_label(const std::string& label) {
     return label == "forward" ? "forward" : "stop";
 }
@@ -199,6 +223,15 @@ void send_cli_chassis_action(const std::string& action) {
     print_debug_response("chassis_test", body.str(), true);
 }
 
+// ---- A1_TEST 命令处理 ----
+// 通过 stdin 接收 Aurora 端发送的命令：
+//   A1_TEST ping             — 连接测试
+//   A1_TEST test_echo <msg>  — 回声测试
+//   A1_TEST depth_snapshot   — 发射一帧模拟深度数据
+//   A1_TEST rps_snapshot <id>— 获取最新分类快照（等待最多 3 秒）
+//   A1_TEST chassis_test <a> — 底盘动作测试（forward/stop）
+//   A1_TEST move <vx> <vy> <vz> — 直接底盘速度控制
+//   A1_TEST stop             — 紧急停止
 void handle_a1_test_command(const std::string& line) {
     std::istringstream iss(line);
     std::string prefix;
@@ -297,6 +330,9 @@ void send_velocity_if_changed(ChassisController& chassis, bool chassis_ready,
 
 }  // namespace
 
+// ============================================================
+// 主函数：初始化 → 推理循环 → 清理
+// ============================================================
 int main() {
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
@@ -347,9 +383,10 @@ int main() {
         chassis.SendVelocity(0, 0, 0);
     }
 
+    // ---- 主推理循环（200ms 间隔） ----
     while (!g_exit_flag) {
         ++frame_index;
-        processor.GetImage(&img_sensor);
+        processor.GetImage(&img_sensor);  // 从摄像头获取一帧 Y8 灰度图
 
         std::string label;
         float confidence = 0.0f;

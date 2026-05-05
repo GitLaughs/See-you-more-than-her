@@ -6,7 +6,7 @@
 - 板端 AI Demo：`data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/`
 - SDK / 固件打包层：`data/A1_SDK_SC132GS/smartsens_sdk/`
 - Windows 工具：`tools/aurora/`、`tools/PC/`、`tools/A1/`
-- STM32 集成参考：`src/stm32_akm_driver/`
+- STM32 集成参考：`data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/include/chassis_controller.hpp`（UART 底盘协议）
 
 ## 快速开始
 
@@ -59,12 +59,13 @@ pip install -r requirements.txt
 
 ## 当前评委演示主线
 
-当前演示主线是 **demo-rps 风格的 RPS 分类测试**：
+当前演示主线是 **5 分类视觉导航分类器**：
 
-- 板端模型路径：`/app_demo/app_assets/models/model_rps.m1model`
-- 输入尺寸：`320×320`
-- 语义标签：`P / R / S / NoTarget`
-- 动作映射：`P -> forward`，其他 -> `stop`
+- 板端模型路径：`/app_demo/app_assets/models/test.m1model`
+- 输入尺寸：`320×320`（从相机 720×1280 中心裁剪，Y8 灰度）
+- 语义标签：`person / stop / forward / obstacle / NoTarget`（5 类）
+- 动作映射：`forward -> 前进`，其他 -> `stop`
+- 推理阈值：置信度 ≥ 0.6 才输出有效类别，否则归为 `NoTarget`
 - Aurora 通过 `/api/a1/rps_snapshot` 查看最新分类快照
 
 ## 仓库边界
@@ -118,7 +119,7 @@ pip install -r requirements.txt
 - [Aurora 工具说明](tools/aurora/README.md)
 - [PC 工具说明](tools/PC/README.md)
 - [A1 工具说明](tools/A1/README.md)
-- [STM32 集成参考](src/stm32_akm_driver/README.md)
+- [STM32 集成参考](data/A1_SDK_SC132GS/smartsens_sdk/smart_software/src/app_demo/face_detection/ssne_ai_demo/include/chassis_controller.hpp)（UART 底盘协议定义）
 
 ### 协作与后续
 - [项目现状与后续方向](docs/12_%E9%A1%B9%E7%9B%AE%E8%A7%84%E5%88%92.md)

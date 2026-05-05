@@ -561,6 +561,9 @@ class CameraBridgeState:
         self.latest_image = None
         self.latest_color_jpeg = None
         self.latest_gray_jpeg = None
+        self.latest_color_jpeg_seq = 0
+        self.latest_gray_jpeg_seq = 0
+        self.frame_sequence = 0
         self.started_at = time.time()
         self.connected = True
         self.status_message = (

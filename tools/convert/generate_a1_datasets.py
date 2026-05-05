@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""
+A1 校准/评估数据集打包工具
+
+从 YOLO 标注数据集生成 A1 SSNE 推理所需的校准和评估数据：
+1. 随机选取 calibrate/evaluate 图像子集
+2. 裁剪 ROI 区域并做预处理
+3. 打包为 datasets.zip（含 calibrate_datasets/ 和 evaluate_datasets/）
+"""
+
 from __future__ import annotations
 
 import argparse

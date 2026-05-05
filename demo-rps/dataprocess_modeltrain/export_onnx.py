@@ -1,3 +1,12 @@
+"""
+PyTorch → ONNX 模型导出脚本
+
+将训练好的 5 分类 MobileNetV1 检查点（best.pt）导出为 ONNX 格式：
+- 输入：320×320 灰度单通道
+- 输出：5 个 logits（person / stop / forward / obstacle / NoTarget）
+- 支持 ONNX 模型结构验证和输入输出 shape 检查
+"""
+
 import argparse
 import json
 from pathlib import Path

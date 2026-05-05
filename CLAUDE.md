@@ -195,13 +195,13 @@ python -m py_compile tools/aurora/aurora_companion.py tools/aurora/serial_termin
 
 ## 板端 OSD 交互指导
 
-- 当前模型：demo-rps 风格的 RPS 分类模型（`model_rps.m1model`，320×320 输入，P/R/S/NoTarget 输出）。
+- 当前模型：5 分类视觉导航模型（`test.m1model`，320×320 输入，person/stop/forward/obstacle/NoTarget 输出）。
 - OSD 图层分布：
-  - Layer 0：分类状态文本 / 语义提示（TYPE_GRAPHIC 或文本位图）
+  - Layer 0：检测框（TYPE_GRAPHIC）
   - Layer 1：预留固定正方形（TYPE_GRAPHIC）
   - Layer 2：背景位图（TYPE_IMAGE），透明开窗 720×1280 摄像头区域
-  - Layer 3/4：RPS 结果贴图 / 预留（TYPE_IMAGE）
-- 坐标管线：demo-rps 评委主线不再走 YOLO 检测框还原；当前主线是 `model_rps.m1model` 分类输出 + `P -> forward`、其他 -> stop 映射。
+  - Layer 3/4：分类结果贴图 / 预留（TYPE_IMAGE）
+- 分类→底盘映射：仅 `forward` → 前进（vx=200），其他 → 停止。
 - 底盘优先级：forward > stop；无单独 obstacle/person 检测优先级。
 - 仅使用 `background.ssbmp`（透明开窗）和 `background_colorLUT.sscl` 两个 OSD 资源
-- 训练/推理语义与 OSD 像素必须分离：当前主线不再依赖 YOLO 输入 640×640 或检测框坐标还原。
+- 推理主线不再依赖 YOLO 640×640 检测框，当前是 5 分类 MobileNet 直接输出类别。

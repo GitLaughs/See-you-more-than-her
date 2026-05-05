@@ -1,3 +1,9 @@
+/**
+ * common.hpp — 图像处理器（IMAGEPROCESSOR）
+ *
+ * 封装 SSNE Online Pipeline，从摄像头 Sensor 采集 Y8 灰度图像。
+ */
+
 #pragma once
 
 #include <array>
