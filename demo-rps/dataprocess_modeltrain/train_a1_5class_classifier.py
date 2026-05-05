@@ -17,8 +17,9 @@ CLASS_TO_INDEX = {name: idx for idx, name in enumerate(CLASS_NAMES)}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 MODEL_IMAGE_SIZE = 320
 NUM_CLASSES = len(CLASS_NAMES)
-MEAN = [0.485, 0.456, 0.406]
-STD = [0.229, 0.224, 0.225]
+INPUT_CHANNELS = 1
+MEAN = [0.5]
+STD = [0.5]
 
 
 class A1Classifier(nn.Module):
@@ -29,6 +30,7 @@ class A1Classifier(nn.Module):
             pretrained=pretrained,
             num_classes=0,
             global_pool="",
+            in_chans=INPUT_CHANNELS,
         )
         feature_channels = self._infer_feature_channels(image_size)
         self.head = nn.Sequential(
@@ -45,7 +47,7 @@ class A1Classifier(nn.Module):
         was_training = self.backbone.training
         self.backbone.eval()
         with torch.no_grad():
-            dummy = torch.zeros(1, 3, image_size, image_size)
+            dummy = torch.zeros(1, INPUT_CHANNELS, image_size, image_size)
             features = self.backbone(dummy)
         if was_training:
             self.backbone.train()
@@ -65,7 +67,7 @@ class ClassImageDataset(Dataset):
 
     def __getitem__(self, index):
         image_path, label = self.samples[index]
-        image = Image.open(image_path).convert("RGB")
+        image = Image.open(image_path).convert("L")
         return self.transform(image), label, str(image_path)
 
 
@@ -79,7 +81,7 @@ def parse_args():
     parser.add_argument("--weight_decay", type=float, default=1e-4)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--pretrained", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--pretrained", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--head_hidden_dim", type=int, default=256)
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--export_onnx", action="store_true")
@@ -132,7 +134,6 @@ def build_transforms(image_size: int):
             transforms.Resize((image_size + 16, image_size + 16)),
             transforms.RandomResizedCrop(image_size, scale=(0.9, 1.0), ratio=(0.95, 1.05)),
             transforms.RandomHorizontalFlip(p=0.5),
-            transforms.ColorJitter(brightness=0.12, contrast=0.12, saturation=0.08, hue=0.03),
             transforms.ToTensor(),
             transforms.Normalize(mean=MEAN, std=STD),
         ]
@@ -148,7 +149,12 @@ def build_transforms(image_size: int):
 
 
 def build_model(pretrained: bool, image_size: int, head_hidden_dim: int, dropout: float):
-    return A1Classifier(pretrained, image_size, head_hidden_dim, dropout)
+    return A1Classifier(
+        pretrained=pretrained,
+        image_size=image_size,
+        head_hidden_dim=head_hidden_dim,
+        dropout=dropout,
+    )
 
 
 def confusion_matrix(preds: torch.Tensor, targets: torch.Tensor, num_classes: int):
@@ -211,6 +217,7 @@ def save_metadata(output_dir: Path, args, train_count: int, val_count: int, test
         "model_name": "mobilenetv1_100",
         "class_names": CLASS_NAMES,
         "num_classes": NUM_CLASSES,
+        "input_channels": INPUT_CHANNELS,
         "image_size": MODEL_IMAGE_SIZE,
         "dataset_dir": args.dataset_dir,
         "head_hidden_dim": args.head_hidden_dim,
@@ -231,7 +238,7 @@ def export_onnx_model(checkpoint_path: Path, onnx_path: Path, pretrained: bool, 
     model = build_model(pretrained, image_size, head_hidden_dim, dropout)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
-    dummy_input = torch.randn(1, 3, image_size, image_size)
+    dummy_input = torch.randn(1, INPUT_CHANNELS, image_size, image_size)
     onnx_path.parent.mkdir(parents=True, exist_ok=True)
     with torch.no_grad():
         torch.onnx.export(
@@ -291,6 +298,7 @@ def main():
     print(f"Device      : {device}")
     print(f"Classes     : {CLASS_NAMES}")
     print(f"Image size  : {MODEL_IMAGE_SIZE}")
+    print(f"Input chans : {INPUT_CHANNELS}")
     print(f"Output dir  : {output_dir}")
 
     for epoch in range(1, args.epochs + 1):
@@ -303,6 +311,7 @@ def main():
             "epoch": epoch,
             "image_size": MODEL_IMAGE_SIZE,
             "class_names": CLASS_NAMES,
+            "input_channels": INPUT_CHANNELS,
             "head_hidden_dim": args.head_hidden_dim,
             "dropout": args.dropout,
         }

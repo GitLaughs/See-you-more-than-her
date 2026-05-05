@@ -49,6 +49,14 @@ def center_crop(frame):
     return frame[top:bottom, left:right]
 
 
+def to_grayscale(frame):
+    if len(frame.shape) == 2:
+        return frame
+    if frame.shape[2] == 1:
+        return frame[:, :, 0]
+    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+
 def split_videos(videos: list[Path], train_ratio: float, val_ratio: float) -> dict[str, list[Path]]:
     total = len(videos)
     train_count = int(total * train_ratio)
@@ -100,7 +108,7 @@ def process_video(
             )
 
         if frame_index % frame_step == 0:
-            cropped = center_cropped[y1:y2, x1:x2]
+            cropped = to_grayscale(center_cropped[y1:y2, x1:x2])
             output_name = f"{video_path.stem}_frame_{frame_index:06d}{image_ext}"
             output_path = class_output_dir / output_name
 
